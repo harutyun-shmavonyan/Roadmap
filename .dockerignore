@@ -1,0 +1,10 @@
+**/node_modules
+**/bin
+**/obj
+**/dist
+**/.git
+**/.vs
+**/.vscode
+docker-compose.yml
+*.md
+*.sql
