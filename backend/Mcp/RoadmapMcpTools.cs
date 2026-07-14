@@ -667,6 +667,135 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         return J(new { note = ToNoteDto(note), removed, removedCount = removed.Count, remainingLines = kept.Count });
     }
 
+    // ===== Job scouting =====
+    // Ingestion path for the Finder pipeline: it scouts + filters, an LLM scores,
+    // and the result lands here as one run per day, surfaced by the Jobs tab.
+
+    [McpServerTool(Name = "import_job_run"), Description(
+        "Import a day's job-scouting results from the Finder pipeline. Creates one run for the given date " +
+        "and attaches the postings. Re-importing the same date REPLACES that day's postings (idempotent — " +
+        "safe to re-run the scout after re-scoring). Postings should be passed in the order you want them " +
+        "shown; the Jobs tab pages through them in that order, so put the best candidates first. " +
+        "Returns { run_id, run_date, imported, action }.")]
+    public async Task<string> ImportJobRun(
+        [Description("Postings to import, best-first. Each: title, company, url, source, bucket ('armenia-compatible' or 'eu-allowed'), and optionally location, posted_at (YYYY-MM-DD), description, seniority_class, ai_keyword_hits, geo_hints, queries, score (0-100), reasoning.")]
+        JobPostingInput[] postings,
+        [Description("The queries the scout ran, e.g. ['senior backend engineer','staff backend engineer']")]
+        string[] queries,
+        [Description("Total postings ingested across all sources before filtering")] int raw_count,
+        [Description("Run date (YYYY-MM-DD), defaults to today in Asia/Yerevan")] string? run_date = null,
+        [Description("Max posting age in days the run filtered on. Defaults to 14.")] int max_age_days = 14)
+    {
+        DateOnly date;
+        if (run_date is null) date = YerevanToday();
+        else if (!DateOnly.TryParse(run_date, out date)) return J(new { error = "Invalid run_date. Use YYYY-MM-DD." });
+
+        if (postings.Length == 0) return J(new { error = "No postings supplied." });
+
+        foreach (var p in postings)
+        {
+            if (string.IsNullOrWhiteSpace(p.title) || string.IsNullOrWhiteSpace(p.company) || string.IsNullOrWhiteSpace(p.url))
+                return J(new { error = "Every posting needs a title, company, and url." });
+            if (!ValidBuckets.Contains(p.bucket ?? ""))
+                return J(new { error = $"Invalid bucket '{p.bucket}' for '{p.title}'. Use 'armenia-compatible' or 'eu-allowed'." });
+        }
+
+        var existing = await db.JobRuns.Include(r => r.Postings).FirstOrDefaultAsync(r => r.RunDate == date);
+        var action = existing is null ? "created" : "replaced";
+
+        JobRun run;
+        if (existing is not null)
+        {
+            db.JobPostings.RemoveRange(existing.Postings); // cascade would too, but be explicit
+            existing.Queries = [.. queries];
+            existing.MaxAgeDays = max_age_days;
+            existing.RawCount = raw_count;
+            run = existing;
+        }
+        else
+        {
+            run = new JobRun
+            {
+                Id = Guid.NewGuid(), RunDate = date, Queries = [.. queries],
+                MaxAgeDays = max_age_days, RawCount = raw_count,
+            };
+            db.JobRuns.Add(run);
+        }
+
+        var order = 0;
+        foreach (var p in postings)
+        {
+            DateOnly? posted = DateOnly.TryParse(p.posted_at, out var pd) ? pd : null;
+            db.JobPostings.Add(new JobPosting
+            {
+                Id = Guid.NewGuid(),
+                JobRunId = run.Id,
+                Title = Trunc(p.title!, 512),
+                Company = Trunc(p.company!, 256),
+                Url = Trunc(p.url!, 1024),
+                Source = Trunc(p.source ?? "unknown", 64),
+                Location = p.location is null ? null : Trunc(p.location, 512),
+                PostedAt = posted,
+                Description = p.description ?? "",
+                Bucket = p.bucket!,
+                SeniorityClass = p.seniority_class is null ? null : Trunc(p.seniority_class, 64),
+                AiKeywordHits = p.ai_keyword_hits ?? 0,
+                GeoHints = [.. p.geo_hints ?? []],
+                Queries = [.. p.queries ?? []],
+                Score = p.score,
+                Reasoning = p.reasoning,
+                SortOrder = order++,
+            });
+        }
+
+        await db.SaveChangesAsync();
+        return J(new { run_id = run.Id, run_date = date.ToString("yyyy-MM-dd"), imported = postings.Length, action });
+    }
+
+    [McpServerTool(Name = "list_job_runs"), Description("List job-scouting runs, most recent day first, with posting counts. Use this to see which days have results.")]
+    public async Task<string> ListJobRuns([Description("How many runs to return. Defaults to 30.")] int n = 30)
+    {
+        if (n < 1) n = 1;
+        var runs = await db.JobRuns.AsNoTracking()
+            .OrderByDescending(r => r.RunDate).Take(n)
+            .Select(r => new JobRunSummaryDto(r.Id, r.RunDate.ToString("yyyy-MM-dd"), r.Queries,
+                r.MaxAgeDays, r.RawCount, r.Postings.Count, r.CreatedAt))
+            .ToListAsync();
+        return J(runs);
+    }
+
+    [McpServerTool(Name = "get_job_run"), Description("Get one day's job postings in full, including descriptions and scores. Omit the date to get the most recent run.")]
+    public async Task<string> GetJobRun([Description("Run date (YYYY-MM-DD). Omit for the most recent run.")] string? date = null)
+    {
+        JobRun? run;
+        if (date is null)
+        {
+            run = await db.JobRuns.AsNoTracking().Include(r => r.Postings)
+                .OrderByDescending(r => r.RunDate).FirstOrDefaultAsync();
+        }
+        else
+        {
+            if (!DateOnly.TryParse(date, out var d)) return J(new { error = "Invalid date. Use YYYY-MM-DD." });
+            run = await db.JobRuns.AsNoTracking().Include(r => r.Postings)
+                .FirstOrDefaultAsync(r => r.RunDate == d);
+        }
+        if (run is null) return J(new { error = "No job run found" });
+
+        return J(new JobRunDto(run.Id, run.RunDate.ToString("yyyy-MM-dd"), run.Queries, run.MaxAgeDays,
+            run.RawCount, run.CreatedAt,
+            run.Postings.OrderBy(p => p.SortOrder).Select(p => new JobPostingDto(
+                p.Id, p.Title, p.Company, p.Url, p.Source, p.Location,
+                p.PostedAt?.ToString("yyyy-MM-dd"), p.Description, p.Bucket,
+                p.SeniorityClass, p.AiKeywordHits, p.GeoHints, p.Queries,
+                p.Score, p.Reasoning, p.SortOrder)).ToList()));
+    }
+
+    private static readonly HashSet<string> ValidBuckets = ["armenia-compatible", "eu-allowed"];
+
+    // The DB caps these columns; a scraped title or location can exceed them (HN
+    // comments in particular are unbounded). Truncate rather than fail the import.
+    private static string Trunc(string s, int max) => s.Length <= max ? s : s[..max];
+
     private static bool TryNormalizeBook(string? book, out string normalized)
     {
         normalized = book?.Trim().ToLowerInvariant() ?? "";
@@ -871,3 +1000,25 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         return queueIdx < itemSessions.Count ? itemSessions[queueIdx].Node : null;
     }
 }
+
+/// <summary>
+/// One posting as supplied to import_job_run. Property names are snake_case so the
+/// generated JSON-schema arg names match the rest of the MCP surface. Everything
+/// except title/company/url/bucket is optional — the Finder pipeline fills the
+/// signals in, and score/reasoning are added by whatever LLM did the scoring.
+/// </summary>
+public sealed record JobPostingInput(
+    string? title,
+    string? company,
+    string? url,
+    string? bucket,
+    string? source = null,
+    string? location = null,
+    string? posted_at = null,
+    string? description = null,
+    string? seniority_class = null,
+    int? ai_keyword_hits = null,
+    string[]? geo_hints = null,
+    string[]? queries = null,
+    double? score = null,
+    string? reasoning = null);

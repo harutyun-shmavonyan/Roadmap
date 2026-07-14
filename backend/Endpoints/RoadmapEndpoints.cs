@@ -12,6 +12,30 @@ public static class RoadmapEndpoints
     {
         var group = app.MapGroup("/api/roadmaps").WithTags("Roadmaps").RequireAuthorization();
 
+        // ===== English vocabulary (global; read-only + delete — words are added and
+        // reviewed through the MCP tools, not the UI) =====
+        var vocab = app.MapGroup("/api/vocab").WithTags("Vocab").RequireAuthorization();
+
+        vocab.MapGet("/", async (RoadmapDbContext db) =>
+        {
+            var list = await db.VocabEntries.AsNoTracking()
+                .Include(v => v.Reviews)
+                .OrderByDescending(v => v.CreatedAt)
+                .ToListAsync();
+            return Results.Ok(list.Select(v => VocabStore.ToDto(v, includeReviews: true)));
+        });
+
+        vocab.MapGet("/stats", async (RoadmapDbContext db) => Results.Ok(await VocabStore.StatsAsync(db)));
+
+        vocab.MapDelete("/{id:guid}", async (Guid id, RoadmapDbContext db) =>
+        {
+            var v = await db.VocabEntries.FindAsync(id);
+            if (v is null) return Results.NotFound();
+            db.VocabEntries.Remove(v);   // reviews cascade
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        });
+
         // ===== Daily Notes (global 'red' / 'green' books) =====
         var notes = app.MapGroup("/api/notes").WithTags("Notes").RequireAuthorization();
         notes.MapGet("/{book}", async (string book, RoadmapDbContext db) =>
@@ -1418,7 +1442,46 @@ public static class RoadmapEndpoints
                 return new ScheduleHabitDto(sh.Id, sh.HabitId, sh.Habit.Name, todayCheck?.IsChecked ?? false, current, formed);
             }).ToList());
         });
+
+        // ===== Job scouting (global — postings imported from the Finder pipeline) =====
+        // Read-only: writes happen through the MCP tools, which is how the scout feeds in.
+        var jobs = app.MapGroup("/api/job-runs").WithTags("JobRuns").RequireAuthorization();
+
+        // Day list for the tab's date picker — no posting bodies, just the summaries.
+        jobs.MapGet("/", async (RoadmapDbContext db) =>
+        {
+            var list = await db.JobRuns.AsNoTracking()
+                .OrderByDescending(r => r.RunDate)
+                .Select(r => new JobRunSummaryDto(r.Id, r.RunDate.ToString("yyyy-MM-dd"), r.Queries,
+                    r.MaxAgeDays, r.RawCount, r.Postings.Count, r.CreatedAt))
+                .ToListAsync();
+            return Results.Ok(list);
+        });
+
+        // What the tab opens by default.
+        jobs.MapGet("/latest", async (RoadmapDbContext db) =>
+        {
+            var run = await db.JobRuns.AsNoTracking().Include(r => r.Postings)
+                .OrderByDescending(r => r.RunDate).FirstOrDefaultAsync();
+            return run is null ? Results.NotFound() : Results.Ok(ToJobRunDto(run));
+        });
+
+        jobs.MapGet("/{date}", async (string date, RoadmapDbContext db) =>
+        {
+            if (!DateOnly.TryParse(date, out var d)) return Results.BadRequest("Invalid date. Use YYYY-MM-DD.");
+            var run = await db.JobRuns.AsNoTracking().Include(r => r.Postings)
+                .FirstOrDefaultAsync(r => r.RunDate == d);
+            return run is null ? Results.NotFound() : Results.Ok(ToJobRunDto(run));
+        });
     }
+
+    private static JobRunDto ToJobRunDto(JobRun r) => new(
+        r.Id, r.RunDate.ToString("yyyy-MM-dd"), r.Queries, r.MaxAgeDays, r.RawCount, r.CreatedAt,
+        r.Postings.OrderBy(p => p.SortOrder).Select(p => new JobPostingDto(
+            p.Id, p.Title, p.Company, p.Url, p.Source, p.Location,
+            p.PostedAt?.ToString("yyyy-MM-dd"), p.Description, p.Bucket,
+            p.SeniorityClass, p.AiKeywordHits, p.GeoHints, p.Queries,
+            p.Score, p.Reasoning, p.SortOrder)).ToList());
 
     // ===== Habit streak computation =====
     /// <summary>

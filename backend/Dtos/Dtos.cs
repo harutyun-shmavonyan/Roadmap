@@ -195,3 +195,29 @@ public record SprintGoalDto(Guid Id, string Title, string? Unit, double TargetAm
 public record CreateSprintGoalRequest(string Title, string? Unit, double TargetAmount, string? Description);
 public record UpdateSprintGoalRequest(string Title, string? Unit, double TargetAmount, string? Description);
 public record LogSprintGoalRequest(string Date, double Amount);
+
+// --- English vocabulary (words / idioms / phrasal verbs, SM-2 scheduled) ---
+public record VocabReviewDto(DateTime ReviewedAt, int Grade, string? PromptType, string? Answer, string? Note,
+    int IntervalBefore, int IntervalAfter, double EaseBefore, double EaseAfter);
+
+public record VocabEntryDto(Guid Id, string Term, string Kind, string Definition, string? GlossHy, string? GlossRu,
+    string Frequency, string Register, List<string> Examples, List<string> Collocations, List<string> Synonyms,
+    string? MemoryHook, string? SourceContext, string? Notes,
+    int Repetitions, double EaseFactor, int IntervalDays, string DueOn, DateTime? LastReviewedAt,
+    int Lapses, int TotalReviews, string Strength, bool IsDue, DateTime CreatedAt,
+    List<VocabReviewDto> Reviews);
+
+public record VocabStatsDto(int Total, int DueToday, int New, int Learning, int Young, int Mature,
+    int ReviewsAllTime, int ReviewsLast7Days, double AverageEase, int Lapses);
+
+// --- Job scouting (postings imported from the Finder pipeline, one run per day) ---
+public record JobPostingDto(Guid Id, string Title, string Company, string Url, string Source,
+    string? Location, string? PostedAt, string Description, string Bucket,
+    string? SeniorityClass, int AiKeywordHits, List<string> GeoHints, List<string> Queries,
+    double? Score, string? Reasoning, int SortOrder);
+
+public record JobRunSummaryDto(Guid Id, string RunDate, List<string> Queries, int MaxAgeDays,
+    int RawCount, int PostingCount, DateTime CreatedAt);
+
+public record JobRunDto(Guid Id, string RunDate, List<string> Queries, int MaxAgeDays,
+    int RawCount, DateTime CreatedAt, List<JobPostingDto> Postings);
