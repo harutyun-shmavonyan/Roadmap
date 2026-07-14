@@ -28,6 +28,10 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
     public DbSet<SprintGoal> SprintGoals => Set<SprintGoal>();
     public DbSet<SprintGoalLog> SprintGoalLogs => Set<SprintGoalLog>();
     public DbSet<Note> Notes => Set<Note>();
+    public DbSet<VocabEntry> VocabEntries => Set<VocabEntry>();
+    public DbSet<VocabReview> VocabReviews => Set<VocabReview>();
+    public DbSet<JobRun> JobRuns => Set<JobRun>();
+    public DbSet<JobPosting> JobPostings => Set<JobPosting>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -347,6 +351,66 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.Property(n => n.Book).HasMaxLength(16).IsRequired();
             e.HasIndex(n => new { n.Book, n.EntryDate }).IsUnique();
             e.HasIndex(n => new { n.Book, n.DayNumber }).IsUnique();
+        });
+
+        modelBuilder.Entity<JobRun>(e =>
+        {
+            e.ToTable("job_runs");
+            e.HasKey(r => r.Id);
+            // One run per day: re-importing a date replaces it (see JobRun docs).
+            e.HasIndex(r => r.RunDate).IsUnique();
+            // Npgsql maps List<string> to text[] natively — no join table for what is
+            // read-only, whole-list data. Same rationale as VocabEntry above.
+        });
+
+        modelBuilder.Entity<JobPosting>(e =>
+        {
+            e.ToTable("job_postings");
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Title).HasMaxLength(512).IsRequired();
+            e.Property(p => p.Company).HasMaxLength(256).IsRequired();
+            e.Property(p => p.Url).HasMaxLength(1024).IsRequired();
+            e.Property(p => p.Source).HasMaxLength(64).IsRequired();
+            e.Property(p => p.Location).HasMaxLength(512);
+            e.Property(p => p.Bucket).HasMaxLength(64).IsRequired();
+            e.Property(p => p.SeniorityClass).HasMaxLength(64);
+
+            e.HasOne(p => p.Run)
+                .WithMany(r => r.Postings)
+                .HasForeignKey(p => p.JobRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasIndex(p => new { p.JobRunId, p.SortOrder });
+        });
+
+        modelBuilder.Entity<VocabEntry>(e =>
+        {
+            e.ToTable("vocab_entries");
+            e.HasKey(v => v.Id);
+            e.Property(v => v.Term).HasMaxLength(256).IsRequired();
+            e.Property(v => v.NormalizedTerm).HasMaxLength(256).IsRequired();
+            e.Property(v => v.Definition).IsRequired();
+            e.Property(v => v.Kind).HasConversion<string>().HasMaxLength(32);
+            e.Property(v => v.Frequency).HasConversion<string>().HasMaxLength(32);
+            e.Property(v => v.Register).HasConversion<string>().HasMaxLength(32);
+            // Npgsql maps List<string> to text[] natively — no join tables for what is
+            // read-only, whole-list data.
+            e.Property(v => v.Examples).HasColumnType("text[]");
+            e.Property(v => v.Collocations).HasColumnType("text[]");
+            e.Property(v => v.Synonyms).HasColumnType("text[]");
+            // One row per item: a re-save of the same term updates rather than duplicates.
+            e.HasIndex(v => v.NormalizedTerm).IsUnique();
+            // The review queue is "everything due on or before today", so it is the hot path.
+            e.HasIndex(v => v.DueOn);
+        });
+
+        modelBuilder.Entity<VocabReview>(e =>
+        {
+            e.ToTable("vocab_reviews");
+            e.HasKey(r => r.Id);
+            e.HasOne(r => r.VocabEntry).WithMany(v => v.Reviews)
+                .HasForeignKey(r => r.VocabEntryId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(r => new { r.VocabEntryId, r.ReviewedAt });
         });
     }
 }

@@ -11,12 +11,13 @@ namespace Roadmap.Api.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "task_subpoints");
-
-            migrationBuilder.DropColumn(
-                name: "IsChecklist",
-                table: "single_tasks");
+            // These two objects are never created by any migration in this repo — the
+            // history they came from was squashed into `Latest`, which doesn't include
+            // them. Plain DropTable/DropColumn therefore fail on a fresh database and
+            // the whole chain can't bootstrap. IF EXISTS makes this a no-op for a new DB
+            // while staying identical for databases that already applied it.
+            migrationBuilder.Sql("DROP TABLE IF EXISTS task_subpoints;");
+            migrationBuilder.Sql("ALTER TABLE single_tasks DROP COLUMN IF EXISTS \"IsChecklist\";");
 
             migrationBuilder.AddColumn<bool>(
                 name: "IsChecklist",

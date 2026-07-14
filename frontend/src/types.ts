@@ -118,3 +118,13 @@ export interface ScheduleBlockItem { nodeId: string; title: string; unit: string
 
 // Sprint Goals
 export interface SprintGoalDto { id: string; title: string; unit: string | null; targetAmount: number; description: string | null; sortOrder: number; loggedAmount: number; }
+
+// Job scouting (postings imported from the Finder pipeline, one run per day)
+export interface JobPostingDto { id: string; title: string; company: string; url: string; source: string; location: string | null; postedAt: string | null; description: string; bucket: string; seniorityClass: string | null; aiKeywordHits: number; geoHints: string[]; queries: string[]; score: number | null; reasoning: string | null; sortOrder: number; }
+export interface JobRunSummaryDto { id: string; runDate: string; queries: string[]; maxAgeDays: number; rawCount: number; postingCount: number; createdAt: string; }
+export interface JobRunDto { id: string; runDate: string; queries: string[]; maxAgeDays: number; rawCount: number; createdAt: string; postings: JobPostingDto[]; }
+
+// English vocabulary (words / idioms / phrasal verbs, SM-2 scheduled; added and reviewed over MCP)
+export interface VocabReviewDto { reviewedAt: string; grade: number; promptType: string | null; answer: string | null; note: string | null; intervalBefore: number; intervalAfter: number; easeBefore: number; easeAfter: number; }
+export interface VocabEntryDto { id: string; term: string; kind: string; definition: string; glossHy: string | null; glossRu: string | null; frequency: string; register: string; examples: string[]; collocations: string[]; synonyms: string[]; memoryHook: string | null; sourceContext: string | null; notes: string | null; repetitions: number; easeFactor: number; intervalDays: number; dueOn: string; lastReviewedAt: string | null; lapses: number; totalReviews: number; strength: string; isDue: boolean; createdAt: string; reviews: VocabReviewDto[]; }
+export interface VocabStatsDto { total: number; dueToday: number; new: number; learning: number; young: number; mature: number; reviewsAllTime: number; reviewsLast7Days: number; averageEase: number; lapses: number; }

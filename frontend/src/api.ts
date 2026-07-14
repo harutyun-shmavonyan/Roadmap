@@ -2,7 +2,9 @@ import type { RoadmapSummary, RoadmapTree, NodeDto, CreateNodeRequest, Actionabl
   ActionItemStatus, SprintDto, WorkLogDto, ScheduleResponse, PerformanceSummary, StatusChangeDto,
   WeekPlan, WeekPlanGoal, WorkLogHistory, HabitDto, SprintHabitDto, ScheduleHabitDto,
   SingleTaskDto, ScheduleTaskDto, CustomLogDto, ScheduleBlockDef, SprintGoalDto,
-  NodeSubPointDto, ScheduleSubPointDto, NoteDto } from './types';
+  NodeSubPointDto, ScheduleSubPointDto, NoteDto,
+  JobRunDto, JobRunSummaryDto,
+  VocabEntryDto, VocabStatsDto } from './types';
 
 const B = '/api/roadmaps';
 
@@ -178,4 +180,14 @@ export const api = {
 
   // Daily Notes (global 'red' / 'green' books)
   getNotes: (book: 'red' | 'green') => req<NoteDto[]>(`/api/notes/${book}`),
+
+  // English vocabulary (global — entries are added and reviewed over MCP; the tab reads and prunes)
+  getVocab: () => req<VocabEntryDto[]>('/api/vocab'),
+  getVocabStats: () => req<VocabStatsDto>('/api/vocab/stats'),
+  deleteVocabEntry: (id: string) => req<void>(`/api/vocab/${id}`, { method: 'DELETE' }),
+
+  // Job scouting (global — one run per day, imported by the Finder pipeline over MCP)
+  getJobRuns: () => req<JobRunSummaryDto[]>('/api/job-runs'),
+  getLatestJobRun: () => req<JobRunDto>('/api/job-runs/latest'),
+  getJobRun: (date: string) => req<JobRunDto>(`/api/job-runs/${date}`),
 };
