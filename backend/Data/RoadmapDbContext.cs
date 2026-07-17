@@ -377,6 +377,9 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             // Tailored CV: PDF bytes as bytea, change list as unbounded text. Both nullable.
             e.Property(p => p.TailoredCvPdf).HasColumnType("bytea");
             e.Property(p => p.CvChangeList).HasColumnType("text");
+            // CV-vs-JD fit: an int score and the gap breakdown as raw JSON text. Both nullable.
+            e.Property(p => p.CvFitScore);
+            e.Property(p => p.CvFitGaps).HasColumnType("text");
 
             e.HasOne(p => p.Run)
                 .WithMany(r => r.Postings)

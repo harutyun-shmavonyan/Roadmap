@@ -113,7 +113,7 @@ export function JobsPage() {
           <ArrowButton dir="left" onClick={prev} disabled={idx === 0} />
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '20px 8px', minWidth: 0 }}>
-            {current && <PostingCard posting={current} />}
+            {current && <PostingCard key={current.id} posting={current} />}
           </div>
 
           <ArrowButton dir="right" onClick={next} disabled={idx >= total - 1} />
@@ -152,22 +152,64 @@ function ArrowButton({ dir, onClick, disabled }: { dir: 'left' | 'right'; onClic
 
 function PostingCard({ posting: p }: { posting: JobPostingDto }) {
   const isEu = p.bucket === 'eu-allowed';
+  const [showGaps, setShowGaps] = useState(false);
+  // Bind to a const so the null-narrowing survives into the nested .map callback below.
+  const fit = p.cvFitScore;
   return (
     <div className="item-card" style={{ maxWidth: 780, margin: '0 auto', padding: 24,
       background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
       borderRadius: 'var(--radius-lg)' }}>
 
-      {/* Title + score */}
+      {/* Title + scores */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 4 }}>
         <h2 style={{ margin: 0, fontSize: 21, lineHeight: 1.3, color: 'var(--text-primary)' }}>{p.title}</h2>
-        {p.score != null && (
-          <div style={{ flexShrink: 0, minWidth: 52, textAlign: 'center', padding: '6px 10px',
-            borderRadius: 'var(--radius-md)', background: scoreColor(p.score), color: '#fff' }}>
-            <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1 }}>{Math.round(p.score)}</div>
-            <div style={{ fontSize: 9, opacity: 0.85, letterSpacing: 0.5 }}>SCORE</div>
-          </div>
-        )}
+        <div style={{ flexShrink: 0, display: 'flex', gap: 8 }}>
+          {p.score != null && (
+            <div style={{ minWidth: 52, textAlign: 'center', padding: '6px 10px',
+              borderRadius: 'var(--radius-md)', background: scoreColor(p.score), color: '#fff' }}>
+              <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1 }}>{Math.round(p.score)}</div>
+              <div style={{ fontSize: 9, opacity: 0.85, letterSpacing: 0.5 }}>SCORE</div>
+            </div>
+          )}
+          {fit != null && (
+            <button type="button" onClick={() => setShowGaps(v => !v)}
+              title="How well your tailored CV fits this job — click for what's missing"
+              style={{ minWidth: 52, textAlign: 'center', padding: '6px 10px', border: 'none', cursor: 'pointer',
+                borderRadius: 'var(--radius-md)', background: scoreColor(fit), color: '#fff',
+                outline: showGaps ? '2px solid var(--text-primary)' : 'none', outlineOffset: 1 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1 }}>{fit}</div>
+              <div style={{ fontSize: 9, opacity: 0.9, letterSpacing: 0.5 }}>CV FIT {showGaps ? '▲' : '▾'}</div>
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* CV-fit gap breakdown — what's missing to reach a 100% fit, highest-impact first */}
+      {fit != null && showGaps && (
+        <div style={{ padding: 12, marginTop: 10, marginBottom: 4, borderRadius: 'var(--radius-md)',
+          background: 'var(--bg-primary)', borderLeft: `3px solid ${scoreColor(fit)}` }}>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6,
+            color: 'var(--text-muted)', marginBottom: 8 }}>
+            Missing for a 100% fit · {fit}/100
+          </div>
+          {p.cvFitGaps.length === 0 ? (
+            <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>No gaps recorded — this CV is a strong match.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {[...p.cvFitGaps].sort((a, b) => b.points - a.points).map((g, i) => (
+                <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
+                  <span style={{ flexShrink: 0, minWidth: 34, textAlign: 'right', fontWeight: 700,
+                    fontVariantNumeric: 'tabular-nums', color: scoreColor(fit) }}>+{g.points}</span>
+                  <span style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--text-secondary)' }}>
+                    <span style={{ color: 'var(--text-primary)' }}>{g.label}</span>
+                    {g.note && <span style={{ color: 'var(--text-muted)' }}> — {g.note}</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ fontSize: 15, color: 'var(--accent)', fontWeight: 600, marginBottom: 12 }}>{p.company}</div>
 
@@ -216,15 +258,20 @@ function PostingCard({ posting: p }: { posting: JobPostingDto }) {
         </div>
       )}
 
-      {/* What the tailored CV changed vs. the master CV */}
-      {p.cvChangeList && (
-        <div style={{ padding: 12, marginBottom: 16, borderRadius: 'var(--radius-md)',
-          background: 'var(--bg-primary)', borderLeft: '3px solid #30a46c' }}>
-          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6,
-            color: 'var(--text-muted)', marginBottom: 5 }}>CV changes vs. original</div>
-          <div style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{p.cvChangeList}</div>
-        </div>
-      )}
+      {/* What the tailored CV changed vs. the master CV — as bullet points */}
+      {p.cvChangeList && (() => {
+        const changes = p.cvChangeList.split(/[;\n]+/).map(s => s.trim()).filter(Boolean);
+        return (
+          <div style={{ padding: 12, marginBottom: 16, borderRadius: 'var(--radius-md)',
+            background: 'var(--bg-primary)', borderLeft: '3px solid #30a46c' }}>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6,
+              color: 'var(--text-muted)', marginBottom: 6 }}>CV changes vs. original</div>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14, lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+              {changes.map((c, i) => <li key={i} style={{ marginBottom: 4 }}>{c}</li>)}
+            </ul>
+          </div>
+        );
+      })()}
 
       {/* Description — the pipeline stores plain text, so preserve its line breaks. */}
       <div style={{ fontSize: 14, lineHeight: 1.65, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>

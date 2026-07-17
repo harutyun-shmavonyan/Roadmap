@@ -211,13 +211,39 @@ public record VocabStatsDto(int Total, int DueToday, int New, int Learning, int 
     int ReviewsAllTime, int ReviewsLast7Days, double AverageEase, int Lapses);
 
 // --- Job scouting (postings imported from the Finder pipeline, one run per day) ---
+// One gap keeping the tailored CV below a perfect fit. Points = how much closing it adds toward 100.
+public record CvFitGapDto(string Label, int Points, string? Note);
+
+// The gap breakdown is stored as raw JSON text on the posting. Parse it leniently into the
+// typed DTO list (sorted highest-impact first), so bad/empty JSON is just "no gaps", never a 500.
+public static class CvFitGapsJson
+{
+    private static readonly System.Text.Json.JsonSerializerOptions Opts =
+        new(System.Text.Json.JsonSerializerDefaults.Web);
+
+    public static List<CvFitGapDto> Parse(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            var gaps = System.Text.Json.JsonSerializer.Deserialize<List<CvFitGapDto>>(json, Opts);
+            return gaps is null
+                ? []
+                : [.. gaps.Where(g => !string.IsNullOrWhiteSpace(g.Label)).OrderByDescending(g => g.Points)];
+        }
+        catch (System.Text.Json.JsonException) { return []; }
+    }
+}
+
 public record JobPostingDto(Guid Id, string Title, string Company, string Url, string Source,
     string? Location, string? PostedAt, string Description, string Bucket,
     string? SeniorityClass, int AiKeywordHits, List<string> GeoHints, List<string> Queries,
     double? Score, string? Reasoning, int SortOrder,
     // HasCv drives the "Download CV" button; the PDF bytes are served separately
     // (GET /api/job-runs/postings/{id}/cv) so they never bloat the list JSON.
-    bool HasCv, string? CvChangeList);
+    bool HasCv, string? CvChangeList,
+    // CV-vs-JD fit score (0–100) and the gap breakdown (highest-impact first).
+    int? CvFitScore, List<CvFitGapDto> CvFitGaps);
 
 public record JobRunSummaryDto(Guid Id, string RunDate, List<string> Queries, int MaxAgeDays,
     int RawCount, int PostingCount, DateTime CreatedAt);

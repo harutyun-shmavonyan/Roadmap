@@ -47,6 +47,18 @@ public class JobPosting
     /// <summary>Human-readable list of what the tailored CV changed vs. the master CV.</summary>
     public string? CvChangeList { get; set; }
 
+    /// <summary>
+    /// How well the tailored CV fits this posting's job description, 0–100 (100 = perfect).
+    /// Null if not assessed.
+    /// </summary>
+    public int? CvFitScore { get; set; }
+    /// <summary>
+    /// JSON array of the gaps keeping the fit below 100, each { "label", "points", "note" },
+    /// authored highest-impact-first. `points` is how much closing that gap adds toward 100.
+    /// Stored as raw JSON text; the API parses it into a typed list. Null/empty when no gaps.
+    /// </summary>
+    public string? CvFitGaps { get; set; }
+
     /// <summary>Presentation order within the run; the UI pages through postings in this order.</summary>
     public int SortOrder { get; set; }
 }

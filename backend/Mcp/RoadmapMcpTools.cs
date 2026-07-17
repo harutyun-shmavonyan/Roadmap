@@ -678,7 +678,7 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         "shown; the Jobs tab pages through them in that order, so put the best candidates first. " +
         "Returns { run_id, run_date, imported, action }.")]
     public async Task<string> ImportJobRun(
-        [Description("Postings to import, best-first. Each: title, company, url, source, bucket ('armenia-compatible' or 'eu-allowed'), and optionally location, posted_at (YYYY-MM-DD), description, seniority_class, ai_keyword_hits, geo_hints, queries, score (0-100), reasoning, cv_pdf_base64 (a tailored ATS-ready PDF résumé, base64-encoded), cv_changes (a short list of what that CV changed vs the master CV).")]
+        [Description("Postings to import, best-first. Each: title, company, url, source, bucket ('armenia-compatible' or 'eu-allowed'), and optionally location, posted_at (YYYY-MM-DD), description, seniority_class, ai_keyword_hits, geo_hints, queries, score (0-100), reasoning, cv_pdf_base64 (a tailored ATS-ready PDF résumé, base64-encoded), cv_changes (a short list of what that CV changed vs the master CV), cv_fit_score (0-100 CV-vs-JD fit), cv_fit_gaps (JSON array of {label, points, note} gaps keeping fit below 100, highest-impact first).")]
         JobPostingInput[] postings,
         [Description("The queries the scout ran, e.g. ['senior backend engineer','staff backend engineer']")]
         string[] queries,
@@ -746,6 +746,8 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
                 Reasoning = p.reasoning,
                 TailoredCvPdf = DecodeCvPdf(p.cv_pdf_base64),
                 CvChangeList = string.IsNullOrWhiteSpace(p.cv_changes) ? null : p.cv_changes,
+                CvFitScore = p.cv_fit_score,
+                CvFitGaps = string.IsNullOrWhiteSpace(p.cv_fit_gaps) ? null : p.cv_fit_gaps,
                 SortOrder = order++,
             });
         }
@@ -790,7 +792,8 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
                 p.PostedAt?.ToString("yyyy-MM-dd"), p.Description, p.Bucket,
                 p.SeniorityClass, p.AiKeywordHits, p.GeoHints, p.Queries,
                 p.Score, p.Reasoning, p.SortOrder,
-                p.TailoredCvPdf != null && p.TailoredCvPdf.Length > 0, p.CvChangeList)).ToList()));
+                p.TailoredCvPdf != null && p.TailoredCvPdf.Length > 0, p.CvChangeList,
+                p.CvFitScore, CvFitGapsJson.Parse(p.CvFitGaps))).ToList()));
     }
 
     private static readonly HashSet<string> ValidBuckets = ["armenia-compatible", "eu-allowed"];
@@ -1041,4 +1044,8 @@ public sealed record JobPostingInput(
     // Optional tailored CV for this posting: a base64-encoded ATS-ready PDF and a
     // short human-readable list of what it changed vs. the master CV.
     string? cv_pdf_base64 = null,
-    string? cv_changes = null);
+    string? cv_changes = null,
+    // Optional CV-vs-JD fit: an int 0–100 and a JSON array of gaps keeping it below 100,
+    // each { "label", "points", "note" }, highest-impact first (points sum to 100 − score).
+    int? cv_fit_score = null,
+    string? cv_fit_gaps = null);

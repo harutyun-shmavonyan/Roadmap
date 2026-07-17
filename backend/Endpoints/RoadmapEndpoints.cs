@@ -1496,8 +1496,10 @@ public static class RoadmapEndpoints
         // call — a run's worth of ~200 KB PDFs is too large to carry that way. Uploading per
         // posting streams the bytes from disk (curl -F), so payload size stops being a limit.
         // Idempotent: re-uploading overwrites the posting's CV. Multipart fields:
-        //   file       — the tailored CV PDF (required)
-        //   cv_changes — one-line summary of what the CV changed vs. the master (optional)
+        //   file         — the tailored CV PDF (required)
+        //   cv_changes   — one-line summary of what the CV changed vs. the master (optional)
+        //   cv_fit_score — CV-vs-JD fit, 0–100 (optional)
+        //   cv_fit_gaps  — JSON array of {label, points, note} gaps, highest-impact first (optional)
         jobs.MapPost("/postings/{postingId:guid}/cv", async (Guid postingId, HttpRequest request, RoadmapDbContext db) =>
         {
             if (!request.HasFormContentType) return Results.BadRequest("Expected multipart/form-data with a 'file' field.");
@@ -1516,13 +1518,21 @@ public static class RoadmapEndpoints
             var changes = form["cv_changes"].ToString();
             if (!string.IsNullOrWhiteSpace(changes)) posting.CvChangeList = changes;
 
+            var fitScoreRaw = form["cv_fit_score"].ToString();
+            if (int.TryParse(fitScoreRaw, out var fitScore)) posting.CvFitScore = Math.Clamp(fitScore, 0, 100);
+
+            var fitGaps = form["cv_fit_gaps"].ToString();
+            if (!string.IsNullOrWhiteSpace(fitGaps)) posting.CvFitGaps = fitGaps;
+
             await db.SaveChangesAsync();
             return Results.Ok(new
             {
                 postingId = posting.Id,
                 company = posting.Company,
                 bytes = posting.TailoredCvPdf.Length,
-                hasChanges = posting.CvChangeList != null
+                hasChanges = posting.CvChangeList != null,
+                fitScore = posting.CvFitScore,
+                gapCount = CvFitGapsJson.Parse(posting.CvFitGaps).Count
             });
         }).DisableAntiforgery();
     }
@@ -1534,7 +1544,8 @@ public static class RoadmapEndpoints
             p.PostedAt?.ToString("yyyy-MM-dd"), p.Description, p.Bucket,
             p.SeniorityClass, p.AiKeywordHits, p.GeoHints, p.Queries,
             p.Score, p.Reasoning, p.SortOrder,
-            p.TailoredCvPdf != null && p.TailoredCvPdf.Length > 0, p.CvChangeList)).ToList());
+            p.TailoredCvPdf != null && p.TailoredCvPdf.Length > 0, p.CvChangeList,
+            p.CvFitScore, CvFitGapsJson.Parse(p.CvFitGaps))).ToList());
 
     // ===== Habit streak computation =====
     /// <summary>
