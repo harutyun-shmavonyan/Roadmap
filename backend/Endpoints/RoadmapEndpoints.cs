@@ -1490,6 +1490,41 @@ public static class RoadmapEndpoints
             return Results.File(p.TailoredCvPdf, "application/pdf",
                 $"cv-{(slug.Length == 0 ? "posting" : slug)}.pdf");
         });
+
+        // Attach (or replace) one posting's tailored CV via multipart upload. This exists
+        // because import_job_run inlines CVs as base64 and replaces the whole day in a single
+        // call — a run's worth of ~200 KB PDFs is too large to carry that way. Uploading per
+        // posting streams the bytes from disk (curl -F), so payload size stops being a limit.
+        // Idempotent: re-uploading overwrites the posting's CV. Multipart fields:
+        //   file       — the tailored CV PDF (required)
+        //   cv_changes — one-line summary of what the CV changed vs. the master (optional)
+        jobs.MapPost("/postings/{postingId:guid}/cv", async (Guid postingId, HttpRequest request, RoadmapDbContext db) =>
+        {
+            if (!request.HasFormContentType) return Results.BadRequest("Expected multipart/form-data with a 'file' field.");
+            var form = await request.ReadFormAsync();
+            var file = form.Files["file"];
+            if (file is null || file.Length == 0) return Results.BadRequest("Missing 'file' (the tailored CV PDF).");
+            if (file.Length > 5 * 1024 * 1024) return Results.BadRequest("CV PDF exceeds 5 MB.");
+
+            var posting = await db.JobPostings.FirstOrDefaultAsync(x => x.Id == postingId);
+            if (posting is null) return Results.NotFound();
+
+            using var ms = new MemoryStream();
+            await file.CopyToAsync(ms);
+            posting.TailoredCvPdf = ms.ToArray();
+
+            var changes = form["cv_changes"].ToString();
+            if (!string.IsNullOrWhiteSpace(changes)) posting.CvChangeList = changes;
+
+            await db.SaveChangesAsync();
+            return Results.Ok(new
+            {
+                postingId = posting.Id,
+                company = posting.Company,
+                bytes = posting.TailoredCvPdf.Length,
+                hasChanges = posting.CvChangeList != null
+            });
+        }).DisableAntiforgery();
     }
 
     private static JobRunDto ToJobRunDto(JobRun r) => new(
