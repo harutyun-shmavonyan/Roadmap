@@ -214,7 +214,10 @@ public record VocabStatsDto(int Total, int DueToday, int New, int Learning, int 
 public record JobPostingDto(Guid Id, string Title, string Company, string Url, string Source,
     string? Location, string? PostedAt, string Description, string Bucket,
     string? SeniorityClass, int AiKeywordHits, List<string> GeoHints, List<string> Queries,
-    double? Score, string? Reasoning, int SortOrder);
+    double? Score, string? Reasoning, int SortOrder,
+    // HasCv drives the "Download CV" button; the PDF bytes are served separately
+    // (GET /api/job-runs/postings/{id}/cv) so they never bloat the list JSON.
+    bool HasCv, string? CvChangeList);
 
 public record JobRunSummaryDto(Guid Id, string RunDate, List<string> Queries, int MaxAgeDays,
     int RawCount, int PostingCount, DateTime CreatedAt);

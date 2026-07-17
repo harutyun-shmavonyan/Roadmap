@@ -41,6 +41,12 @@ public class JobPosting
     public double? Score { get; set; }
     public string? Reasoning { get; set; }
 
+    // --- Optional tailored CV for this specific posting ---
+    /// <summary>An ATS-ready PDF résumé tailored to this posting (bytea). Null if none was supplied.</summary>
+    public byte[]? TailoredCvPdf { get; set; }
+    /// <summary>Human-readable list of what the tailored CV changed vs. the master CV.</summary>
+    public string? CvChangeList { get; set; }
+
     /// <summary>Presentation order within the run; the UI pages through postings in this order.</summary>
     public int SortOrder { get; set; }
 }

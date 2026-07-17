@@ -1473,6 +1473,23 @@ public static class RoadmapEndpoints
                 .FirstOrDefaultAsync(r => r.RunDate == d);
             return run is null ? Results.NotFound() : Results.Ok(ToJobRunDto(run));
         });
+
+        // Binary download for a posting's tailored CV PDF. Kept out of the list JSON
+        // (only HasCv ships there); this streams the bytea on demand. Auth is the
+        // group's Bearer requirement — the frontend fetches it with the token and
+        // triggers a blob download.
+        jobs.MapGet("/postings/{postingId:guid}/cv", async (Guid postingId, RoadmapDbContext db) =>
+        {
+            var p = await db.JobPostings.AsNoTracking()
+                .Where(x => x.Id == postingId)
+                .Select(x => new { x.TailoredCvPdf, x.Company })
+                .FirstOrDefaultAsync();
+            if (p?.TailoredCvPdf is null || p.TailoredCvPdf.Length == 0) return Results.NotFound();
+            var slug = new string((p.Company ?? "cv").ToLowerInvariant()
+                .Where(c => char.IsLetterOrDigit(c) || c is '-').ToArray());
+            return Results.File(p.TailoredCvPdf, "application/pdf",
+                $"cv-{(slug.Length == 0 ? "posting" : slug)}.pdf");
+        });
     }
 
     private static JobRunDto ToJobRunDto(JobRun r) => new(
@@ -1481,7 +1498,8 @@ public static class RoadmapEndpoints
             p.Id, p.Title, p.Company, p.Url, p.Source, p.Location,
             p.PostedAt?.ToString("yyyy-MM-dd"), p.Description, p.Bucket,
             p.SeniorityClass, p.AiKeywordHits, p.GeoHints, p.Queries,
-            p.Score, p.Reasoning, p.SortOrder)).ToList());
+            p.Score, p.Reasoning, p.SortOrder,
+            p.TailoredCvPdf != null && p.TailoredCvPdf.Length > 0, p.CvChangeList)).ToList());
 
     // ===== Habit streak computation =====
     /// <summary>

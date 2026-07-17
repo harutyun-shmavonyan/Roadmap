@@ -374,6 +374,9 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.Property(p => p.Location).HasMaxLength(512);
             e.Property(p => p.Bucket).HasMaxLength(64).IsRequired();
             e.Property(p => p.SeniorityClass).HasMaxLength(64);
+            // Tailored CV: PDF bytes as bytea, change list as unbounded text. Both nullable.
+            e.Property(p => p.TailoredCvPdf).HasColumnType("bytea");
+            e.Property(p => p.CvChangeList).HasColumnType("text");
 
             e.HasOne(p => p.Run)
                 .WithMany(r => r.Postings)

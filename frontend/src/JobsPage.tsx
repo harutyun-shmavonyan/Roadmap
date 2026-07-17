@@ -189,10 +189,22 @@ function PostingCard({ posting: p }: { posting: JobPostingDto }) {
         {p.queries.length > 0 && <span style={{ opacity: 0.75 }}> ({p.queries.join(', ')})</span>}
       </div>
 
-      <a href={p.url} target="_blank" rel="noopener noreferrer"
-        className="btn btn-accent btn-sm" style={{ display: 'inline-block', marginBottom: 16, textDecoration: 'none' }}>
-        Open posting ↗
-      </a>
+      {/* Actions */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+        <a href={p.url} target="_blank" rel="noopener noreferrer"
+          className="btn btn-accent btn-sm" style={{ display: 'inline-block', textDecoration: 'none' }}>
+          Open posting ↗
+        </a>
+        {p.hasCv && (
+          <button type="button" className="btn btn-sm"
+            onClick={() => {
+              const slug = p.company.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+              api.downloadPostingCv(p.id, `cv-${slug || 'posting'}.pdf`).catch(err => alert(String(err)));
+            }}>
+            Download tailored CV ⬇
+          </button>
+        )}
+      </div>
 
       {/* Why it scored this way */}
       {p.reasoning && (
@@ -201,6 +213,16 @@ function PostingCard({ posting: p }: { posting: JobPostingDto }) {
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6,
             color: 'var(--text-muted)', marginBottom: 5 }}>Assessment</div>
           <div style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text-secondary)' }}>{p.reasoning}</div>
+        </div>
+      )}
+
+      {/* What the tailored CV changed vs. the master CV */}
+      {p.cvChangeList && (
+        <div style={{ padding: 12, marginBottom: 16, borderRadius: 'var(--radius-md)',
+          background: 'var(--bg-primary)', borderLeft: '3px solid #30a46c' }}>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6,
+            color: 'var(--text-muted)', marginBottom: 5 }}>CV changes vs. original</div>
+          <div style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{p.cvChangeList}</div>
         </div>
       )}
 

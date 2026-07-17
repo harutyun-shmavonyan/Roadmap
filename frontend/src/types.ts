@@ -120,7 +120,7 @@ export interface ScheduleBlockItem { nodeId: string; title: string; unit: string
 export interface SprintGoalDto { id: string; title: string; unit: string | null; targetAmount: number; description: string | null; sortOrder: number; loggedAmount: number; }
 
 // Job scouting (postings imported from the Finder pipeline, one run per day)
-export interface JobPostingDto { id: string; title: string; company: string; url: string; source: string; location: string | null; postedAt: string | null; description: string; bucket: string; seniorityClass: string | null; aiKeywordHits: number; geoHints: string[]; queries: string[]; score: number | null; reasoning: string | null; sortOrder: number; }
+export interface JobPostingDto { id: string; title: string; company: string; url: string; source: string; location: string | null; postedAt: string | null; description: string; bucket: string; seniorityClass: string | null; aiKeywordHits: number; geoHints: string[]; queries: string[]; score: number | null; reasoning: string | null; sortOrder: number; hasCv: boolean; cvChangeList: string | null; }
 export interface JobRunSummaryDto { id: string; runDate: string; queries: string[]; maxAgeDays: number; rawCount: number; postingCount: number; createdAt: string; }
 export interface JobRunDto { id: string; runDate: string; queries: string[]; maxAgeDays: number; rawCount: number; createdAt: string; postings: JobPostingDto[]; }
 

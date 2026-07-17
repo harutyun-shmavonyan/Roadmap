@@ -190,4 +190,20 @@ export const api = {
   getJobRuns: () => req<JobRunSummaryDto[]>('/api/job-runs'),
   getLatestJobRun: () => req<JobRunDto>('/api/job-runs/latest'),
   getJobRun: (date: string) => req<JobRunDto>(`/api/job-runs/${date}`),
+
+  // Tailored CV is binary (bytea), so fetch with the bearer token and trigger a
+  // blob download rather than a plain <a href> (which wouldn't carry auth).
+  downloadPostingCv: async (id: string, filename: string) => {
+    const token = getToken();
+    const r = await fetch(`/api/job-runs/postings/${id}/cv`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!r.ok) throw new Error(`CV download failed: ${r.status}`);
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  },
 };

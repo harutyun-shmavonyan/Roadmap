@@ -678,7 +678,7 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         "shown; the Jobs tab pages through them in that order, so put the best candidates first. " +
         "Returns { run_id, run_date, imported, action }.")]
     public async Task<string> ImportJobRun(
-        [Description("Postings to import, best-first. Each: title, company, url, source, bucket ('armenia-compatible' or 'eu-allowed'), and optionally location, posted_at (YYYY-MM-DD), description, seniority_class, ai_keyword_hits, geo_hints, queries, score (0-100), reasoning.")]
+        [Description("Postings to import, best-first. Each: title, company, url, source, bucket ('armenia-compatible' or 'eu-allowed'), and optionally location, posted_at (YYYY-MM-DD), description, seniority_class, ai_keyword_hits, geo_hints, queries, score (0-100), reasoning, cv_pdf_base64 (a tailored ATS-ready PDF résumé, base64-encoded), cv_changes (a short list of what that CV changed vs the master CV).")]
         JobPostingInput[] postings,
         [Description("The queries the scout ran, e.g. ['senior backend engineer','staff backend engineer']")]
         string[] queries,
@@ -744,6 +744,8 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
                 Queries = [.. p.queries ?? []],
                 Score = p.score,
                 Reasoning = p.reasoning,
+                TailoredCvPdf = DecodeCvPdf(p.cv_pdf_base64),
+                CvChangeList = string.IsNullOrWhiteSpace(p.cv_changes) ? null : p.cv_changes,
                 SortOrder = order++,
             });
         }
@@ -787,7 +789,8 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
                 p.Id, p.Title, p.Company, p.Url, p.Source, p.Location,
                 p.PostedAt?.ToString("yyyy-MM-dd"), p.Description, p.Bucket,
                 p.SeniorityClass, p.AiKeywordHits, p.GeoHints, p.Queries,
-                p.Score, p.Reasoning, p.SortOrder)).ToList()));
+                p.Score, p.Reasoning, p.SortOrder,
+                p.TailoredCvPdf != null && p.TailoredCvPdf.Length > 0, p.CvChangeList)).ToList()));
     }
 
     private static readonly HashSet<string> ValidBuckets = ["armenia-compatible", "eu-allowed"];
@@ -795,6 +798,19 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
     // The DB caps these columns; a scraped title or location can exceed them (HN
     // comments in particular are unbounded). Truncate rather than fail the import.
     private static string Trunc(string s, int max) => s.Length <= max ? s : s[..max];
+
+    // A tailored CV arrives as base64 (MCP args are JSON). Decode leniently: bad or
+    // empty input just means "no CV", never a failed import.
+    private static byte[]? DecodeCvPdf(string? base64)
+    {
+        if (string.IsNullOrWhiteSpace(base64)) return null;
+        try
+        {
+            var bytes = Convert.FromBase64String(base64.Trim());
+            return bytes.Length == 0 ? null : bytes;
+        }
+        catch (FormatException) { return null; }
+    }
 
     private static bool TryNormalizeBook(string? book, out string normalized)
     {
@@ -1021,4 +1037,8 @@ public sealed record JobPostingInput(
     string[]? geo_hints = null,
     string[]? queries = null,
     double? score = null,
-    string? reasoning = null);
+    string? reasoning = null,
+    // Optional tailored CV for this posting: a base64-encoded ATS-ready PDF and a
+    // short human-readable list of what it changed vs. the master CV.
+    string? cv_pdf_base64 = null,
+    string? cv_changes = null);
