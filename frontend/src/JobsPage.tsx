@@ -14,12 +14,16 @@ function scoreColor(score: number): string {
   return '#8b8b8b';
 }
 
+// Which detail modal is open for the current posting.
+type ModalKind = 'assessment' | 'fit' | 'changes';
+
 export function JobsPage() {
   const [runs, setRuns] = useState<JobRunSummaryDto[]>([]);
   const [run, setRun] = useState<JobRunDto | null>(null);
   const [idx, setIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [modal, setModal] = useState<ModalKind | null>(null);
 
   // Open the most recent run by default; the day list only drives the picker.
   useEffect(() => {
@@ -63,15 +67,21 @@ export function JobsPage() {
   const prev = useCallback(() => setIdx(i => Math.max(0, i - 1)), []);
   const next = useCallback(() => setIdx(i => Math.min(total - 1, i + 1)), [total]);
 
-  // Arrow keys page through the day's postings, same as the on-screen buttons.
+  // Close any open detail modal when the posting or day changes.
+  useEffect(() => { setModal(null); }, [idx, run?.runDate]);
+
+  // Arrow keys page through the day's postings; Esc closes an open modal (and
+  // while a modal is open the arrows don't navigate the card behind it).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setModal(null); return; }
+      if (modal) return;
       if (e.key === 'ArrowLeft') prev();
       if (e.key === 'ArrowRight') next();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [prev, next]);
+  }, [prev, next, modal]);
 
   if (loading && !run) return <div style={{ padding: 24, color: 'var(--text-muted)' }}>Loading...</div>;
   if (error) return <div style={{ padding: 24, color: 'var(--danger)' }}>{error}</div>;
@@ -113,12 +123,14 @@ export function JobsPage() {
           <ArrowButton dir="left" onClick={prev} disabled={idx === 0} />
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '20px 8px', minWidth: 0 }}>
-            {current && <PostingCard key={current.id} posting={current} />}
+            {current && <PostingCard key={current.id} posting={current} onOpen={setModal} />}
           </div>
 
           <ArrowButton dir="right" onClick={next} disabled={idx >= total - 1} />
         </div>
       )}
+
+      {current && modal && <PostingModal kind={modal} posting={current} onClose={() => setModal(null)} />}
 
       {/* Position counter */}
       {total > 0 && (
@@ -150,66 +162,30 @@ function ArrowButton({ dir, onClick, disabled }: { dir: 'left' | 'right'; onClic
   );
 }
 
-function PostingCard({ posting: p }: { posting: JobPostingDto }) {
+function PostingCard({ posting: p, onOpen }: { posting: JobPostingDto; onOpen: (k: ModalKind) => void }) {
   const isEu = p.bucket === 'eu-allowed';
-  const [showGaps, setShowGaps] = useState(false);
-  // Bind to a const so the null-narrowing survives into the nested .map callback below.
   const fit = p.cvFitScore;
   return (
     <div className="item-card" style={{ maxWidth: 780, margin: '0 auto', padding: 24,
       background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
       borderRadius: 'var(--radius-lg)' }}>
 
-      {/* Title + scores */}
+      {/* Title + scores — both badges open a detail modal on click */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 4 }}>
         <h2 style={{ margin: 0, fontSize: 21, lineHeight: 1.3, color: 'var(--text-primary)' }}>{p.title}</h2>
         <div style={{ flexShrink: 0, display: 'flex', gap: 8 }}>
           {p.score != null && (
-            <div style={{ minWidth: 52, textAlign: 'center', padding: '6px 10px',
-              borderRadius: 'var(--radius-md)', background: scoreColor(p.score), color: '#fff' }}>
-              <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1 }}>{Math.round(p.score)}</div>
-              <div style={{ fontSize: 9, opacity: 0.85, letterSpacing: 0.5 }}>SCORE</div>
-            </div>
+            <ScoreBadge label="SCORE" value={Math.round(p.score)} color={scoreColor(p.score)}
+              onClick={p.reasoning ? () => onOpen('assessment') : undefined}
+              title={p.reasoning ? 'Why this opportunity scored this way — click for the assessment' : undefined} />
           )}
           {fit != null && (
-            <button type="button" onClick={() => setShowGaps(v => !v)}
-              title="How well your tailored CV fits this job — click for what's missing"
-              style={{ minWidth: 52, textAlign: 'center', padding: '6px 10px', border: 'none', cursor: 'pointer',
-                borderRadius: 'var(--radius-md)', background: scoreColor(fit), color: '#fff',
-                outline: showGaps ? '2px solid var(--text-primary)' : 'none', outlineOffset: 1 }}>
-              <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1 }}>{fit}</div>
-              <div style={{ fontSize: 9, opacity: 0.9, letterSpacing: 0.5 }}>CV FIT {showGaps ? '▲' : '▾'}</div>
-            </button>
+            <ScoreBadge label="CV FIT" value={fit} color={scoreColor(fit)}
+              onClick={() => onOpen('fit')}
+              title="How well your tailored CV fits this job — click for what's missing" />
           )}
         </div>
       </div>
-
-      {/* CV-fit gap breakdown — what's missing to reach a 100% fit, highest-impact first */}
-      {fit != null && showGaps && (
-        <div style={{ padding: 12, marginTop: 10, marginBottom: 4, borderRadius: 'var(--radius-md)',
-          background: 'var(--bg-primary)', borderLeft: `3px solid ${scoreColor(fit)}` }}>
-          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6,
-            color: 'var(--text-muted)', marginBottom: 8 }}>
-            Missing for a 100% fit · {fit}/100
-          </div>
-          {p.cvFitGaps.length === 0 ? (
-            <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>No gaps recorded — this CV is a strong match.</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {[...p.cvFitGaps].sort((a, b) => b.points - a.points).map((g, i) => (
-                <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
-                  <span style={{ flexShrink: 0, minWidth: 34, textAlign: 'right', fontWeight: 700,
-                    fontVariantNumeric: 'tabular-nums', color: scoreColor(fit) }}>+{g.points}</span>
-                  <span style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--text-secondary)' }}>
-                    <span style={{ color: 'var(--text-primary)' }}>{g.label}</span>
-                    {g.note && <span style={{ color: 'var(--text-muted)' }}> — {g.note}</span>}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       <div style={{ fontSize: 15, color: 'var(--accent)', fontWeight: 600, marginBottom: 12 }}>{p.company}</div>
 
@@ -231,12 +207,18 @@ function PostingCard({ posting: p }: { posting: JobPostingDto }) {
         {p.queries.length > 0 && <span style={{ opacity: 0.75 }}> ({p.queries.join(', ')})</span>}
       </div>
 
-      {/* Actions */}
+      {/* Actions — Assessment / CV changes open modals so the heavy text stays out of the card */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
         <a href={p.url} target="_blank" rel="noopener noreferrer"
           className="btn btn-accent btn-sm" style={{ display: 'inline-block', textDecoration: 'none' }}>
           Open posting ↗
         </a>
+        {p.reasoning && (
+          <button type="button" className="btn btn-sm" onClick={() => onOpen('assessment')}>Assessment</button>
+        )}
+        {p.cvChangeList && (
+          <button type="button" className="btn btn-sm" onClick={() => onOpen('changes')}>CV changes</button>
+        )}
         {p.hasCv && (
           <button type="button" className="btn btn-sm"
             onClick={() => {
@@ -248,34 +230,78 @@ function PostingCard({ posting: p }: { posting: JobPostingDto }) {
         )}
       </div>
 
-      {/* Why it scored this way */}
-      {p.reasoning && (
-        <div style={{ padding: 12, marginBottom: 16, borderRadius: 'var(--radius-md)',
-          background: 'var(--bg-primary)', borderLeft: '3px solid var(--accent)' }}>
-          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6,
-            color: 'var(--text-muted)', marginBottom: 5 }}>Assessment</div>
-          <div style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text-secondary)' }}>{p.reasoning}</div>
-        </div>
-      )}
-
-      {/* What the tailored CV changed vs. the master CV — as bullet points */}
-      {p.cvChangeList && (() => {
-        const changes = p.cvChangeList.split(/[;\n]+/).map(s => s.trim()).filter(Boolean);
-        return (
-          <div style={{ padding: 12, marginBottom: 16, borderRadius: 'var(--radius-md)',
-            background: 'var(--bg-primary)', borderLeft: '3px solid #30a46c' }}>
-            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6,
-              color: 'var(--text-muted)', marginBottom: 6 }}>CV changes vs. original</div>
-            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14, lineHeight: 1.6, color: 'var(--text-secondary)' }}>
-              {changes.map((c, i) => <li key={i} style={{ marginBottom: 4 }}>{c}</li>)}
-            </ul>
-          </div>
-        );
-      })()}
-
       {/* Description — the pipeline stores plain text, so preserve its line breaks. */}
       <div style={{ fontSize: 14, lineHeight: 1.65, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
         {p.description}
+      </div>
+    </div>
+  );
+}
+
+// A score pill. Renders as a button (with a ⓘ affordance) when clickable, else a plain div.
+function ScoreBadge({ label, value, color, onClick, title }:
+  { label: string; value: number; color: string; onClick?: () => void; title?: string }) {
+  const base = { minWidth: 52, textAlign: 'center' as const, padding: '6px 10px',
+    borderRadius: 'var(--radius-md)', background: color, color: '#fff' };
+  const inner = (
+    <>
+      <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 9, opacity: 0.85, letterSpacing: 0.5 }}>{label}{onClick ? ' ⓘ' : ''}</div>
+    </>
+  );
+  return onClick
+    ? <button type="button" onClick={onClick} title={title} style={{ ...base, border: 'none', cursor: 'pointer' }}>{inner}</button>
+    : <div style={base}>{inner}</div>;
+}
+
+// Detail modal for a posting: the assessment, the CV-fit gap breakdown, or the CV changes.
+function PostingModal({ kind, posting: p, onClose }:
+  { kind: ModalKind; posting: JobPostingDto; onClose: () => void }) {
+  const fit = p.cvFitScore;
+  const changes = (p.cvChangeList || '').split(/[;\n]+/).map(s => s.trim()).filter(Boolean);
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
+        {kind === 'assessment' && (
+          <>
+            <h2>Assessment{p.score != null ? ` · Score ${Math.round(p.score)}/100` : ''}</h2>
+            <div style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--text-secondary)' }}>
+              {p.reasoning || 'No assessment recorded.'}
+            </div>
+          </>
+        )}
+        {kind === 'changes' && (
+          <>
+            <h2>CV changes vs. original</h2>
+            {changes.length === 0
+              ? <div style={{ color: 'var(--text-muted)' }}>No changes recorded.</div>
+              : <ul style={{ margin: 0, paddingLeft: 20, fontSize: 14, lineHeight: 1.7, color: 'var(--text-secondary)' }}>
+                  {changes.map((c, i) => <li key={i} style={{ marginBottom: 6 }}>{c}</li>)}
+                </ul>}
+          </>
+        )}
+        {kind === 'fit' && fit != null && (
+          <>
+            <h2>Missing for a 100% fit · {fit}/100</h2>
+            {p.cvFitGaps.length === 0
+              ? <div style={{ color: 'var(--text-muted)' }}>No gaps recorded — this CV is a strong match.</div>
+              : <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {[...p.cvFitGaps].sort((a, b) => b.points - a.points).map((g, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
+                      <span style={{ flexShrink: 0, minWidth: 34, textAlign: 'right', fontWeight: 700,
+                        fontVariantNumeric: 'tabular-nums', color: scoreColor(fit) }}>+{g.points}</span>
+                      <span style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--text-secondary)' }}>
+                        <span style={{ color: 'var(--text-primary)' }}>{g.label}</span>
+                        {g.note && <span style={{ color: 'var(--text-muted)' }}> — {g.note}</span>}
+                      </span>
+                    </div>
+                  ))}
+                </div>}
+          </>
+        )}
+        <div className="modal-actions">
+          <button type="button" className="btn btn-sm" onClick={onClose}>Close</button>
+        </div>
       </div>
     </div>
   );
