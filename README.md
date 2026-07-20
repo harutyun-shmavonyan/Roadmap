@@ -8,6 +8,23 @@ A tree-based goal tracker. Organize goals into categories and actionable items, 
 - **Database**: PostgreSQL 16
 - **Frontend**: React 18 + TypeScript + Vite
 
+## Deploying — read this
+
+The app runs on **Railway**, which pulls the prebuilt Docker image
+**`h317280/roadmap-app:latest`**. Railway does **not** build from git.
+
+> ⚠️ **After ANY change to `backend/` or `frontend/`, you MUST rebuild and push the image.
+> `git push` alone does NOT deploy.**
+
+```bash
+docker build -t h317280/roadmap-app:latest .
+docker push h317280/roadmap-app:latest
+```
+
+Railway redeploys automatically once the new `:latest` lands (~1 min); then hard-refresh
+to verify. Docs-only changes (README, `CLAUDE.md`) don't ship in the image, so they don't
+need a rebuild.
+
 ## Quick Start
 
 ### 1. Start Postgres
