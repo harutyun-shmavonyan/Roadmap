@@ -576,3 +576,9 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 .md-body th { background: var(--bg-secondary); font-weight: 600; }
 .md-body img { max-width: 100%; border-radius: var(--radius-sm); }
 .md-body :first-child { margin-top: 0; }
+
+/* Jobs tab — posting card */
+.jobs-card { transition: box-shadow var(--transition), border-color var(--transition); }
+.jobs-card:hover { box-shadow: var(--shadow-md); border-color: var(--border); }
+.jobs-tile { transition: background var(--transition), border-color var(--transition); }
+.jobs-tile:hover { background: var(--bg-hover); border-color: var(--border); }

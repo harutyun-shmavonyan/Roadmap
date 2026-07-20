@@ -165,93 +165,124 @@ function ArrowButton({ dir, onClick, disabled }: { dir: 'left' | 'right'; onClic
 function PostingCard({ posting: p, onOpen }: { posting: JobPostingDto; onOpen: (k: ModalKind) => void }) {
   const isEu = p.bucket === 'eu-allowed';
   const fit = p.cvFitScore;
-  return (
-    <div className="item-card" style={{ maxWidth: 780, margin: '0 auto', padding: 24,
-      background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
-      borderRadius: 'var(--radius-lg)' }}>
+  const eligColor = isEu ? 'var(--warning)' : 'var(--success)';
+  const eligBg = isEu ? 'var(--warning-light)' : 'var(--success-light)';
 
-      {/* Title + scores — both badges open a detail modal on click */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 4 }}>
-        <h2 style={{ margin: 0, fontSize: 21, lineHeight: 1.3, color: 'var(--text-primary)' }}>{p.title}</h2>
-        <div style={{ flexShrink: 0, display: 'flex', gap: 8 }}>
-          {p.score != null && (
-            <ScoreBadge label="SCORE" value={Math.round(p.score)} color={scoreColor(p.score)}
-              onClick={p.reasoning ? () => onOpen('assessment') : undefined}
-              title={p.reasoning ? 'Why this opportunity scored this way — click for the assessment' : undefined} />
+  const metas: string[] = [];
+  if (p.postedAt) metas.push(`Posted ${fmtDate(p.postedAt)}`);
+  if (p.location) metas.push(p.location);
+  const queryLabel = `Found by ${p.queries.length} quer${p.queries.length === 1 ? 'y' : 'ies'}`;
+
+  const downloadCv = () => {
+    const slug = p.company.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    api.downloadPostingCv(p.id, `cv-${slug || 'posting'}.pdf`).catch(err => alert(String(err)));
+  };
+
+  return (
+    <div className="jobs-card" style={{ maxWidth: 760, margin: '0 auto',
+      background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)',
+      borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
+
+      {/* Eligibility accent strip */}
+      <div style={{ height: 4, background: eligColor }} />
+
+      <div style={{ padding: '22px 26px 26px' }}>
+        {/* Header: eligibility pill + title + company | score tiles */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20 }}>
+          <div style={{ minWidth: 0 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700,
+              padding: '3px 10px 3px 8px', borderRadius: 999, color: eligColor, background: eligBg }}>
+              <span style={{ width: 6, height: 6, borderRadius: 999, background: eligColor }} />
+              {isEu ? 'EU · check EOR' : 'Armenia-eligible'}
+            </span>
+            <h2 style={{ margin: '11px 0 3px', fontSize: 22, lineHeight: 1.25, fontWeight: 700,
+              color: 'var(--text-primary)' }}>{p.title}</h2>
+            <div style={{ fontSize: 15, color: 'var(--accent)', fontWeight: 600 }}>{p.company}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
+            {p.score != null && (
+              <ScoreMeter label="SCORE" value={Math.round(p.score)} color={scoreColor(p.score)}
+                onClick={p.reasoning ? () => onOpen('assessment') : undefined}
+                title={p.reasoning ? 'Why this scored this way — click for the assessment' : undefined} />
+            )}
+            {fit != null && (
+              <ScoreMeter label="CV FIT" value={fit} color={scoreColor(fit)}
+                onClick={() => onOpen('fit')}
+                title="How well your tailored CV fits this job — click for what's missing" />
+            )}
+          </div>
+        </div>
+
+        {/* Signal chips */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '16px 0 14px' }}>
+          {p.seniorityClass && <Chip text={p.seniorityClass} />}
+          <Chip text={p.source} />
+          {p.aiKeywordHits > 0 && <Chip text={`AI signals ${p.aiKeywordHits}`} />}
+          {p.geoHints.map(h => <Chip key={h} text={h} />)}
+        </div>
+
+        {/* Meta line — queries live in the tooltip to keep the card calm */}
+        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+          {metas.map((m, i) => (
+            <span key={i}>{i > 0 && <span style={{ margin: '0 8px', opacity: 0.45 }}>·</span>}{m}</span>
+          ))}
+          {metas.length > 0 && <span style={{ margin: '0 8px', opacity: 0.45 }}>·</span>}
+          <span title={p.queries.join(', ')} style={{ borderBottom: p.queries.length ? '1px dotted var(--border)' : 'none', cursor: p.queries.length ? 'help' : 'default' }}>
+            {queryLabel}
+          </span>
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 18 }}>
+          <a href={p.url} target="_blank" rel="noopener noreferrer"
+            className="btn btn-accent btn-sm" style={{ textDecoration: 'none' }}>Open posting ↗</a>
+          {p.hasCv && (
+            <button type="button" className="btn btn-sm" onClick={downloadCv}>⬇ Tailored CV</button>
           )}
-          {fit != null && (
-            <ScoreBadge label="CV FIT" value={fit} color={scoreColor(fit)}
-              onClick={() => onOpen('fit')}
-              title="How well your tailored CV fits this job — click for what's missing" />
+          {p.reasoning && (
+            <button type="button" className="btn btn-sm" onClick={() => onOpen('assessment')}>Assessment</button>
+          )}
+          {p.cvChangeList && (
+            <button type="button" className="btn btn-sm" onClick={() => onOpen('changes')}>CV changes</button>
           )}
         </div>
-      </div>
 
-      <div style={{ fontSize: 15, color: 'var(--accent)', fontWeight: 600, marginBottom: 12 }}>{p.company}</div>
-
-      {/* Badges */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
-        <Badge text={isEu ? 'EU — check EOR' : 'Armenia-compatible'}
-          color={isEu ? '#f5a524' : '#30a46c'} />
-        {p.seniorityClass && <Badge text={p.seniorityClass} />}
-        <Badge text={p.source} />
-        {p.aiKeywordHits > 0 && <Badge text={`AI signals: ${p.aiKeywordHits}`} />}
-        {p.geoHints.map(h => <Badge key={h} text={h} />)}
-      </div>
-
-      {/* Meta line */}
-      <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.7 }}>
-        {p.postedAt && <>Posted {fmtDate(p.postedAt)}<span style={{ margin: '0 8px' }}>·</span></>}
-        {p.location && <>{p.location}<span style={{ margin: '0 8px' }}>·</span></>}
-        Found by {p.queries.length} quer{p.queries.length === 1 ? 'y' : 'ies'}
-        {p.queries.length > 0 && <span style={{ opacity: 0.75 }}> ({p.queries.join(', ')})</span>}
-      </div>
-
-      {/* Actions — Assessment / CV changes open modals so the heavy text stays out of the card */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-        <a href={p.url} target="_blank" rel="noopener noreferrer"
-          className="btn btn-accent btn-sm" style={{ display: 'inline-block', textDecoration: 'none' }}>
-          Open posting ↗
-        </a>
-        {p.reasoning && (
-          <button type="button" className="btn btn-sm" onClick={() => onOpen('assessment')}>Assessment</button>
-        )}
-        {p.cvChangeList && (
-          <button type="button" className="btn btn-sm" onClick={() => onOpen('changes')}>CV changes</button>
-        )}
-        {p.hasCv && (
-          <button type="button" className="btn btn-sm"
-            onClick={() => {
-              const slug = p.company.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-              api.downloadPostingCv(p.id, `cv-${slug || 'posting'}.pdf`).catch(err => alert(String(err)));
-            }}>
-            Download tailored CV ⬇
-          </button>
-        )}
-      </div>
-
-      {/* Description — the pipeline stores plain text, so preserve its line breaks. */}
-      <div style={{ fontSize: 14, lineHeight: 1.65, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
-        {p.description}
+        {/* Description */}
+        <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+            color: 'var(--text-muted)', marginBottom: 9 }}>Description</div>
+          <div style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
+            {p.description}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-// A score pill. Renders as a button (with a ⓘ affordance) when clickable, else a plain div.
-function ScoreBadge({ label, value, color, onClick, title }:
+// A compact stat tile: big number + label + a thin progress bar tinted by the score.
+// Renders as a button (with a ⓘ affordance) when clickable, else a plain div.
+function ScoreMeter({ label, value, color, onClick, title }:
   { label: string; value: number; color: string; onClick?: () => void; title?: string }) {
-  const base = { minWidth: 52, textAlign: 'center' as const, padding: '6px 10px',
-    borderRadius: 'var(--radius-md)', background: color, color: '#fff' };
+  const pct = Math.max(4, Math.min(100, value));
+  const style = { minWidth: 84, padding: '9px 13px 10px', borderRadius: 'var(--radius-md)',
+    background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', textAlign: 'left' as const };
   const inner = (
     <>
-      <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: 9, opacity: 0.85, letterSpacing: 0.5 }}>{label}{onClick ? ' ⓘ' : ''}</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color }}>{value}</span>
+        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-muted)' }}>
+          {label}{onClick ? ' ⓘ' : ''}
+        </span>
+      </div>
+      <div style={{ height: 4, borderRadius: 3, background: 'var(--progress-track)', marginTop: 8, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3 }} />
+      </div>
     </>
   );
   return onClick
-    ? <button type="button" onClick={onClick} title={title} style={{ ...base, border: 'none', cursor: 'pointer' }}>{inner}</button>
-    : <div style={base}>{inner}</div>;
+    ? <button type="button" className="jobs-tile" onClick={onClick} title={title} style={{ ...style, cursor: 'pointer' }}>{inner}</button>
+    : <div style={style}>{inner}</div>;
 }
 
 // Detail modal for a posting: the assessment, the CV-fit gap breakdown, or the CV changes.
@@ -307,13 +338,12 @@ function PostingModal({ kind, posting: p, onClose }:
   );
 }
 
-function Badge({ text, color }: { text: string; color?: string }) {
+function Chip({ text }: { text: string }) {
   return (
     <span style={{
-      fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 'var(--radius-sm)',
-      background: color ?? 'var(--bg-primary)',
-      color: color ? '#fff' : 'var(--text-muted)',
-      border: color ? 'none' : '1px solid var(--border-subtle)',
+      fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999,
+      background: 'var(--bg-secondary)', color: 'var(--text-muted)',
+      border: '1px solid var(--border-subtle)', textTransform: 'capitalize',
     }}>{text}</span>
   );
 }
