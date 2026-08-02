@@ -686,14 +686,12 @@ public static class RoadmapEndpoints
 
             var allNodes = await db.Nodes.AsNoTracking().Where(n => n.RoadmapId == roadmapId).OrderBy(n => n.SortOrder).ToListAsync();
             var blocks = await db.ScheduleBlocks.AsNoTracking().Include(sb => sb.Items).Where(sb => sb.RoadmapId == roadmapId).ToListAsync();
-            var allTimeLogged = await db.WorkLogs.AsNoTracking().Where(w => w.RoadmapId == roadmapId)
-                .GroupBy(w => w.NodeId).Select(g => new { g.Key, Total = g.Sum(w => w.Amount) })
-                .ToDictionaryAsync(x => x.Key, x => x.Total);
+            var loggedBefore = await LoggedBeforeAsync(db, roadmapId, sprint.StartDate);
 
             var dates = new List<DateOnly>();
             for (var d = sprint.StartDate; d <= sprint.EndDate; d = d.AddDays(1)) dates.Add(d);
 
-            var computed = ComputeSprintPlan(allNodes, blocks, dates, allTimeLogged, ParseRelaxDays(sprint.RelaxDays));
+            var computed = ComputeSprintPlan(allNodes, blocks, dates, loggedBefore, ParseRelaxDays(sprint.RelaxDays));
             var entries = computed.Select(c => new SprintPlanEntry
             {
                 Id = Guid.NewGuid(), SprintId = sprint.Id, NodeId = c.NodeId,
@@ -747,10 +745,8 @@ public static class RoadmapEndpoints
                 // Draft — project the plan on-the-fly
                 var allNodes = await db.Nodes.AsNoTracking().Where(n => n.RoadmapId == roadmapId).OrderBy(n => n.SortOrder).ToListAsync();
                 var blocks = await db.ScheduleBlocks.AsNoTracking().Include(sb => sb.Items).Where(sb => sb.RoadmapId == roadmapId).ToListAsync();
-                var allTimeLogged = await db.WorkLogs.AsNoTracking().Where(w => w.RoadmapId == roadmapId)
-                    .GroupBy(w => w.NodeId).Select(g => new { g.Key, Total = g.Sum(w => w.Amount) })
-                    .ToDictionaryAsync(x => x.Key, x => x.Total);
-                var computed = ComputeSprintPlan(allNodes, blocks, dates, allTimeLogged, ParseRelaxDays(sprint.RelaxDays));
+                var loggedBefore = await LoggedBeforeAsync(db, roadmapId, sprint.StartDate);
+                var computed = ComputeSprintPlan(allNodes, blocks, dates, loggedBefore, ParseRelaxDays(sprint.RelaxDays));
                 planData = computed.Select(c => (c.NodeId, c.Date, c.PlannedUnits, c.DurationMinutes)).ToList();
                 sprintLogs = []; // no logs for draft
             }
@@ -2017,6 +2013,20 @@ public static class RoadmapEndpoints
     }
 
     /// <summary>
+    /// Work finished strictly before <paramref name="from"/>, per node — the only work that
+    /// reduces what is left to schedule from <paramref name="from"/> onward.
+    ///
+    /// Work logged *inside* the planning window must not be counted here: those days still
+    /// carry their own planned sessions, so subtracting the same work from the remainder as
+    /// well double-counts it and shaves a session off the plan every time something is logged.
+    /// </summary>
+    private static async Task<Dictionary<Guid, double>> LoggedBeforeAsync(
+        RoadmapDbContext db, Guid roadmapId, DateOnly from) =>
+        await db.WorkLogs.AsNoTracking().Where(w => w.RoadmapId == roadmapId && w.Date < from)
+            .GroupBy(w => w.NodeId).Select(g => new { g.Key, Total = g.Sum(w => w.Amount) })
+            .ToDictionaryAsync(x => x.Key, x => x.Total);
+
+    /// <summary>
     /// Relax days are stored on the sprint as a JSON array of "yyyy-MM-dd" strings.
     /// </summary>
     private static HashSet<string> ParseRelaxDays(string? json)
@@ -2068,9 +2078,6 @@ public static class RoadmapEndpoints
             .OrderBy(n => n.SortOrder).ToListAsync();
         var blocks = await db.ScheduleBlocks.AsNoTracking().Include(sb => sb.Items)
             .Where(sb => sb.RoadmapId == roadmapId).ToListAsync();
-        var allTimeLogged = await db.WorkLogs.AsNoTracking().Where(w => w.RoadmapId == roadmapId)
-            .GroupBy(w => w.NodeId).Select(g => new { g.Key, Total = g.Sum(w => w.Amount) })
-            .ToDictionaryAsync(x => x.Key, x => x.Total);
         var boundaries = await LoadCompletionBoundariesAsync(db, roadmapId);
 
         foreach (var sprint in sprints)
@@ -2085,7 +2092,8 @@ public static class RoadmapEndpoints
             for (var d = from; d <= sprint.EndDate; d = d.AddDays(1)) dates.Add(d);
             if (dates.Count == 0) continue;
 
-            var computed = ComputeSprintPlan(allNodes, blocks, dates, allTimeLogged,
+            var computed = ComputeSprintPlan(allNodes, blocks, dates,
+                await LoggedBeforeAsync(db, roadmapId, from),
                 ParseRelaxDays(sprint.RelaxDays), boundaries);
 
             db.SprintPlanEntries.AddRange(computed.Select(c => new SprintPlanEntry
