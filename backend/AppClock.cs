@@ -27,6 +27,13 @@ public static class AppClock
     public static DateOnly Today() => DateOnly.FromDateTime(Now());
 
     /// <summary>
+    /// The UTC instant a local calendar day begins — for comparing stored UTC timestamps
+    /// against a <see cref="DateOnly"/> boundary such as a sprint's first morning.
+    /// </summary>
+    public static DateTime StartOfDayUtc(DateOnly localDate) =>
+        TimeZoneInfo.ConvertTimeToUtc(localDate.ToDateTime(TimeOnly.MinValue), Tz);
+
+    /// <summary>
     /// Local calendar date of a stored UTC timestamp (e.g. <c>StatusChange.ChangedAt</c>).
     /// </summary>
     public static DateOnly ToLocalDate(DateTime utc)

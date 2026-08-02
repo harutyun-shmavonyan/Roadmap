@@ -709,6 +709,36 @@ public static class RoadmapEndpoints
             return Results.Ok(ToSprintDto(sprint));
         });
 
+        // Re-freeze a sprint's commitment from today's inputs, with statuses rewound to the
+        // sprint's first morning. A repair hatch, not part of the normal flow: the commitment is
+        // meant to be frozen, and this deliberately replaces it. Needed when the frozen copy is
+        // known to be wrong — a sprint whose inputs were captured mid-flight rather than at start.
+        sprints.MapPost("/{sprintId:guid}/rebaseline", async (Guid roadmapId, Guid sprintId, RoadmapDbContext db) =>
+        {
+            var sprint = await db.Sprints.FirstOrDefaultAsync(s => s.Id == sprintId && s.RoadmapId == roadmapId);
+            if (sprint is null) return Results.NotFound();
+            if (!sprint.IsStarted) return Results.BadRequest("Sprint has not been started.");
+
+            var snap = await BuildPlanSnapshotAsync(db, sprint);
+            sprint.PlanInputs = JsonSerializer.Serialize(snap);
+            await db.SaveChangesAsync();
+
+            var commitment = await ComputeCommitmentAsync(db, sprint, snap);
+            var titles = await db.Nodes.AsNoTracking().Where(n => n.RoadmapId == roadmapId)
+                .Select(n => new { n.Id, n.Title }).ToDictionaryAsync(n => n.Id, n => n.Title);
+            return Results.Ok(new
+            {
+                sprint = ToSprintDto(sprint),
+                items = commitment.GroupBy(c => c.NodeId).Select(g => new
+                {
+                    nodeId = g.Key,
+                    title = titles.GetValueOrDefault(g.Key, "?"),
+                    plannedUnits = Math.Round(g.Sum(c => c.PlannedUnits), 2),
+                    sessions = g.Select(c => c.Date).Distinct().Count()
+                }).OrderByDescending(x => x.plannedUnits).ToList()
+            });
+        });
+
         sprints.MapGet("/{sprintId:guid}/plan", async (Guid roadmapId, Guid sprintId, RoadmapDbContext db) =>
         {
             var sprint = await db.Sprints.AsNoTracking().FirstOrDefaultAsync(s => s.Id == sprintId && s.RoadmapId == roadmapId);
@@ -1990,9 +2020,16 @@ public static class RoadmapEndpoints
                 if (!blockTmpl.Days.Contains(ddow)) continue;
                 if (relaxSet.Contains(date.ToString("yyyy-MM-dd"))) continue;
 
-                // Step past items whose completion day has passed — the next one takes over here.
-                while (qi < queue.Count && OccupiedThrough(queue[qi]) is DateOnly done && date > done)
+                // Step past anything that should no longer hold this session: an item whose
+                // completion day has passed, or one with nothing left to schedule. Neither may
+                // burn a day on its way out — the next item takes the session instead.
+                while (qi < queue.Count)
                 {
+                    var head = queue[qi];
+                    var spent = OccupiedThrough(head) is DateOnly done
+                        ? date > done
+                        : remainingForCurrent <= 0.01;
+                    if (!spent) break;
                     qi++;
                     if (qi < queue.Count) remainingForCurrent = GetRemaining(queue[qi], allTimeLogged);
                 }
@@ -2009,16 +2046,7 @@ public static class RoadmapEndpoints
                 if (actualPlanned > 0)
                     entries.Add(new ComputedPlanEntry(item.Id, date, blockTmpl.GetStartMinute(ddow), dur, Math.Round(actualPlanned, 2)));
 
-                if (isClosed) continue;
-
-                remainingForCurrent -= actualPlanned;
-
-                // If this item is done, move to next in queue — next item starts NEXT scheduled day
-                if (remainingForCurrent <= 0.01 && qi + 1 < queue.Count)
-                {
-                    qi++;
-                    remainingForCurrent = GetRemaining(queue[qi], allTimeLogged);
-                }
+                if (!isClosed) remainingForCurrent -= actualPlanned;
             }
         }
 
@@ -2054,6 +2082,12 @@ public static class RoadmapEndpoints
     /// <summary>
     /// Freeze the planner's inputs so the sprint's commitment can be rebuilt later without
     /// picking up anything that happened since.
+    ///
+    /// Statuses are rewound to the sprint's first morning rather than taken as they stand.
+    /// That matters whenever this runs mid-sprint (a sprint started before commitments
+    /// existed, or a repair): an item finished on day three is Completed *now*, but recording
+    /// it that way would read as "already done before the sprint opened" and strike its whole
+    /// commitment, handing its days to whatever queues behind it.
     /// </summary>
     private static async Task<PlanSnapshot> BuildPlanSnapshotAsync(RoadmapDbContext db, Sprint sprint)
     {
@@ -2063,6 +2097,15 @@ public static class RoadmapEndpoints
             .Where(sb => sb.RoadmapId == sprint.RoadmapId).ToListAsync();
         var loggedBefore = await LoggedBeforeAsync(db, sprint.RoadmapId, sprint.StartDate);
 
+        // The status an item held when the sprint opened is the OldStatus of its first change
+        // on or after that morning; no such change means it still holds the status it opened with.
+        var startUtc = AppClock.StartOfDayUtc(sprint.StartDate);
+        var since = await db.StatusChanges.AsNoTracking()
+            .Where(s => s.RoadmapId == sprint.RoadmapId && s.ChangedAt >= startUtc)
+            .Select(s => new { s.NodeId, s.OldStatus, s.ChangedAt }).ToListAsync();
+        var statusAtStart = since.GroupBy(s => s.NodeId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(x => x.ChangedAt).First().OldStatus);
+
         return new PlanSnapshot(
             sprint.StartDate.ToString("yyyy-MM-dd"),
             sprint.EndDate.ToString("yyyy-MM-dd"),
@@ -2070,7 +2113,8 @@ public static class RoadmapEndpoints
             blocks.Select(b => new SnapshotBlock(b.Id, b.ScheduleTemplate,
                 b.Items.OrderBy(i => i.BlockSortOrder).Select(i => i.Id).ToList())).ToList(),
             nodes.Where(n => n.IsActionable).Select(n => new SnapshotNode(n.Id, n.TotalSize, n.UnitsPerHour,
-                n.PointsPerUnit, n.ScheduleTemplate, n.ScheduleBlockId, n.BlockSortOrder, n.SortOrder, n.Status)).ToList(),
+                n.PointsPerUnit, n.ScheduleTemplate, n.ScheduleBlockId, n.BlockSortOrder, n.SortOrder,
+                statusAtStart.GetValueOrDefault(n.Id, n.Status))).ToList(),
             loggedBefore.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value));
     }
 
