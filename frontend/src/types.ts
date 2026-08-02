@@ -54,6 +54,8 @@ export interface PerformanceItem {
   willComplete: boolean; projectedCompletionDate: string | null;
   dailyCumulative: { date: string; cumulativePercent: number; idealPercent: number }[];
   isNodeCompleted: boolean;
+  /** Worked on but never committed to — the queue only reached it because you got ahead. */
+  isBonus: boolean;
 }
 
 export interface CreateNodeRequest {

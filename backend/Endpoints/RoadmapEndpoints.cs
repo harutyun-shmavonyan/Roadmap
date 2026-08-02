@@ -701,6 +701,9 @@ public static class RoadmapEndpoints
 
             sprint.IsStarted = true;
             sprint.StartedAt = DateTime.UtcNow;
+            // Freeze the inputs too: this plan is also the sprint's commitment, and it has to
+            // stay recomputable from what was true right now, not from whatever changes later.
+            sprint.PlanInputs = JsonSerializer.Serialize(await BuildPlanSnapshotAsync(db, sprint));
             db.SprintPlanEntries.AddRange(entries);
             await db.SaveChangesAsync();
             return Results.Ok(ToSprintDto(sprint));
@@ -724,25 +727,41 @@ public static class RoadmapEndpoints
             var dates = new List<DateOnly>();
             for (var d = sprint.StartDate; d <= sprint.EndDate; d = d.AddDays(1)) dates.Add(d);
 
-            // For draft sprints: compute plan on-the-fly, no logs
-            // For started sprints: use persisted snapshot + sprint-scoped logs
+            // Two different things, deliberately kept apart:
+            //   planData  — the sprint's COMMITMENT. Frozen at Start Sprint and rebuilt only
+            //               from corrected item sizes, so pace can neither create an obligation
+            //               (going fast) nor erase one (going slow). This is what you are scored
+            //               against.
+            //   forecast  — the LIVING plan. Reacts to everything, and is used only to say when
+            //               things are projected to finish.
+            // Anything worked on that the commitment never included is bonus: it earns points
+            // and owes none.
             List<(Guid NodeId, DateOnly Date, double PlannedUnits, int DurationMinutes)> planData;
             List<WorkLog> sprintLogs;
+            var pointsPerUnit = new Dictionary<Guid, double>();
+            List<SprintPlanEntry> forecast = [];
 
             if (sprint.IsStarted)
             {
-                // Bound the frozen snapshot + logs to the sprint's CURRENT window so that
-                // editing StartDate/EndDate after start correctly reshapes Performance
-                // (the snapshot stays immutable; out-of-window rows are simply excluded).
-                var planEntries = await db.SprintPlanEntries.AsNoTracking()
-                    .Where(p => p.SprintId == sprintId && p.Date >= sprint.StartDate && p.Date <= sprint.EndDate).ToListAsync();
-                planData = planEntries.Select(p => (p.NodeId, p.Date, p.PlannedUnits, p.DurationMinutes)).ToList();
+                // Bound the commitment + logs to the sprint's CURRENT window so that editing
+                // StartDate/EndDate after start reshapes Performance (out-of-window rows are
+                // simply excluded, never deleted).
+                var snap = await GetOrCapturePlanInputsAsync(db, sprint, persist: false);
+                var commitment = snap is null ? [] : await ComputeCommitmentAsync(db, sprint, snap);
+                planData = commitment
+                    .Where(c => c.Date >= sprint.StartDate && c.Date <= sprint.EndDate)
+                    .Select(c => (c.NodeId, c.Date, c.PlannedUnits, c.DurationMinutes)).ToList();
+                foreach (var c in commitment) pointsPerUnit[c.NodeId] = c.PointsPerUnit;
+
+                forecast = await db.SprintPlanEntries.AsNoTracking()
+                    .Where(p => p.SprintId == sprintId && p.Date >= sprint.StartDate && p.Date <= sprint.EndDate)
+                    .OrderBy(p => p.Date).ToListAsync();
                 sprintLogs = await db.WorkLogs.AsNoTracking()
                     .Where(w => w.SprintId == sprintId && w.Date >= sprint.StartDate && w.Date <= sprint.EndDate).ToListAsync();
             }
             else
             {
-                // Draft — project the plan on-the-fly
+                // Draft — project the plan on-the-fly; commitment and forecast are the same thing
                 var allNodes = await db.Nodes.AsNoTracking().Where(n => n.RoadmapId == roadmapId).OrderBy(n => n.SortOrder).ToListAsync();
                 var blocks = await db.ScheduleBlocks.AsNoTracking().Include(sb => sb.Items).Where(sb => sb.RoadmapId == roadmapId).ToListAsync();
                 var loggedBefore = await LoggedBeforeAsync(db, roadmapId, sprint.StartDate);
@@ -754,6 +773,9 @@ public static class RoadmapEndpoints
             // Group by node
             var planByNode = planData.GroupBy(p => p.NodeId).ToDictionary(g => g.Key, g => g.ToList());
             var logsByNode = sprintLogs.GroupBy(w => w.NodeId).ToDictionary(g => g.Key, g => g.ToList());
+            var forecastByNode = forecast.GroupBy(p => p.NodeId).ToDictionary(g => g.Key, g => g.ToList());
+            // Committed items stay listed even if never touched — a dropped commitment must stay
+            // visible. Bonus items appear once there is work to show for them.
             var nodeIds = planByNode.Keys.Union(logsByNode.Keys).ToHashSet();
 
             // Load node metadata
@@ -777,7 +799,9 @@ public static class RoadmapEndpoints
             foreach (var nodeId in nodeIds)
             {
                 if (!nodeLookup.TryGetValue(nodeId, out var node)) continue;
-                var ppu = node.PointsPerUnit ?? 0;
+                // Points-per-unit is frozen with the commitment, so re-pricing an item mid-sprint
+                // cannot retroactively change what the sprint was worth.
+                var ppu = pointsPerUnit.TryGetValue(nodeId, out var frozenPpu) ? frozenPpu : node.PointsPerUnit ?? 0;
 
                 var nodePlan = planByNode.GetValueOrDefault(nodeId, []);
                 var nodeLogs = logsByNode.GetValueOrDefault(nodeId, []);
@@ -801,7 +825,12 @@ public static class RoadmapEndpoints
             // Second pass: build items with per-item cumulative % (points-based relative to item's own planned points)
             foreach (var (nodeId, node, totalPlannedPts, totalDonePts, sessions, totalPlannedUnits, totalDoneUnits, totalMins, dailyPlan, dailyDone) in itemDataList)
             {
-                var ppu = node.PointsPerUnit ?? 0;
+                // No commitment for this item — it was pulled in by pace alone, so it is bonus:
+                // it earns points and owes none. Its curve is drawn against its own output so
+                // the shape is still readable, with no ideal line to fall short of.
+                var isBonus = totalPlannedPts <= 0 && totalDonePts > 0;
+                var denom = isBonus ? totalDonePts : totalPlannedPts;
+
                 var dailyCum = new List<DailyCumulativeDto>();
                 double runningDonePts = 0;
                 double runningPlannedPts = 0;
@@ -811,12 +840,14 @@ public static class RoadmapEndpoints
                     runningDonePts += dailyDone[di].DonePts;
                     runningPlannedPts += dailyPlan[di].PlannedPts;
 
-                    var actualPct = totalPlannedPts > 0 ? Math.Round(runningDonePts / totalPlannedPts * 100, 1) : 0;
+                    var actualPct = denom > 0 ? Math.Round(runningDonePts / denom * 100, 1) : 0;
                     var idealPct = totalPlannedPts > 0 ? Math.Round(runningPlannedPts / totalPlannedPts * 100, 1) : 0;
                     dailyCum.Add(new DailyCumulativeDto(dates[di].ToString("yyyy-MM-dd"), actualPct, idealPct));
                 }
 
-                // Projected completion: walk through plan days, accumulate units, find when totalSize is reached
+                // Projected completion comes from the LIVING forecast, not the commitment —
+                // "when will this finish" is a forecasting question, and the forecast is what
+                // knows about the pace you are actually going.
                 var willComplete = false;
                 string? projectedDate = null;
                 if (node.Status == ActionItemStatus.Completed)
@@ -829,8 +860,12 @@ public static class RoadmapEndpoints
                 {
                     var totalLogged = await db.WorkLogs.AsNoTracking().Where(w => w.NodeId == nodeId).SumAsync(w => w.Amount);
                     double running = totalLogged;
-                    var nodePlanForProj = planByNode.GetValueOrDefault(nodeId, []).OrderBy(p => p.Date).ToList();
-                    foreach (var p in nodePlanForProj)
+                    var projSource = sprint.IsStarted
+                        ? forecastByNode.GetValueOrDefault(nodeId, []).OrderBy(p => p.Date)
+                            .Select(p => (p.Date, p.PlannedUnits)).ToList()
+                        : planByNode.GetValueOrDefault(nodeId, []).OrderBy(p => p.Date)
+                            .Select(p => (p.Date, p.PlannedUnits)).ToList();
+                    foreach (var p in projSource)
                     {
                         running += p.PlannedUnits;
                         if (running >= node.TotalSize.Value)
@@ -845,7 +880,9 @@ public static class RoadmapEndpoints
                 items.Add(new PerformanceItemDto(nodeId, node.Title, node.Unit, node.TotalSize, node.UnitsPerHour, node.PointsPerUnit,
                     sessions, Math.Round(totalPlannedUnits, 1), Math.Round(totalDoneUnits, 1),
                     Math.Round(totalPlannedPts, 1), Math.Round(totalDonePts, 1), Math.Round(totalMins, 0),
-                    willComplete, projectedDate, dailyCum, node.Status == ActionItemStatus.Completed));
+                    // Bonus work is never advertised as "completing this sprint" — it was never promised.
+                    willComplete && !isBonus, projectedDate, dailyCum,
+                    node.Status == ActionItemStatus.Completed, isBonus));
             }
 
             // Add habit points: +2 for checked, -2 for missed (strictly past days only)
@@ -2012,6 +2049,121 @@ public static class RoadmapEndpoints
         return entries;
     }
 
+    // ===== Sprint commitment (the frozen baseline) =====
+
+    /// <summary>
+    /// Freeze the planner's inputs so the sprint's commitment can be rebuilt later without
+    /// picking up anything that happened since.
+    /// </summary>
+    private static async Task<PlanSnapshot> BuildPlanSnapshotAsync(RoadmapDbContext db, Sprint sprint)
+    {
+        var nodes = await db.Nodes.AsNoTracking().Where(n => n.RoadmapId == sprint.RoadmapId)
+            .OrderBy(n => n.SortOrder).ToListAsync();
+        var blocks = await db.ScheduleBlocks.AsNoTracking().Include(sb => sb.Items)
+            .Where(sb => sb.RoadmapId == sprint.RoadmapId).ToListAsync();
+        var loggedBefore = await LoggedBeforeAsync(db, sprint.RoadmapId, sprint.StartDate);
+
+        return new PlanSnapshot(
+            sprint.StartDate.ToString("yyyy-MM-dd"),
+            sprint.EndDate.ToString("yyyy-MM-dd"),
+            [.. ParseRelaxDays(sprint.RelaxDays)],
+            blocks.Select(b => new SnapshotBlock(b.Id, b.ScheduleTemplate,
+                b.Items.OrderBy(i => i.BlockSortOrder).Select(i => i.Id).ToList())).ToList(),
+            nodes.Where(n => n.IsActionable).Select(n => new SnapshotNode(n.Id, n.TotalSize, n.UnitsPerHour,
+                n.PointsPerUnit, n.ScheduleTemplate, n.ScheduleBlockId, n.BlockSortOrder, n.SortOrder, n.Status)).ToList(),
+            loggedBefore.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value));
+    }
+
+    /// <summary>
+    /// One line of the sprint's commitment: what this item was on the hook for on this day.
+    /// </summary>
+    internal record BaselineEntry(Guid NodeId, DateOnly Date, int DurationMinutes, double PlannedUnits, double PointsPerUnit);
+
+    /// <summary>
+    /// Rebuild the sprint's commitment from its frozen inputs.
+    ///
+    /// Everything is taken from the snapshot — rates, schedules, queue order, relax days, the
+    /// window — so adding a relax day, reordering the queue or changing a rate mid-sprint
+    /// cannot move what you are measured against. Only item *sizes* are re-read from the live
+    /// items, because a corrected estimate is the one thing that is allowed to reshape the
+    /// commitment: it is rebuilt as though you had estimated correctly before the sprint began.
+    ///
+    /// An item closed by hand before reaching its amount is treated as having been that big all
+    /// along — its true size is what it actually took. Work done faster than planned is *not* a
+    /// size correction and changes nothing here; that surfaces as bonus instead.
+    /// </summary>
+    private static async Task<List<BaselineEntry>> ComputeCommitmentAsync(
+        RoadmapDbContext db, Sprint sprint, PlanSnapshot snap)
+    {
+        var live = await db.Nodes.AsNoTracking().Where(n => n.RoadmapId == sprint.RoadmapId)
+            .Select(n => new { n.Id, n.TotalSize, n.Status }).ToDictionaryAsync(n => n.Id);
+        var loggedAll = await db.WorkLogs.AsNoTracking().Where(w => w.RoadmapId == sprint.RoadmapId)
+            .GroupBy(w => w.NodeId).Select(g => new { g.Key, Total = g.Sum(w => w.Amount) })
+            .ToDictionaryAsync(x => x.Key, x => x.Total);
+
+        double? CorrectedSize(SnapshotNode s)
+        {
+            if (!live.TryGetValue(s.Id, out var cur)) return s.TotalSize; // deleted since — keep the estimate
+            var size = cur.TotalSize;                                     // picks up edits in either direction
+            // Closed by hand short of its amount: the estimate was too big, and the real size is
+            // what the item took. Auto-completion at (or past) the amount leaves it untouched.
+            if (cur.Status == ActionItemStatus.Completed && size.HasValue)
+                size = Math.Min(size.Value, loggedAll.GetValueOrDefault(s.Id, 0));
+            return size;
+        }
+
+        var nodes = snap.Nodes.Select(s => new RoadmapNode
+        {
+            Id = s.Id, RoadmapId = sprint.RoadmapId, IsActionable = true,
+            Status = s.Status, TotalSize = CorrectedSize(s), UnitsPerHour = s.UnitsPerHour,
+            PointsPerUnit = s.PointsPerUnit, ScheduleTemplate = s.ScheduleTemplate,
+            ScheduleBlockId = s.BlockId, BlockSortOrder = s.BlockSortOrder, SortOrder = s.SortOrder
+        }).OrderBy(n => n.SortOrder).ToList();
+        var byId = nodes.ToDictionary(n => n.Id);
+
+        var blocks = snap.Blocks.Select(b => new ScheduleBlock
+        {
+            Id = b.Id, RoadmapId = sprint.RoadmapId, ScheduleTemplate = b.ScheduleTemplate,
+            Items = b.ItemIds.Where(byId.ContainsKey).Select(id => byId[id]).ToList()
+        }).ToList();
+
+        var start = DateOnly.Parse(snap.StartDate);
+        var end = DateOnly.Parse(snap.EndDate);
+        var dates = new List<DateOnly>();
+        for (var d = start; d <= end; d = d.AddDays(1)) dates.Add(d);
+
+        var loggedBefore = snap.LoggedBefore
+            .Where(kv => Guid.TryParse(kv.Key, out _))
+            .ToDictionary(kv => Guid.Parse(kv.Key), kv => kv.Value);
+
+        var computed = ComputeSprintPlan(nodes, blocks, dates, loggedBefore, [.. snap.RelaxDays]);
+        return computed.Select(c => new BaselineEntry(c.NodeId, c.Date, c.DurationMinutes, c.PlannedUnits,
+            byId.TryGetValue(c.NodeId, out var n) ? n.PointsPerUnit ?? 0 : 0)).ToList();
+    }
+
+    /// <summary>
+    /// Read the sprint's frozen inputs, capturing them from the current state for sprints that
+    /// were started before commitments existed. Returns null when there is nothing to freeze.
+    /// </summary>
+    private static async Task<PlanSnapshot?> GetOrCapturePlanInputsAsync(
+        RoadmapDbContext db, Sprint sprint, bool persist)
+    {
+        if (!string.IsNullOrEmpty(sprint.PlanInputs))
+            try { return JsonSerializer.Deserialize<PlanSnapshot>(sprint.PlanInputs); } catch { }
+
+        var snap = await BuildPlanSnapshotAsync(db, sprint);
+        if (persist)
+        {
+            var tracked = await db.Sprints.FirstOrDefaultAsync(s => s.Id == sprint.Id);
+            if (tracked is not null)
+            {
+                tracked.PlanInputs = JsonSerializer.Serialize(snap);
+                await db.SaveChangesAsync();
+            }
+        }
+        return snap;
+    }
+
     /// <summary>
     /// Work finished strictly before <paramref name="from"/>, per node — the only work that
     /// reduces what is left to schedule from <paramref name="from"/> onward.
@@ -2082,6 +2234,9 @@ public static class RoadmapEndpoints
 
         foreach (var sprint in sprints)
         {
+            // Sprints started before commitments existed get theirs captured on the first write.
+            await GetOrCapturePlanInputsAsync(db, sprint, persist: true);
+
             var from = today > sprint.StartDate ? today : sprint.StartDate;
 
             var stale = await db.SprintPlanEntries

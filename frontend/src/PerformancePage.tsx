@@ -167,7 +167,8 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
             {/* Overall Progress Chart with ideal + 75% + 90% lines */}
             <div className="perf-section">
               <h2>Overall Progress</h2>
-              <OverallChart items={perf.items} colors={COLORS} />
+              {/* Committed work only — bonus items have no ideal line to average against. */}
+              <OverallChart items={perf.items.filter(i => !i.isBonus)} colors={COLORS} />
             </div>
 
             {/* Sortable summary table */}
@@ -197,13 +198,17 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
                             {item.isNodeCompleted
                               ? <span title="Completed" style={{ marginLeft: 4 }}>✅</span>
                               : item.willComplete && <span title={`Projected: ${item.projectedCompletionDate}`} style={{ marginLeft: 4 }}>🎯</span>}
+                            {item.isBonus && <span className="perf-bonus-tag"
+                              title="Not committed this sprint — the queue only reached it because you got ahead. Earns points, owes none.">bonus</span>}
                             <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>{isExpanded ? '▼' : '▶'}</span>
                           </td>
-                          <td>{item.scheduledSessions}</td>
-                          <td>{item.totalMinutes >= 60 ? `${Math.round(item.totalMinutes / 60 * 10) / 10}h` : `${Math.round(item.totalMinutes)}m`}</td>
-                          <td>{fmtUnit(item.plannedUnits, item.unit)}</td>
+                          <td>{item.isBonus ? '—' : item.scheduledSessions}</td>
+                          <td>{item.isBonus ? '—' : item.totalMinutes >= 60 ? `${Math.round(item.totalMinutes / 60 * 10) / 10}h` : `${Math.round(item.totalMinutes)}m`}</td>
+                          <td>{item.isBonus ? <span style={{ color: 'var(--text-muted)' }}>—</span> : fmtUnit(item.plannedUnits, item.unit)}</td>
                           <td>{fmtUnit(item.doneUnits, item.unit)}</td>
-                          <td><span className={`perf-pct ${pct >= 100 ? 'done' : pct >= 50 ? 'mid' : 'low'}`}>{pct}%</span></td>
+                          <td>{item.isBonus
+                            ? <span className="perf-pct bonus" title="No commitment to fall short of">+{Math.round(item.earnedPoints)}</span>
+                            : <span className={`perf-pct ${pct >= 100 ? 'done' : pct >= 50 ? 'mid' : 'low'}`}>{pct}%</span>}</td>
                           <td>{item.earnedPoints}</td>
                         </tr>);
                     })}

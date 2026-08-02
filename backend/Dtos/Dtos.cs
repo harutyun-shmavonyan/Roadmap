@@ -75,9 +75,12 @@ public record PerformanceSummaryDto(
 
 /// <summary>
 /// Per-item performance within a sprint.
-/// PlannedUnits: capped at remaining for queued items, sessions may shift to next item.
+/// PlannedUnits: the sprint's frozen commitment for this item — unmoved by how fast or slow you
+///   actually went. Zero for bonus items, which were never committed to.
 /// DoneUnits: only work logged within sprint dates (from WorkLogs with matching SprintId).
 /// DailyCumulative: day-by-day sprint-local progress — actual and ideal both start at 0%.
+/// IsBonus: worked on but never committed to — the queue only reached it because you got ahead.
+///   Earns points, owes none, and is kept out of the "completing this sprint" list.
 /// </summary>
 public record PerformanceItemDto(
     Guid NodeId, string Title, string? Unit,
@@ -87,7 +90,8 @@ public record PerformanceItemDto(
     double TotalMinutes,
     bool WillComplete, string? ProjectedCompletionDate,
     List<DailyCumulativeDto> DailyCumulative,
-    bool IsNodeCompleted
+    bool IsNodeCompleted,
+    bool IsBonus = false
 );
 
 /// <summary>

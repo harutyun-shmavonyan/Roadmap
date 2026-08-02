@@ -428,6 +428,12 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 .perf-pct.done { background: var(--success-light); color: var(--success); }
 .perf-pct.mid { background: var(--warning-light); color: var(--warning); }
 .perf-pct.low { background: var(--danger-dim); color: var(--danger); }
+/* Work you did beyond what the sprint committed to — upside, so it reads as neutral-positive
+   rather than as a score you either hit or missed. */
+.perf-pct.bonus { background: var(--bg-tertiary, var(--bg-secondary)); color: var(--accent); }
+.perf-bonus-tag { margin-left: 6px; padding: 1px 6px; border-radius: 6px; font-size: 10px;
+  font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase;
+  background: var(--bg-tertiary, var(--bg-secondary)); color: var(--accent); }
 .chart-svg { width: 100%; max-width: 720px; height: auto; display: block; }
 .sprint-select { background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); font-family: var(--font-body); font-size: 14px; padding: 8px 12px; outline: none; }
 
