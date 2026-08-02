@@ -15,6 +15,11 @@ var builder = WebApplication.CreateBuilder(args);
 var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
+// Allow large uploads (article images, CV PDFs) on both the multipart endpoints and the /mcp
+// JSON-RPC body (where images ride as base64, ~33% larger). Kestrel's default cap is 30 MB;
+// raise it so full-resolution photos fit. Per-endpoint checks still enforce per-file limits.
+builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 64L * 1024 * 1024);
+
 // Auth config from env vars
 var authPassword = Environment.GetEnvironmentVariable("AUTH_PASSWORD") ?? "changeme";
 var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? "roadmap-dev-secret-key-min-32-chars!!";
@@ -37,6 +42,9 @@ else
 }
 
 builder.Services.AddDbContext<RoadmapDbContext>(options => options.UseNpgsql(connStr));
+
+// HttpClient for server-side image fetches (add_article_image_from_url MCP tool).
+builder.Services.AddHttpClient();
 
 builder.Services.AddMcpServer()
     .WithHttpTransport(o => o.Stateless = true)

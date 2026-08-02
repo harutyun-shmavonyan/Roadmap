@@ -70,6 +70,207 @@ public static class RoadmapEndpoints
             return Results.Ok(new NoteDto(note.Book, note.DayNumber, note.EntryDate.ToString("yyyy-MM-dd"), note.Content, note.CreatedAt, note.UpdatedAt));
         });
 
+        // ===== Articles (global Markdown reading library) =====
+        var articles = app.MapGroup("/api/articles").WithTags("Articles").RequireAuthorization();
+
+        // Reusable projection of an article's images without their (potentially large) bytes.
+        static Task<List<ArticleImageDto>> LoadImageDtos(RoadmapDbContext db, Guid articleId) =>
+            db.ArticleImages.AsNoTracking().Where(i => i.ArticleId == articleId)
+                .OrderBy(i => i.SortOrder).ThenBy(i => i.Name)
+                .Select(i => new ArticleImageDto(i.Name, i.ContentType, i.SortOrder)).ToListAsync();
+
+        // Normalise the requested body format to a known value; anything unknown falls back to markdown.
+        static string NormFormat(string? f) =>
+            string.Equals(f?.Trim(), "html", StringComparison.OrdinalIgnoreCase) ? "html" : "markdown";
+
+        // List returns summaries (no body) — the reader fetches full content per article.
+        // A correlated Count subquery gives each article's image count without loading any bytes.
+        articles.MapGet("/", async (RoadmapDbContext db) =>
+        {
+            var rows = await db.Articles.AsNoTracking()
+                .OrderBy(a => a.SortOrder).ThenByDescending(a => a.CreatedAt)
+                .Select(a => new { A = a, C = a.Images.Count })
+                .ToListAsync();
+            return Results.Ok(rows.Select(r => ArticleLogic.ToSummary(r.A, r.C)));
+        });
+
+        articles.MapGet("/{id:guid}", async (Guid id, RoadmapDbContext db) =>
+        {
+            var a = await db.Articles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
+            return a is null ? Results.NotFound() : Results.Ok(ArticleLogic.ToDetail(a, await LoadImageDtos(db, id)));
+        });
+
+        // Self-contained HTML document for an article (images inlined as data URIs). The reader
+        // renders this in a sandboxed iframe and the "open in new tab" button opens it as a blob —
+        // both stay behind the app's auth (this route is in the authorized group).
+        articles.MapGet("/{id:guid}/html", async (Guid id, RoadmapDbContext db) =>
+        {
+            var a = await db.Articles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
+            if (a is null) return Results.NotFound();
+            var images = await db.ArticleImages.AsNoTracking().Where(i => i.ArticleId == id).ToListAsync();
+            return Results.Content(ArticleLogic.BuildStandaloneHtml(a, images), "text/html; charset=utf-8");
+        });
+
+        articles.MapPost("/", async (CreateArticleRequest req, RoadmapDbContext db) =>
+        {
+            if (string.IsNullOrWhiteSpace(req.Title)) return Results.BadRequest("Title is required.");
+            var content = req.Content ?? "";
+            var format = NormFormat(req.Format);
+            var maxSort = await db.Articles.MaxAsync(a => (int?)a.SortOrder) ?? -1;
+            var a = new Article
+            {
+                Id = Guid.NewGuid(),
+                Title = req.Title.Trim(),
+                Content = content,
+                Format = format,
+                ChatUrl = ArticleLogic.NormChatUrl(req.ChatUrl),
+                ReadMinutes = req.ReadMinutes is > 0 ? req.ReadMinutes.Value : ArticleLogic.EstimateReadMinutes(content, format),
+                SortOrder = maxSort + 1,
+            };
+            db.Articles.Add(a);
+            await db.SaveChangesAsync();
+            return Results.Created($"/api/articles/{a.Id}", ArticleLogic.ToDetail(a));
+        });
+
+        articles.MapPut("/{id:guid}", async (Guid id, UpdateArticleRequest req, RoadmapDbContext db) =>
+        {
+            var a = await db.Articles.FirstOrDefaultAsync(x => x.Id == id);
+            if (a is null) return Results.NotFound();
+            if (!string.IsNullOrWhiteSpace(req.Title)) a.Title = req.Title.Trim();
+            if (req.Content != null) a.Content = req.Content;
+            if (req.Format != null) a.Format = NormFormat(req.Format);
+            if (req.ChatUrl != null) a.ChatUrl = ArticleLogic.NormChatUrl(req.ChatUrl);
+            // Explicit read time wins; otherwise re-estimate when the body changed.
+            if (req.ReadMinutes is > 0) a.ReadMinutes = req.ReadMinutes.Value;
+            else if (req.Content != null && (req.ReadMinutes is null)) a.ReadMinutes = ArticleLogic.EstimateReadMinutes(a.Content, a.Format);
+            a.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            return Results.Ok(ArticleLogic.ToDetail(a, await LoadImageDtos(db, id)));
+        });
+
+        articles.MapDelete("/{id:guid}", async (Guid id, RoadmapDbContext db) =>
+        {
+            var a = await db.Articles.FirstOrDefaultAsync(x => x.Id == id);
+            if (a is null) return Results.NotFound();
+            // Remove the linked achievement, if any, so deleting a read article cleans up.
+            if (a.ReadLogId is Guid logId)
+            {
+                var log = await db.CustomLogs.FirstOrDefaultAsync(c => c.Id == logId);
+                if (log != null) db.CustomLogs.Remove(log);
+            }
+            db.Articles.Remove(a);
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        });
+
+        // Mark read → credits a custom achievement (3 pts per hour of reading) to a roadmap.
+        articles.MapPost("/{id:guid}/read", async (Guid id, MarkArticleReadRequest? req, RoadmapDbContext db) =>
+        {
+            var a = await db.Articles.FirstOrDefaultAsync(x => x.Id == id);
+            if (a is null) return Results.NotFound();
+            if (a.IsRead) return Results.Ok(ArticleLogic.ToDetail(a)); // idempotent — no double credit
+
+            DateOnly date = ArticleLogic.YerevanToday();
+            if (!string.IsNullOrWhiteSpace(req?.Date) && !DateOnly.TryParse(req!.Date, out date))
+                return Results.BadRequest("Invalid date.");
+
+            // Credit the achievement to the requested roadmap, else the first one that exists.
+            var roadmapId = req?.RoadmapId
+                ?? await db.Roadmaps.OrderBy(r => r.CreatedAt).Select(r => (Guid?)r.Id).FirstOrDefaultAsync();
+            if (roadmapId is Guid rid)
+            {
+                var points = ArticleLogic.PointsFor(a.ReadMinutes);
+                var log = new CustomLog
+                {
+                    Id = Guid.NewGuid(),
+                    RoadmapId = rid,
+                    Title = $"📖 Read: {a.Title}",
+                    Points = points,
+                    Date = date,
+                    Note = $"{a.ReadMinutes} min read · 3 pts/hr",
+                };
+                db.CustomLogs.Add(log);
+                a.ReadLogId = log.Id;
+            }
+            a.IsRead = true;
+            a.ReadOn = date;
+            a.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            return Results.Ok(ArticleLogic.ToDetail(a));
+        });
+
+        // Mark pending again → removes the achievement created when it was read.
+        articles.MapPost("/{id:guid}/unread", async (Guid id, RoadmapDbContext db) =>
+        {
+            var a = await db.Articles.FirstOrDefaultAsync(x => x.Id == id);
+            if (a is null) return Results.NotFound();
+            if (a.ReadLogId is Guid logId)
+            {
+                var log = await db.CustomLogs.FirstOrDefaultAsync(c => c.Id == logId);
+                if (log != null) db.CustomLogs.Remove(log);
+            }
+            a.IsRead = false;
+            a.ReadOn = null;
+            a.ReadLogId = null;
+            a.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            return Results.Ok(ArticleLogic.ToDetail(a));
+        });
+
+        // ===== Article images (uploaded assets referenced from HTML bodies as {{img:NAME}}) =====
+
+        // Upload one or more images to an article via multipart/form-data. Every file field is
+        // stored keyed by its sanitized filename; re-uploading the same name replaces it. Mirrors
+        // the CV upload so large binaries stream from disk instead of riding a JSON payload.
+        articles.MapPost("/{id:guid}/images", async (Guid id, HttpRequest request, RoadmapDbContext db) =>
+        {
+            if (!request.HasFormContentType) return Results.BadRequest("Expected multipart/form-data with one or more file fields.");
+            var article = await db.Articles.FirstOrDefaultAsync(x => x.Id == id);
+            if (article is null) return Results.NotFound();
+            var form = await request.ReadFormAsync();
+            if (form.Files.Count == 0) return Results.BadRequest("No files uploaded.");
+
+            var maxSort = await db.ArticleImages.Where(i => i.ArticleId == id).MaxAsync(i => (int?)i.SortOrder) ?? -1;
+            var saved = new List<object>();
+            foreach (var file in form.Files)
+            {
+                if (file.Length == 0) continue;
+                if (file.Length > 40 * 1024 * 1024) return Results.BadRequest($"Image '{file.FileName}' exceeds 40 MB.");
+                var name = ArticleLogic.SanitizeImageName(file.FileName);
+                if (string.IsNullOrEmpty(name)) return Results.BadRequest("An uploaded image is missing a usable filename.");
+                using var ms = new MemoryStream();
+                await file.CopyToAsync(ms);
+                var bytes = ms.ToArray();
+                var ct = string.IsNullOrWhiteSpace(file.ContentType) || file.ContentType == "application/octet-stream"
+                    ? ArticleLogic.GuessContentType(name) : file.ContentType;
+
+                var existing = await db.ArticleImages.FirstOrDefaultAsync(i => i.ArticleId == id && i.Name == name);
+                if (existing is null)
+                    db.ArticleImages.Add(new ArticleImage { Id = Guid.NewGuid(), ArticleId = id, Name = name, ContentType = ct, Data = bytes, SortOrder = ++maxSort });
+                else { existing.ContentType = ct; existing.Data = bytes; }
+                saved.Add(new { name, contentType = ct, bytes = bytes.Length, reference = $"{{{{img:{name}}}}}" });
+            }
+            article.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            return Results.Ok(new { articleId = id, images = saved });
+        }).DisableAntiforgery();
+
+        // Raw bytes for one image — used by the editor's image manager to preview thumbnails.
+        articles.MapGet("/{id:guid}/images/{name}", async (Guid id, string name, RoadmapDbContext db) =>
+        {
+            var img = await db.ArticleImages.AsNoTracking().FirstOrDefaultAsync(i => i.ArticleId == id && i.Name == name);
+            return img is null ? Results.NotFound() : Results.File(img.Data, img.ContentType);
+        });
+
+        articles.MapDelete("/{id:guid}/images/{name}", async (Guid id, string name, RoadmapDbContext db) =>
+        {
+            var img = await db.ArticleImages.FirstOrDefaultAsync(i => i.ArticleId == id && i.Name == name);
+            if (img is null) return Results.NotFound();
+            db.ArticleImages.Remove(img);
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        });
+
         // ===== Roadmaps =====
         group.MapGet("/", async (RoadmapDbContext db) =>
             Results.Ok(await db.Roadmaps.OrderBy(r => r.CreatedAt)
@@ -108,9 +309,7 @@ public static class RoadmapEndpoints
                 return Results.Ok(new { blocks = new List<ScheduleBlockDto>(), activeSprint = (SprintDto?)null });
 
             var dow = (int)pd.DayOfWeek;
-            var relaxSet = new HashSet<string>();
-            if (!string.IsNullOrEmpty(sprint.RelaxDays))
-                try { relaxSet = System.Text.Json.JsonSerializer.Deserialize<HashSet<string>>(sprint.RelaxDays) ?? []; } catch {}
+            var relaxSet = ParseRelaxDays(sprint.RelaxDays);
             var isRelaxDay = relaxSet.Contains(pd.ToString("yyyy-MM-dd"));
             var allNodes = await db.Nodes.AsNoTracking().Where(n => n.RoadmapId == roadmapId).OrderBy(n => n.SortOrder).ToListAsync();
             var schedBlocks = await db.ScheduleBlocks.AsNoTracking().Include(sb => sb.Items).Where(sb => sb.RoadmapId == roadmapId).ToListAsync();
@@ -125,7 +324,16 @@ public static class RoadmapEndpoints
             var workLogDates = workLogDatesList
                 .GroupBy(w => w.NodeId)
                 .ToDictionary(g => g.Key, g => new HashSet<DateOnly>(g.Select(w => w.Date)));
-            var today = DateOnly.FromDateTime(DateTime.Today);
+            // Date each node was completed — used so that completing a task only advances the
+            // queue from the NEXT day onward, leaving the completion day and earlier untouched.
+            var completionRaw = await db.StatusChanges.AsNoTracking()
+                .Where(s => s.RoadmapId == roadmapId && s.NewStatus == ActionItemStatus.Completed)
+                .Select(s => new { s.NodeId, s.ChangedAt })
+                .ToListAsync();
+            var completionDates = completionRaw
+                .GroupBy(s => s.NodeId)
+                .ToDictionary(g => g.Key, g => AppClock.ToLocalDate(g.Max(x => x.ChangedAt)));
+            var today = AppClock.Today();
 
             var blocks = new List<ScheduleBlockDto>();
             var scheduledNodeIds = new HashSet<Guid>();
@@ -149,11 +357,13 @@ public static class RoadmapEndpoints
                 {
                     var blockTmpl = ParseTemplate(sblock.ScheduleTemplate);
                     if (blockTmpl is null || !blockTmpl.Days.Contains(dow)) continue;
+                    // Completed items stay in the queue so past/current days keep showing them;
+                    // the projection advances past them only after their completion date.
                     var queue = sblock.Items
-                        .Where(n => n.IsActionable && (n.Status == ActionItemStatus.Active || n.Status == ActionItemStatus.NotStarted))
+                        .Where(n => n.IsActionable && (n.Status == ActionItemStatus.Active || n.Status == ActionItemStatus.NotStarted || n.Status == ActionItemStatus.Completed))
                         .OrderBy(n => n.BlockSortOrder).ToList();
                     if (queue.Count == 0) continue;
-                    var projected = ProjectBlockQueueToDate(queue, blockTmpl, pd, sprint.StartDate, workLogDates, today);
+                    var projected = ProjectBlockQueueToDate(queue, blockTmpl, pd, sprint.StartDate, workLogDates, completionDates, today);
                     if (projected is null) continue;
                     blocks.Add(MakeBlock(projected, blockTmpl, dow));
                     scheduledNodeIds.Add(projected.Id);
@@ -207,6 +417,7 @@ public static class RoadmapEndpoints
                 PointsPerUnit = req.PointsPerUnit, ScheduleTemplate = req.ScheduleTemplate,
                 IsChecklist = req.IsChecklist };
             db.Nodes.Add(node); await db.SaveChangesAsync();
+            await ReplanStartedSprintsAsync(db, roadmapId);
             return Results.Created("", new NodeDto(node.Id, node.ParentId, node.Title, node.IsActionable, node.Status.ToString(),
                 node.Unit, node.TotalSize, node.UnitsPerHour, node.PointsPerUnit, node.ScheduleTemplate, node.SortOrder, node.ScheduleBlockId, node.BlockSortOrder, [], [], node.IsChecklist));
         });
@@ -219,7 +430,9 @@ public static class RoadmapEndpoints
             node.IsChecklist = req.IsChecklist;
             node.Unit = req.Unit; node.TotalSize = req.TotalSize; node.UnitsPerHour = req.UnitsPerHour;
             node.PointsPerUnit = req.PointsPerUnit; node.ScheduleTemplate = req.ScheduleTemplate;
-            await db.SaveChangesAsync(); return Results.NoContent();
+            await db.SaveChangesAsync();
+            await ReplanStartedSprintsAsync(db, roadmapId);
+            return Results.NoContent();
         });
 
         nodes.MapPatch("/{nodeId:guid}/status", async (Guid roadmapId, Guid nodeId, UpdateNodeStatusRequest req, RoadmapDbContext db) =>
@@ -232,7 +445,9 @@ public static class RoadmapEndpoints
             db.StatusChanges.Add(new StatusChange { Id = Guid.NewGuid(), RoadmapId = roadmapId, NodeId = nodeId, OldStatus = old, NewStatus = st, Trigger = "manual" });
             if (st == ActionItemStatus.Completed)
                 await ActivateNextInQueue(db, node);
-            await db.SaveChangesAsync(); return Results.NoContent();
+            await db.SaveChangesAsync();
+            await ReplanStartedSprintsAsync(db, roadmapId);
+            return Results.NoContent();
         });
 
         nodes.MapPatch("/{nodeId:guid}/move", async (Guid roadmapId, Guid nodeId, MoveNodeRequest req, RoadmapDbContext db) =>
@@ -280,7 +495,9 @@ public static class RoadmapEndpoints
         nodes.MapDelete("/{nodeId:guid}", async (Guid roadmapId, Guid nodeId, RoadmapDbContext db) =>
         {
             var node = await db.Nodes.FirstOrDefaultAsync(n => n.Id == nodeId && n.RoadmapId == roadmapId);
-            if (node is null) return Results.NotFound(); db.Nodes.Remove(node); await db.SaveChangesAsync(); return Results.NoContent();
+            if (node is null) return Results.NotFound(); db.Nodes.Remove(node); await db.SaveChangesAsync();
+            await ReplanStartedSprintsAsync(db, roadmapId);
+            return Results.NoContent();
         });
 
         // Node subpoint templates (used by checklist nodes)
@@ -364,9 +581,31 @@ public static class RoadmapEndpoints
             var sp = await db.Sprints.FirstOrDefaultAsync(s => s.Id == sprintId && s.RoadmapId == roadmapId);
             if (sp is null) return Results.NotFound();
             if (!sp.IsOpen) return Results.BadRequest("Already closed.");
-            var yesterday = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1);
-            sp.EndDate = sp.StartDate > DateOnly.FromDateTime(DateTime.UtcNow) ? sp.StartDate.AddDays(-1) : yesterday;
+            var yesterday = AppClock.Today().AddDays(-1);
+            sp.EndDate = sp.StartDate > AppClock.Today() ? sp.StartDate.AddDays(-1) : yesterday;
             await db.SaveChangesAsync();
+            return Results.Ok(ToSprintDto(sp));
+        });
+
+        // Edit sprint name/dates. Safe after start: past plan rows are frozen history, and
+        // Performance is window-filtered to [StartDate, EndDate], so changing the end date
+        // (e.g. to complete early) reshapes the performance numbers without touching data.
+        // Extending the end date re-plans the added days from today's state.
+        sprints.MapPatch("/{sprintId:guid}", async (Guid roadmapId, Guid sprintId, UpdateSprintRequest req, RoadmapDbContext db) =>
+        {
+            var sp = await db.Sprints.FirstOrDefaultAsync(s => s.Id == sprintId && s.RoadmapId == roadmapId);
+            if (sp is null) return Results.NotFound();
+            if (!DateOnly.TryParse(req.StartDate, out var s) || !DateOnly.TryParse(req.EndDate, out var e))
+                return Results.BadRequest("Invalid date.");
+            if (e < s) return Results.BadRequest("End date must be on or after start date.");
+            var overlap = await db.Sprints.AnyAsync(x => x.RoadmapId == roadmapId && x.Id != sprintId && x.StartDate <= e && x.EndDate >= s);
+            if (overlap) return Results.BadRequest("Sprint dates overlap with an existing sprint.");
+            if (string.IsNullOrWhiteSpace(req.Name)) return Results.BadRequest("Name is required.");
+            sp.Name = req.Name.Trim();
+            sp.StartDate = s;
+            sp.EndDate = e;
+            await db.SaveChangesAsync();
+            await ReplanStartedSprintsAsync(db, roadmapId);
             return Results.Ok(ToSprintDto(sp));
         });
 
@@ -375,13 +614,12 @@ public static class RoadmapEndpoints
             if (!DateOnly.TryParse(date, out var pd)) return Results.BadRequest("Invalid date.");
             var sp = await db.Sprints.FirstOrDefaultAsync(s => s.Id == sprintId && s.RoadmapId == roadmapId);
             if (sp is null) return Results.NotFound();
-            var days = new HashSet<string>();
-            if (!string.IsNullOrEmpty(sp.RelaxDays))
-                try { days = System.Text.Json.JsonSerializer.Deserialize<HashSet<string>>(sp.RelaxDays) ?? []; } catch {}
+            var days = ParseRelaxDays(sp.RelaxDays);
             var ds = pd.ToString("yyyy-MM-dd");
             if (days.Contains(ds)) days.Remove(ds); else days.Add(ds);
             sp.RelaxDays = System.Text.Json.JsonSerializer.Serialize(days);
             await db.SaveChangesAsync();
+            await ReplanStartedSprintsAsync(db, roadmapId);
             return Results.Ok(ToSprintDto(sp));
         });
 
@@ -455,10 +693,7 @@ public static class RoadmapEndpoints
             var dates = new List<DateOnly>();
             for (var d = sprint.StartDate; d <= sprint.EndDate; d = d.AddDays(1)) dates.Add(d);
 
-            var relaxSet1 = new HashSet<string>();
-            if (!string.IsNullOrEmpty(sprint.RelaxDays))
-                try { relaxSet1 = System.Text.Json.JsonSerializer.Deserialize<HashSet<string>>(sprint.RelaxDays) ?? []; } catch {}
-            var computed = ComputeSprintPlan(allNodes, blocks, dates, allTimeLogged, relaxSet1);
+            var computed = ComputeSprintPlan(allNodes, blocks, dates, allTimeLogged, ParseRelaxDays(sprint.RelaxDays));
             var entries = computed.Select(c => new SprintPlanEntry
             {
                 Id = Guid.NewGuid(), SprintId = sprint.Id, NodeId = c.NodeId,
@@ -498,11 +733,14 @@ public static class RoadmapEndpoints
 
             if (sprint.IsStarted)
             {
+                // Bound the frozen snapshot + logs to the sprint's CURRENT window so that
+                // editing StartDate/EndDate after start correctly reshapes Performance
+                // (the snapshot stays immutable; out-of-window rows are simply excluded).
                 var planEntries = await db.SprintPlanEntries.AsNoTracking()
-                    .Where(p => p.SprintId == sprintId).ToListAsync();
+                    .Where(p => p.SprintId == sprintId && p.Date >= sprint.StartDate && p.Date <= sprint.EndDate).ToListAsync();
                 planData = planEntries.Select(p => (p.NodeId, p.Date, p.PlannedUnits, p.DurationMinutes)).ToList();
                 sprintLogs = await db.WorkLogs.AsNoTracking()
-                    .Where(w => w.SprintId == sprintId).ToListAsync();
+                    .Where(w => w.SprintId == sprintId && w.Date >= sprint.StartDate && w.Date <= sprint.EndDate).ToListAsync();
             }
             else
             {
@@ -512,10 +750,7 @@ public static class RoadmapEndpoints
                 var allTimeLogged = await db.WorkLogs.AsNoTracking().Where(w => w.RoadmapId == roadmapId)
                     .GroupBy(w => w.NodeId).Select(g => new { g.Key, Total = g.Sum(w => w.Amount) })
                     .ToDictionaryAsync(x => x.Key, x => x.Total);
-                var relaxSet2 = new HashSet<string>();
-                if (!string.IsNullOrEmpty(sprint.RelaxDays))
-                    try { relaxSet2 = System.Text.Json.JsonSerializer.Deserialize<HashSet<string>>(sprint.RelaxDays) ?? []; } catch {}
-                var computed = ComputeSprintPlan(allNodes, blocks, dates, allTimeLogged, relaxSet2);
+                var computed = ComputeSprintPlan(allNodes, blocks, dates, allTimeLogged, ParseRelaxDays(sprint.RelaxDays));
                 planData = computed.Select(c => (c.NodeId, c.Date, c.PlannedUnits, c.DurationMinutes)).ToList();
                 sprintLogs = []; // no logs for draft
             }
@@ -618,7 +853,7 @@ public static class RoadmapEndpoints
             }
 
             // Add habit points: +2 for checked, -2 for missed (strictly past days only)
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var today = AppClock.Today();
             var sprintHabits = await db.SprintHabits.AsNoTracking().Include(sh => sh.Checks)
                 .Where(sh => sh.SprintId == sprintId && !sh.IsPaused).ToListAsync();
             double totalHabitPlannedPts = 0;
@@ -791,6 +1026,7 @@ public static class RoadmapEndpoints
                     await db.SaveChangesAsync();
                 }
             }
+            await ReplanStartedSprintsAsync(db, roadmapId);
             return Results.NoContent();
         });
 
@@ -817,6 +1053,7 @@ public static class RoadmapEndpoints
                 }
                 await db.SaveChangesAsync();
             }
+            await ReplanStartedSprintsAsync(db, roadmapId);
             return Results.NoContent();
         });
 
@@ -836,6 +1073,7 @@ public static class RoadmapEndpoints
                     await db.SaveChangesAsync();
                 }
             }
+            await ReplanStartedSprintsAsync(db, roadmapId);
             return Results.NoContent();
         });
 
@@ -1056,7 +1294,9 @@ public static class RoadmapEndpoints
             var sb = await db.ScheduleBlocks.FirstOrDefaultAsync(x => x.Id == blockId && x.RoadmapId == roadmapId);
             if (sb is null) return Results.NotFound();
             sb.Name = req.Name.Trim(); sb.ScheduleTemplate = req.ScheduleTemplate;
-            await db.SaveChangesAsync(); return Results.NoContent();
+            await db.SaveChangesAsync();
+            await ReplanStartedSprintsAsync(db, roadmapId);
+            return Results.NoContent();
         });
 
         sblocks.MapDelete("/{blockId:guid}", async (Guid roadmapId, Guid blockId, RoadmapDbContext db) =>
@@ -1066,7 +1306,9 @@ public static class RoadmapEndpoints
             // Unlink items (set ScheduleBlockId to null)
             var items = await db.Nodes.Where(n => n.ScheduleBlockId == blockId).ToListAsync();
             foreach (var i in items) { i.ScheduleBlockId = null; i.BlockSortOrder = 0; }
-            db.ScheduleBlocks.Remove(sb); await db.SaveChangesAsync(); return Results.NoContent();
+            db.ScheduleBlocks.Remove(sb); await db.SaveChangesAsync();
+            await ReplanStartedSprintsAsync(db, roadmapId);
+            return Results.NoContent();
         });
 
         // Assign item to block
@@ -1087,7 +1329,9 @@ public static class RoadmapEndpoints
                 var old = node.Status; node.Status = ActionItemStatus.Active;
                 db.StatusChanges.Add(new StatusChange { Id = Guid.NewGuid(), RoadmapId = roadmapId, NodeId = node.Id, OldStatus = old, NewStatus = ActionItemStatus.Active, Trigger = "block_assign" });
             }
-            await db.SaveChangesAsync(); return Results.NoContent();
+            await db.SaveChangesAsync();
+            await ReplanStartedSprintsAsync(db, roadmapId);
+            return Results.NoContent();
         });
 
         // Remove item from block
@@ -1096,7 +1340,9 @@ public static class RoadmapEndpoints
             var node = await db.Nodes.FirstOrDefaultAsync(n => n.Id == nodeId && n.ScheduleBlockId == blockId);
             if (node is null) return Results.NotFound();
             node.ScheduleBlockId = null; node.BlockSortOrder = 0;
-            await db.SaveChangesAsync(); return Results.NoContent();
+            await db.SaveChangesAsync();
+            await ReplanStartedSprintsAsync(db, roadmapId);
+            return Results.NoContent();
         });
 
         // Reorder item within block
@@ -1109,7 +1355,9 @@ public static class RoadmapEndpoints
             var newIdx = req.Direction == "up" ? idx - 1 : idx + 1;
             if (newIdx < 0 || newIdx >= items.Count) return Results.BadRequest("Already at edge.");
             (items[idx].BlockSortOrder, items[newIdx].BlockSortOrder) = (items[newIdx].BlockSortOrder, items[idx].BlockSortOrder);
-            await db.SaveChangesAsync(); return Results.NoContent();
+            await db.SaveChangesAsync();
+            await ReplanStartedSprintsAsync(db, roadmapId);
+            return Results.NoContent();
         });
 
         // Batch reorder — set full order from an array of node IDs
@@ -1122,7 +1370,9 @@ public static class RoadmapEndpoints
                 if (lookup.TryGetValue(req.NodeIds[i], out var node))
                     node.BlockSortOrder = i;
             }
-            await db.SaveChangesAsync(); return Results.NoContent();
+            await db.SaveChangesAsync();
+            await ReplanStartedSprintsAsync(db, roadmapId);
+            return Results.NoContent();
         });
 
         // ===== Custom Logs =====
@@ -1286,7 +1536,7 @@ public static class RoadmapEndpoints
         {
             var t = await db.SingleTasks.FirstOrDefaultAsync(x => x.Id == taskId && x.RoadmapId == roadmapId);
             if (t is null) return Results.NotFound();
-            t.DelayedUntil = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(3);
+            t.DelayedUntil = AppClock.Today().AddDays(3);
             await db.SaveChangesAsync(); return Results.NoContent();
         });
 
@@ -1295,7 +1545,7 @@ public static class RoadmapEndpoints
         {
             if (!DateOnly.TryParse(date, out var pd)) return Results.BadRequest("Invalid date.");
             var dow = (int)pd.DayOfWeek;
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var today = AppClock.Today();
 
             var candidates = await db.SingleTasks.AsNoTracking()
                 .Where(t => t.RoadmapId == roadmapId && !t.IsCompleted && t.StartDate <= pd
@@ -1657,20 +1907,42 @@ public static class RoadmapEndpoints
     /// <summary>
     /// Compute queue-aware, capped plan entries for a sprint date range.
     /// Uses schedule blocks for queued items and self-scheduled items for the rest.
+    ///
+    /// <paramref name="completionBoundaries"/> switches this into re-plan mode. Without it
+    /// (Start Sprint, draft projection) completed items are simply dropped. With it, an item
+    /// completed on or after the first date still owns its slots up to its completion day —
+    /// so hitting Complete today leaves today's session with that item and hands the next
+    /// queued item the *following* scheduled day, matching the daily schedule view.
     /// </summary>
     private static List<ComputedPlanEntry> ComputeSprintPlan(
-        List<RoadmapNode> allNodes, List<ScheduleBlock> blocks, List<DateOnly> dates, Dictionary<Guid, double> allTimeLogged, HashSet<string>? relaxDays = null)
+        List<RoadmapNode> allNodes, List<ScheduleBlock> blocks, List<DateOnly> dates, Dictionary<Guid, double> allTimeLogged,
+        HashSet<string>? relaxDays = null, Dictionary<Guid, DateOnly>? completionBoundaries = null)
     {
         var entries = new List<ComputedPlanEntry>();
+        if (dates.Count == 0) return entries;
+
         var blockItemIds = new HashSet<Guid>();
         var relaxSet = relaxDays ?? [];
+        var planFrom = dates[0];
+        var beforePlan = planFrom > DateOnly.MinValue ? planFrom.AddDays(-1) : DateOnly.MinValue;
+
+        // The day a completed item stops occupying the schedule, or null when the item is
+        // still open. Completions that landed before the re-planned window free their slots
+        // immediately; completions from planFrom onward keep them through the completion day.
+        DateOnly? OccupiedThrough(RoadmapNode n)
+        {
+            if (n.Status != ActionItemStatus.Completed) return null;
+            if (completionBoundaries is null) return beforePlan;
+            return completionBoundaries.TryGetValue(n.Id, out var b) ? b : beforePlan;
+        }
 
         // Schedule block queues
         foreach (var block in blocks)
         {
             var blockTmpl = ParseTemplate(block.ScheduleTemplate); if (blockTmpl is null) continue;
             var queue = block.Items
-                .Where(n => n.IsActionable && (n.Status == ActionItemStatus.Active || n.Status == ActionItemStatus.NotStarted))
+                .Where(n => n.IsActionable && (n.Status == ActionItemStatus.Active || n.Status == ActionItemStatus.NotStarted
+                    || (n.Status == ActionItemStatus.Completed && OccupiedThrough(n) >= planFrom)))
                 .OrderBy(n => n.BlockSortOrder).ToList();
             if (queue.Count == 0) continue;
 
@@ -1684,15 +1956,27 @@ public static class RoadmapEndpoints
                 var ddow = (int)date.DayOfWeek;
                 if (!blockTmpl.Days.Contains(ddow)) continue;
                 if (relaxSet.Contains(date.ToString("yyyy-MM-dd"))) continue;
+
+                // Step past items whose completion day has passed — the next one takes over here.
+                while (qi < queue.Count && OccupiedThrough(queue[qi]) is DateOnly done && date > done)
+                {
+                    qi++;
+                    if (qi < queue.Count) remainingForCurrent = GetRemaining(queue[qi], allTimeLogged);
+                }
                 if (qi >= queue.Count) break;
 
                 var item = queue[qi];
                 var dur = blockTmpl.GetDurationMinutes(ddow);
                 var rawPlanned = item.UnitsPerHour.HasValue ? (dur / 60.0) * item.UnitsPerHour.Value : 0;
-                var actualPlanned = Math.Min(rawPlanned, remainingForCurrent);
+                // A closed item keeps the session it was scheduled for; "remaining" is
+                // meaningless once it is done (it may have been completed short of its size).
+                var isClosed = item.Status == ActionItemStatus.Completed;
+                var actualPlanned = isClosed ? rawPlanned : Math.Min(rawPlanned, remainingForCurrent);
 
                 if (actualPlanned > 0)
                     entries.Add(new ComputedPlanEntry(item.Id, date, blockTmpl.GetStartMinute(ddow), dur, Math.Round(actualPlanned, 2)));
+
+                if (isClosed) continue;
 
                 remainingForCurrent -= actualPlanned;
 
@@ -1708,21 +1992,24 @@ public static class RoadmapEndpoints
         // Self-scheduled items (have their own ScheduleTemplate, NOT in any block)
         foreach (var n in allNodes.Where(n => n.IsActionable && n.ScheduleTemplate != null
             && !blockItemIds.Contains(n.Id)
-            && (n.Status == ActionItemStatus.Active || n.Status == ActionItemStatus.NotStarted)))
+            && (n.Status == ActionItemStatus.Active || n.Status == ActionItemStatus.NotStarted
+                || (n.Status == ActionItemStatus.Completed && OccupiedThrough(n) >= planFrom))))
         {
             var tmpl = ParseTemplate(n.ScheduleTemplate); if (tmpl is null) continue;
+            var occupiedThrough = OccupiedThrough(n);
             var remaining = GetRemaining(n, allTimeLogged);
             foreach (var date in dates)
             {
-                if (remaining <= 0.01) break;
+                if (occupiedThrough.HasValue) { if (date > occupiedThrough.Value) break; }
+                else if (remaining <= 0.01) break;
                 var ddow = (int)date.DayOfWeek;
                 if (!tmpl.Days.Contains(ddow)) continue;
                 if (relaxSet.Contains(date.ToString("yyyy-MM-dd"))) continue;
                 var dur = tmpl.GetDurationMinutes(ddow);
                 var rawPlanned = n.UnitsPerHour.HasValue ? (dur / 60.0) * n.UnitsPerHour.Value : 0;
-                var actualPlanned = Math.Min(rawPlanned, remaining);
+                var actualPlanned = occupiedThrough.HasValue ? rawPlanned : Math.Min(rawPlanned, remaining);
                 entries.Add(new ComputedPlanEntry(n.Id, date, tmpl.GetStartMinute(ddow), dur, Math.Round(actualPlanned, 2)));
-                remaining -= actualPlanned;
+                if (!occupiedThrough.HasValue) remaining -= actualPlanned;
             }
         }
 
@@ -1730,16 +2017,103 @@ public static class RoadmapEndpoints
     }
 
     /// <summary>
+    /// Relax days are stored on the sprint as a JSON array of "yyyy-MM-dd" strings.
+    /// </summary>
+    private static HashSet<string> ParseRelaxDays(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return [];
+        try { return JsonSerializer.Deserialize<HashSet<string>>(json) ?? []; } catch { return []; }
+    }
+
+    /// <summary>
+    /// The last day each completed item still occupies the schedule: its completion date,
+    /// extended to its last logged work day when that came later.
+    /// </summary>
+    private static async Task<Dictionary<Guid, DateOnly>> LoadCompletionBoundariesAsync(RoadmapDbContext db, Guid roadmapId)
+    {
+        var completions = await db.StatusChanges.AsNoTracking()
+            .Where(s => s.RoadmapId == roadmapId && s.NewStatus == ActionItemStatus.Completed)
+            .Select(s => new { s.NodeId, s.ChangedAt }).ToListAsync();
+        var boundaries = completions.GroupBy(s => s.NodeId)
+            .ToDictionary(g => g.Key, g => AppClock.ToLocalDate(g.Max(x => x.ChangedAt)));
+
+        var lastLogged = await db.WorkLogs.AsNoTracking().Where(w => w.RoadmapId == roadmapId)
+            .GroupBy(w => w.NodeId).Select(g => new { g.Key, Last = g.Max(w => w.Date) }).ToListAsync();
+        foreach (var l in lastLogged)
+            if (boundaries.TryGetValue(l.Key, out var b) && l.Last > b) boundaries[l.Key] = l.Last;
+
+        return boundaries;
+    }
+
+    /// <summary>
+    /// Rebuild the still-provisional half of every running (and not-yet-reached) sprint's plan.
+    ///
+    /// Days before today are frozen history and are never rewritten — a session you were
+    /// planned to do and skipped stays on the record. Today onward is recomputed from the
+    /// items' current state: sizes, all work logged so far, completions, and queue order. So
+    /// finishing an item early hands its remaining sessions to whatever queues behind it, and
+    /// growing an item's size pushes the followers back. Sprints that have already ended have
+    /// no re-plannable days left and are skipped.
+    ///
+    /// Call after any write that can change what is planned; it is a no-op when nothing moved.
+    /// </summary>
+    internal static async Task ReplanStartedSprintsAsync(RoadmapDbContext db, Guid roadmapId)
+    {
+        var today = AppClock.Today();
+        var sprints = await db.Sprints.AsNoTracking()
+            .Where(s => s.RoadmapId == roadmapId && s.IsStarted && s.EndDate >= today).ToListAsync();
+        if (sprints.Count == 0) return;
+
+        var allNodes = await db.Nodes.AsNoTracking().Where(n => n.RoadmapId == roadmapId)
+            .OrderBy(n => n.SortOrder).ToListAsync();
+        var blocks = await db.ScheduleBlocks.AsNoTracking().Include(sb => sb.Items)
+            .Where(sb => sb.RoadmapId == roadmapId).ToListAsync();
+        var allTimeLogged = await db.WorkLogs.AsNoTracking().Where(w => w.RoadmapId == roadmapId)
+            .GroupBy(w => w.NodeId).Select(g => new { g.Key, Total = g.Sum(w => w.Amount) })
+            .ToDictionaryAsync(x => x.Key, x => x.Total);
+        var boundaries = await LoadCompletionBoundariesAsync(db, roadmapId);
+
+        foreach (var sprint in sprints)
+        {
+            var from = today > sprint.StartDate ? today : sprint.StartDate;
+
+            var stale = await db.SprintPlanEntries
+                .Where(p => p.SprintId == sprint.Id && p.Date >= from).ToListAsync();
+            db.SprintPlanEntries.RemoveRange(stale);
+
+            var dates = new List<DateOnly>();
+            for (var d = from; d <= sprint.EndDate; d = d.AddDays(1)) dates.Add(d);
+            if (dates.Count == 0) continue;
+
+            var computed = ComputeSprintPlan(allNodes, blocks, dates, allTimeLogged,
+                ParseRelaxDays(sprint.RelaxDays), boundaries);
+
+            db.SprintPlanEntries.AddRange(computed.Select(c => new SprintPlanEntry
+            {
+                Id = Guid.NewGuid(), SprintId = sprint.Id, NodeId = c.NodeId, CategoryId = null,
+                Date = c.Date, StartMinute = c.StartMinute, DurationMinutes = c.DurationMinutes,
+                PlannedUnits = c.PlannedUnits
+            }));
+        }
+
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
     /// Project which item in a block queue should play on a target date.
     /// Walks from baseDate forward, consuming sessions for each item until we reach targetDate.
     /// </summary>
     private static RoadmapNode? ProjectBlockQueueToDate(List<RoadmapNode> queue, TemplateData blockTmpl,
-        DateOnly targetDate, DateOnly baseDate, Dictionary<Guid, HashSet<DateOnly>> workLogDates, DateOnly today)
+        DateOnly targetDate, DateOnly baseDate, Dictionary<Guid, HashSet<DateOnly>> workLogDates,
+        Dictionary<Guid, DateOnly> completionDates, DateOnly today)
     {
         if (queue.Count == 0) return null;
         var itemSessions = new List<(RoadmapNode Node, int SessionsNeeded)>();
         foreach (var item in queue)
         {
+            // Completed items keep their slot; they're advanced past by completion date, not sessions.
+            if (item.Status == ActionItemStatus.Completed)
+            { itemSessions.Add((item, 0)); continue; }
             if (!item.TotalSize.HasValue || !item.UnitsPerHour.HasValue || item.UnitsPerHour.Value == 0)
             { itemSessions.Add((item, int.MaxValue)); continue; }
             var dur = blockTmpl.DurationMinutes;
@@ -1755,12 +2129,20 @@ public static class RoadmapEndpoints
         for (var d = baseDate; d <= maxDate && d <= targetDate.AddDays(1); d = d.AddDays(1))
         {
             if (!blockTmpl.Days.Contains((int)d.DayOfWeek)) continue;
+            // Advance past completed items only once we're strictly past their completion boundary,
+            // so the completion day and earlier still show the completed task — the next task in the
+            // queue only takes over the following scheduled day.
+            while (queueIdx < itemSessions.Count
+                   && itemSessions[queueIdx].Node.Status == ActionItemStatus.Completed
+                   && d > CompletionBoundary(itemSessions[queueIdx].Node, completionDates, workLogDates, baseDate))
+            { queueIdx++; sessionsConsumed = 0; }
             if (queueIdx >= itemSessions.Count) return null;
             if (d == targetDate) return itemSessions[queueIdx].Node;
+            var current = itemSessions[queueIdx].Node;
+            if (current.Status == ActionItemStatus.Completed) continue; // handled by the while-loop above
             // For past days: only consume a session if work was actually logged on that day.
             // For today and future days: assume work will happen (optimistic calendar projection).
-            var currentNodeId = itemSessions[queueIdx].Node.Id;
-            bool workedThisDay = d >= today || (workLogDates.TryGetValue(currentNodeId, out var dates) && dates.Contains(d));
+            bool workedThisDay = d >= today || (workLogDates.TryGetValue(current.Id, out var dates) && dates.Contains(d));
             if (workedThisDay)
             {
                 sessionsConsumed++;
@@ -1769,6 +2151,22 @@ public static class RoadmapEndpoints
             }
         }
         return queueIdx < itemSessions.Count ? itemSessions[queueIdx].Node : null;
+    }
+
+    /// <summary>
+    /// The last day a completed task should still occupy the schedule: its completion date,
+    /// extended to its last logged work day if that came later. The queue advances to the next
+    /// task on the first scheduled day AFTER this boundary.
+    /// </summary>
+    private static DateOnly CompletionBoundary(RoadmapNode n, Dictionary<Guid, DateOnly> completionDates,
+        Dictionary<Guid, HashSet<DateOnly>> workLogDates, DateOnly baseDate)
+    {
+        DateOnly? boundary = null;
+        if (completionDates.TryGetValue(n.Id, out var c)) boundary = c;
+        if (workLogDates.TryGetValue(n.Id, out var logs) && logs.Count > 0)
+        { var last = logs.Max(); if (boundary is null || last > boundary) boundary = last; }
+        // No completion record and no logs: fall back to pre-start so it's advanced immediately.
+        return boundary ?? baseDate.AddDays(-1);
     }
 
     internal static async Task ActivateNextInQueue(RoadmapDbContext db, RoadmapNode completedNode)

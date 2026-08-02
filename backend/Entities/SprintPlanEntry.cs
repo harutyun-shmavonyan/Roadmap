@@ -1,8 +1,14 @@
 namespace Roadmap.Api.Entities;
 
 /// <summary>
-/// A snapshot entry: on this date, this item was planned for this time slot.
-/// Created when "Start Sprint" is clicked. Immutable after that.
+/// A plan entry: on this date, this item is planned for this time slot.
+///
+/// First written when "Start Sprint" is clicked. From then on the plan is *living*: entries
+/// dated before today are frozen history and are never rewritten, while entries from today
+/// onward are rebuilt by <c>RoadmapEndpoints.ReplanStartedSprintsAsync</c> whenever something
+/// that shapes the plan changes mid-sprint — work logged (including backdated), an item
+/// completed or reopened, a size/rate/schedule edit, or a queue reorder. That is what lets an
+/// item finished early hand its remaining sessions to whatever is queued behind it.
 /// </summary>
 public class SprintPlanEntry
 {

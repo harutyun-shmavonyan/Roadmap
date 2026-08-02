@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ModelContextProtocol.Server;
 using Roadmap.Api.Data;
 using Roadmap.Api.Dtos;
+using Roadmap.Api.Endpoints;
 using Roadmap.Api.Entities;
 
 namespace Roadmap.Api.Mcp;
@@ -101,6 +102,7 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         };
         db.Nodes.Add(node);
         await db.SaveChangesAsync();
+        await RoadmapEndpoints.ReplanStartedSprintsAsync(db, roadmap_id);
         return J(new NodeDto(node.Id, node.ParentId, node.Title, node.IsActionable, node.Status.ToString(),
             node.Unit, node.TotalSize, node.UnitsPerHour, node.PointsPerUnit, node.ScheduleTemplate,
             node.SortOrder, node.ScheduleBlockId, node.BlockSortOrder, [], []));
@@ -123,6 +125,7 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         node.Title = title; node.IsActionable = is_actionable; node.SortOrder = sort_order;
         node.Unit = unit; node.TotalSize = total_size; node.UnitsPerHour = units_per_hour; node.PointsPerUnit = points_per_unit;
         await db.SaveChangesAsync();
+        await RoadmapEndpoints.ReplanStartedSprintsAsync(db, roadmap_id);
         return J(new { success = true });
     }
 
@@ -139,7 +142,10 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         if (old == st) return J(new { success = true, message = "Status unchanged" });
         node.Status = st;
         db.StatusChanges.Add(new StatusChange { Id = Guid.NewGuid(), RoadmapId = roadmap_id, NodeId = node_id, OldStatus = old, NewStatus = st, Trigger = "mcp" });
+        if (st == ActionItemStatus.Completed)
+            await ActivateNextInQueue(node);
         await db.SaveChangesAsync();
+        await RoadmapEndpoints.ReplanStartedSprintsAsync(db, roadmap_id);
         return J(new { success = true, oldStatus = old.ToString(), newStatus = st.ToString() });
     }
 
@@ -152,6 +158,7 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         if (node is null) return J(new { error = "Node not found" });
         db.Nodes.Remove(node);
         await db.SaveChangesAsync();
+        await RoadmapEndpoints.ReplanStartedSprintsAsync(db, roadmap_id);
         return J(new { success = true });
     }
 
@@ -309,7 +316,7 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         var workLogDates = workLogDatesList
             .GroupBy(w => w.NodeId)
             .ToDictionary(g => g.Key, g => new HashSet<DateOnly>(g.Select(w => w.Date)));
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = AppClock.Today();
 
         var blocks = new List<object>();
         var scheduledIds = new HashSet<Guid>();
@@ -389,9 +396,11 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
                 db.StatusChanges.Add(new StatusChange { Id = Guid.NewGuid(), RoadmapId = roadmap_id, NodeId = node_id, OldStatus = old, NewStatus = ActionItemStatus.Completed, Trigger = "auto_completed_mcp" });
                 await ActivateNextInQueue(node);
                 await db.SaveChangesAsync();
+                await RoadmapEndpoints.ReplanStartedSprintsAsync(db, roadmap_id);
                 return J(new { success = true, autoCompleted = true });
             }
         }
+        await RoadmapEndpoints.ReplanStartedSprintsAsync(db, roadmap_id);
         return J(new { success = true, autoCompleted = false });
     }
 
@@ -821,18 +830,7 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         return normalized is "red" or "green";
     }
 
-    // Armenia (Asia/Yerevan) is UTC+4 year-round (no DST since 2012). Resolve via the
-    // tz database when available, but fall back to a fixed offset since the alpine
-    // runtime image ships without tzdata and InvariantGlobalization is enabled.
-    private static readonly TimeZoneInfo YerevanTz = ResolveYerevanTz();
-    private static TimeZoneInfo ResolveYerevanTz()
-    {
-        foreach (var id in new[] { "Asia/Yerevan", "Caucasus Standard Time" })
-            try { return TimeZoneInfo.FindSystemTimeZoneById(id); } catch { }
-        return TimeZoneInfo.CreateCustomTimeZone("Yerevan+4", TimeSpan.FromHours(4), "Yerevan", "Yerevan");
-    }
-    private static DateOnly YerevanToday() =>
-        DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, YerevanTz));
+    private static DateOnly YerevanToday() => AppClock.Today();
 
     private static NoteDto ToNoteDto(Note n) => new(n.Book, n.DayNumber, n.EntryDate.ToString("yyyy-MM-dd"), n.Content, n.CreatedAt, n.UpdatedAt);
 

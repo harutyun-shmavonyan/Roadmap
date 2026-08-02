@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Roadmap.Api.Data;
@@ -12,9 +13,11 @@ using Roadmap.Api.Data;
 namespace Roadmap.Api.Migrations
 {
     [DbContext(typeof(RoadmapDbContext))]
-    partial class RoadmapDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260727205629_Articles")]
+    partial class Articles
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -29,23 +32,12 @@ namespace Roadmap.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<string>("ChatUrl")
-                        .HasMaxLength(2048)
-                        .HasColumnType("character varying(2048)");
-
                     b.Property<string>("Content")
                         .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Format")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
-                        .HasDefaultValue("markdown");
 
                     b.Property<bool>("IsRead")
                         .HasColumnType("boolean");
@@ -75,43 +67,6 @@ namespace Roadmap.Api.Migrations
                     b.HasIndex("SortOrder");
 
                     b.ToTable("articles", (string)null);
-                });
-
-            modelBuilder.Entity("Roadmap.Api.Entities.ArticleImage", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ArticleId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<byte[]>("Data")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ArticleId", "Name")
-                        .IsUnique();
-
-                    b.ToTable("article_images", (string)null);
                 });
 
             modelBuilder.Entity("Roadmap.Api.Entities.CustomLog", b =>
@@ -1147,17 +1102,6 @@ namespace Roadmap.Api.Migrations
                     b.ToTable("work_logs", (string)null);
                 });
 
-            modelBuilder.Entity("Roadmap.Api.Entities.ArticleImage", b =>
-                {
-                    b.HasOne("Roadmap.Api.Entities.Article", "Article")
-                        .WithMany("Images")
-                        .HasForeignKey("ArticleId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Article");
-                });
-
             modelBuilder.Entity("Roadmap.Api.Entities.CustomLog", b =>
                 {
                     b.HasOne("Roadmap.Api.Entities.RoadmapDefinition", "Roadmap")
@@ -1486,11 +1430,6 @@ namespace Roadmap.Api.Migrations
                     b.Navigation("Roadmap");
 
                     b.Navigation("Sprint");
-                });
-
-            modelBuilder.Entity("Roadmap.Api.Entities.Article", b =>
-                {
-                    b.Navigation("Images");
                 });
 
             modelBuilder.Entity("Roadmap.Api.Entities.DayPlan", b =>

@@ -100,6 +100,11 @@ export interface WorkLogHistoryEntry {
 // Daily Notes
 export interface NoteDto { book: string; dayNumber: number; entryDate: string; content: string; createdAt: string; updatedAt: string; }
 
+export type ArticleFormat = 'markdown' | 'html';
+export interface ArticleImageDto { name: string; contentType: string; sortOrder: number; }
+export interface ArticleSummaryDto { id: string; title: string; format: ArticleFormat; readMinutes: number; points: number; isRead: boolean; readOn: string | null; sortOrder: number; imageCount: number; createdAt: string; updatedAt: string; }
+export interface ArticleDto { id: string; title: string; format: ArticleFormat; content: string; readMinutes: number; points: number; isRead: boolean; readOn: string | null; sortOrder: number; images: ArticleImageDto[]; chatUrl: string | null; createdAt: string; updatedAt: string; }
+
 // Habits
 export interface HabitDto { id: string; name: string; createdAt: string; }
 export interface SprintHabitDto { sprintHabitId: string; habitId: string; name: string; isPaused: boolean; currentStreak: number; bestStreak: number; isFormed: boolean; checks: { date: string; isChecked: boolean }[]; }

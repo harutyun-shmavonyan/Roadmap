@@ -190,6 +190,20 @@ public record CategoryTimeDto(string CategoryName, double TotalMinutes, double T
 public record NoteDto(string Book, int DayNumber, string EntryDate, string Content, DateTime CreatedAt, DateTime UpdatedAt);
 public record UpdateNoteRequest(string? Content, string? EntryDate);
 
+// --- Articles (global reading library; Markdown or HTML body; marking read earns 3 pts/hour) ---
+public record ArticleImageDto(string Name, string ContentType, int SortOrder);
+public record ArticleSummaryDto(Guid Id, string Title, string Format, int ReadMinutes, double Points,
+    bool IsRead, string? ReadOn, int SortOrder, int ImageCount, DateTime CreatedAt, DateTime UpdatedAt);
+public record ArticleDto(Guid Id, string Title, string Format, string Content, int ReadMinutes, double Points,
+    bool IsRead, string? ReadOn, int SortOrder, IReadOnlyList<ArticleImageDto> Images, string? ChatUrl, DateTime CreatedAt, DateTime UpdatedAt);
+// readMinutes optional on create — auto-estimated from word count (~200 wpm) when omitted.
+// format is "markdown" (default) or "html"; HTML bodies reference uploaded images via {{img:NAME}}.
+// chatUrl is an optional link back to the conversation that produced the article.
+public record CreateArticleRequest(string Title, string? Content, int? ReadMinutes, string? Format, string? ChatUrl);
+public record UpdateArticleRequest(string? Title, string? Content, int? ReadMinutes, string? Format, string? ChatUrl);
+// roadmapId credits the achievement to a roadmap; date defaults to today (Asia/Yerevan).
+public record MarkArticleReadRequest(Guid? RoadmapId, string? Date);
+
 // --- Sprint Goals ---
 public record SprintGoalDto(Guid Id, string Title, string? Unit, double TargetAmount, string? Description, int SortOrder, double LoggedAmount);
 public record CreateSprintGoalRequest(string Title, string? Unit, double TargetAmount, string? Description);

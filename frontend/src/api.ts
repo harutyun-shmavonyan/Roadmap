@@ -3,6 +3,7 @@ import type { RoadmapSummary, RoadmapTree, NodeDto, CreateNodeRequest, Actionabl
   WeekPlan, WeekPlanGoal, WorkLogHistory, HabitDto, SprintHabitDto, ScheduleHabitDto,
   SingleTaskDto, ScheduleTaskDto, CustomLogDto, ScheduleBlockDef, SprintGoalDto,
   NodeSubPointDto, ScheduleSubPointDto, NoteDto,
+  ArticleSummaryDto, ArticleDto, ArticleImageDto, ArticleFormat,
   JobRunDto, JobRunSummaryDto,
   VocabEntryDto, VocabStatsDto } from './types';
 
@@ -87,6 +88,7 @@ export const api = {
   startSprint: (r: string, sid: string) => req<SprintDto>(`${B}/${r}/sprints/${sid}/start`, { method: 'POST' }),
   deleteSprint: (r: string, sid: string) => req<void>(`${B}/${r}/sprints/${sid}`, { method: 'DELETE' }),
   closeSprint: (r: string, sid: string) => req<SprintDto>(`${B}/${r}/sprints/${sid}/close`, { method: 'PATCH' }),
+  updateSprint: (r: string, sid: string, name: string, s: string, e: string) => req<SprintDto>(`${B}/${r}/sprints/${sid}`, { method: 'PATCH', body: JSON.stringify({ name, startDate: s, endDate: e }) }),
   toggleRelaxDay: (r: string, sid: string, date: string) => req<SprintDto>(`${B}/${r}/sprints/${sid}/relax/${date}`, { method: 'PATCH' }),
   getPerformance: (r: string, sid: string) => req<PerformanceSummary>(`${B}/${r}/sprints/${sid}/performance`),
 
@@ -180,6 +182,46 @@ export const api = {
 
   // Daily Notes (global 'red' / 'green' books)
   getNotes: (book: 'red' | 'green') => req<NoteDto[]>(`/api/notes/${book}`),
+
+  // Articles (global reading library; Markdown or HTML body; marking read earns 3 pts/hour)
+  getArticles: () => req<ArticleSummaryDto[]>('/api/articles'),
+  getArticle: (id: string) => req<ArticleDto>(`/api/articles/${id}`),
+  createArticle: (title: string, content: string, format: ArticleFormat, chatUrl: string, readMinutes?: number) =>
+    req<ArticleDto>('/api/articles', { method: 'POST', body: JSON.stringify({ title, content, format, chatUrl, readMinutes }) }),
+  updateArticle: (id: string, title: string, content: string, format: ArticleFormat, chatUrl: string, readMinutes?: number) =>
+    req<ArticleDto>(`/api/articles/${id}`, { method: 'PUT', body: JSON.stringify({ title, content, format, chatUrl, readMinutes }) }),
+  deleteArticle: (id: string) => req<void>(`/api/articles/${id}`, { method: 'DELETE' }),
+  // roadmapId credits the achievement (3 pts/hr) to the active roadmap for today.
+  markArticleRead: (id: string, roadmapId: string | null) =>
+    req<ArticleDto>(`/api/articles/${id}/read`, { method: 'POST', body: JSON.stringify({ roadmapId }) }),
+  markArticleUnread: (id: string) =>
+    req<ArticleDto>(`/api/articles/${id}/unread`, { method: 'POST' }),
+
+  // Self-contained HTML document (images inlined as data URIs) for an HTML-format article.
+  // Fetched with the bearer token so it stays behind auth; used both for the reader iframe
+  // (srcdoc) and the "open in new tab" blob.
+  getArticleHtml: async (id: string): Promise<string> => {
+    const token = getToken();
+    const r = await fetch(`/api/articles/${id}/html`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!r.ok) throw new Error(`Article HTML fetch failed: ${r.status}`);
+    return r.text();
+  },
+  // Upload one or more image files to an article (multipart). Returns the stored image list.
+  uploadArticleImages: async (id: string, files: File[]): Promise<ArticleImageDto[]> => {
+    const token = getToken();
+    const fd = new FormData();
+    for (const f of files) fd.append('file', f, f.name);
+    const r = await fetch(`/api/articles/${id}/images`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: fd,
+    });
+    if (!r.ok) throw new Error(`Image upload failed: ${r.status} ${await r.text()}`);
+    // Re-read the article to get the canonical, ordered image list.
+    return (await req<ArticleDto>(`/api/articles/${id}`)).images;
+  },
+  deleteArticleImage: (id: string, name: string) =>
+    req<void>(`/api/articles/${id}/images/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 
   // English vocabulary (global — entries are added and reviewed over MCP; the tab reads and prunes)
   getVocab: () => req<VocabEntryDto[]>('/api/vocab'),

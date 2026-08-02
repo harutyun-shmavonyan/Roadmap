@@ -8,10 +8,11 @@ import { PerformancePage } from './PerformancePage';
 import { HabitsPage } from './HabitsPage';
 import { TasksPage } from './TasksPage';
 import { NotesPage } from './NotesPage';
+import { ArticlesPage } from './ArticlesPage';
 import { JobsPage } from './JobsPage';
 import { EnglishPage } from './EnglishPage';
 
-type Page = 'picker' | 'schedule' | 'roadmap' | 'weekplan' | 'performance' | 'habits' | 'tasks' | 'notes' | 'jobs' | 'english';
+type Page = 'picker' | 'schedule' | 'roadmap' | 'weekplan' | 'performance' | 'habits' | 'tasks' | 'notes' | 'articles' | 'jobs' | 'english';
 
 function useTheme() {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -123,6 +124,7 @@ function AuthedApp({ theme, toggleTheme, onLogout }: { theme: string; toggleThem
         <button className={`nav-tab ${page === 'habits' ? 'active' : ''}`} onClick={() => setPage('habits')}>Habits</button>
         <button className={`nav-tab ${page === 'tasks' ? 'active' : ''}`} onClick={() => setPage('tasks')}>Tasks</button>
         <button className={`nav-tab ${page === 'notes' ? 'active' : ''}`} onClick={() => setPage('notes')}>Notes</button>
+        <button className={`nav-tab ${page === 'articles' ? 'active' : ''}`} onClick={() => setPage('articles')}>Articles</button>
         <button className={`nav-tab ${page === 'jobs' ? 'active' : ''}`} onClick={() => setPage('jobs')}>Jobs</button>
         <button className={`nav-tab ${page === 'english' ? 'active' : ''}`} onClick={() => setPage('english')}>English</button>
       </div>
@@ -137,6 +139,7 @@ function AuthedApp({ theme, toggleTheme, onLogout }: { theme: string; toggleThem
         case 'habits': return <HabitsPage roadmapId={selId} onBack={back} />;
         case 'tasks': return <TasksPage roadmapId={selId} onBack={back} />;
         case 'notes': return <NotesPage />;
+        case 'articles': return <ArticlesPage roadmapId={selId} />;
         case 'jobs': return <JobsPage />;
         case 'english': return <EnglishPage />;
       }

@@ -12,6 +12,10 @@ export function SprintModal({ roadmapId, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editStart, setEditStart] = useState('');
+  const [editEnd, setEditEnd] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -43,6 +47,19 @@ export function SprintModal({ roadmapId, onClose }: Props) {
     finally { setBusy(false); }
   };
 
+  const startEdit = (s: SprintDto) => {
+    setEditing(s.id); setEditName(s.name); setEditStart(s.startDate); setEditEnd(s.endDate);
+    setConfirmClose(null); setConfirmDelete(null); setError('');
+  };
+
+  const handleSaveEdit = async (sid: string) => {
+    if (!editName.trim() || !editStart || !editEnd) return;
+    setError(''); setBusy(true);
+    try { await api.updateSprint(roadmapId, sid, editName.trim(), editStart, editEnd); setEditing(null); await load(); }
+    catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  };
+
   const handleCloseSprint = async (sid: string) => {
     if (confirmClose !== sid) { setConfirmClose(sid); setConfirmDelete(null); return; }
     setError(''); setBusy(true);
@@ -66,28 +83,44 @@ export function SprintModal({ roadmapId, onClose }: Props) {
                   <span className={`sprint-badge ${s.isOpen && s.isStarted ? '' : 'closed'}`}>
                     {!s.isOpen ? 'Closed' : s.isStarted ? 'Active' : 'Draft'}
                   </span>
-                  <span style={{ flex: 1, fontSize: 15, fontWeight: 500, minWidth: 80 }}>{s.name}</span>
-                  <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{s.startDate} → {s.endDate}</span>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    {!s.isStarted && s.isOpen && (
-                      <button className="btn btn-sm btn-accent" onClick={() => handleStart(s.id)} disabled={busy}>▶ Start</button>
-                    )}
-                    {s.isOpen && (
-                      <button
-                        className={`btn btn-sm ${confirmClose === s.id ? 'btn-warning' : ''}`}
-                        onClick={() => handleCloseSprint(s.id)}
-                        disabled={busy}
-                        title="Close this sprint"
-                      >
-                        {confirmClose === s.id ? 'Confirm close?' : '⏹ Close'}
-                      </button>
-                    )}
-                    {!s.isOpen && (
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', padding: '4px 8px' }}>Ended</span>
-                    )}
-                    <button className={`btn btn-sm ${confirmDelete === s.id ? 'btn-danger' : ''}`}
-                      onClick={() => handleDelete(s.id)} disabled={busy}>{confirmDelete === s.id ? 'Sure?' : '✕'}</button>
-                  </div>
+                  {editing === s.id ? (
+                    <>
+                      <input type="text" value={editName} onChange={e => setEditName(e.target.value)} style={{ flex: 1, minWidth: 80 }} />
+                      <input type="date" value={editStart} onChange={e => setEditStart(e.target.value)} />
+                      <span style={{ color: 'var(--text-muted)' }}>→</span>
+                      <input type="date" value={editEnd} onChange={e => setEditEnd(e.target.value)} />
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn btn-sm btn-accent" onClick={() => handleSaveEdit(s.id)} disabled={busy || !editName.trim() || !editStart || !editEnd}>Save</button>
+                        <button className="btn btn-sm" onClick={() => setEditing(null)} disabled={busy}>Cancel</button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ flex: 1, fontSize: 15, fontWeight: 500, minWidth: 80 }}>{s.name}</span>
+                      <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{s.startDate} → {s.endDate}</span>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {!s.isStarted && s.isOpen && (
+                          <button className="btn btn-sm btn-accent" onClick={() => handleStart(s.id)} disabled={busy}>▶ Start</button>
+                        )}
+                        <button className="btn btn-sm" onClick={() => startEdit(s)} disabled={busy} title="Edit name & dates">✎ Edit</button>
+                        {s.isOpen && (
+                          <button
+                            className={`btn btn-sm ${confirmClose === s.id ? 'btn-warning' : ''}`}
+                            onClick={() => handleCloseSprint(s.id)}
+                            disabled={busy}
+                            title="Close this sprint"
+                          >
+                            {confirmClose === s.id ? 'Confirm close?' : '⏹ Close'}
+                          </button>
+                        )}
+                        {!s.isOpen && (
+                          <span style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', padding: '4px 8px' }}>Ended</span>
+                        )}
+                        <button className={`btn btn-sm ${confirmDelete === s.id ? 'btn-danger' : ''}`}
+                          onClick={() => handleDelete(s.id)} disabled={busy}>{confirmDelete === s.id ? 'Sure?' : '✕'}</button>
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>

@@ -32,6 +32,8 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
     public DbSet<VocabReview> VocabReviews => Set<VocabReview>();
     public DbSet<JobRun> JobRuns => Set<JobRun>();
     public DbSet<JobPosting> JobPostings => Set<JobPosting>();
+    public DbSet<Article> Articles => Set<Article>();
+    public DbSet<ArticleImage> ArticleImages => Set<ArticleImage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -387,6 +389,32 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
                 .OnDelete(DeleteBehavior.Cascade);
 
             e.HasIndex(p => new { p.JobRunId, p.SortOrder });
+        });
+
+        modelBuilder.Entity<Article>(e =>
+        {
+            e.ToTable("articles");
+            e.HasKey(a => a.Id);
+            e.Property(a => a.Title).HasMaxLength(512).IsRequired();
+            e.Property(a => a.Content).HasColumnType("text");
+            e.Property(a => a.Format).HasMaxLength(16).HasDefaultValue("markdown");
+            e.Property(a => a.ChatUrl).HasMaxLength(2048);
+            e.HasIndex(a => a.SortOrder);
+            e.HasMany(a => a.Images)
+                .WithOne(i => i.Article!)
+                .HasForeignKey(i => i.ArticleId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ArticleImage>(e =>
+        {
+            e.ToTable("article_images");
+            e.HasKey(i => i.Id);
+            e.Property(i => i.Name).HasMaxLength(256).IsRequired();
+            e.Property(i => i.ContentType).HasMaxLength(128).IsRequired();
+            e.Property(i => i.Data).HasColumnType("bytea");
+            // One image name per article — re-uploading the same name replaces it.
+            e.HasIndex(i => new { i.ArticleId, i.Name }).IsUnique();
         });
 
         modelBuilder.Entity<VocabEntry>(e =>

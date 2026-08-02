@@ -577,6 +577,97 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 .md-body img { max-width: 100%; border-radius: var(--radius-sm); }
 .md-body :first-child { margin-top: 0; }
 
+/* Articles tab — Medium-style reader */
+.article-reader { --measure: 680px; }
+.article-head { max-width: var(--measure); margin: 0 auto; padding: 40px 24px 0; }
+.article-title {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 40px; font-weight: 800; line-height: 1.15; letter-spacing: -0.02em;
+  color: var(--text-primary); margin: 0 0 14px;
+}
+.article-meta {
+  display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center;
+  font-size: 14px; color: var(--text-muted);
+  padding-bottom: 22px; border-bottom: 1px solid var(--border-subtle);
+}
+.article-foot {
+  max-width: var(--measure); margin: 40px auto 0; padding: 22px 24px 72px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
+}
+
+/* Full-bleed grid: text sits in a centred measure; figures can break out to the pane. */
+.article-body {
+  display: grid;
+  grid-template-columns:
+    [full-start] minmax(24px, 1fr)
+    [main-start] min(var(--measure), 100% - 48px)
+    [main-end] minmax(24px, 1fr) [full-end];
+  font-family: Charter, 'Iowan Old Style', 'Palatino Linotype', Georgia, Cambria, 'Times New Roman', serif;
+  font-size: 20px; line-height: 1.75; color: var(--text-primary);
+  /* Heavier, higher-contrast body: browser-default smoothing (not the app's thinned
+     `antialiased`) + a slightly bolder weight so long-form serif reads well on mobile. */
+  font-weight: 500;
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+  padding-top: 28px;
+}
+.article-body > * { grid-column: main; }
+.article-body > figure.wide { grid-column: full; width: min(1000px, 100%); justify-self: center; }
+.article-body > figure.full { grid-column: full; }
+
+.article-body > :first-child { margin-top: 0; }
+.article-body p { margin: 0 0 1.45em; }
+.article-body h1, .article-body h2, .article-body h3, .article-body h4 {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-weight: 700; color: var(--text-primary); line-height: 1.25; letter-spacing: -0.01em;
+}
+.article-body h2 { font-size: 1.55em; margin: 1.9em 0 0.5em; }
+.article-body h3 { font-size: 1.28em; margin: 1.7em 0 0.4em; }
+.article-body h4 { font-size: 1.1em; margin: 1.5em 0 0.4em; }
+.article-body a { color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 3px; }
+.article-body a:hover { color: var(--accent); text-decoration-color: var(--accent); }
+.article-body blockquote {
+  margin: 1.6em 0; padding: 2px 0 2px 22px; border-left: 3px solid var(--text-primary);
+  font-style: italic; font-size: 1.15em; color: var(--text-secondary);
+}
+.article-body ul, .article-body ol { margin: 0 0 1.45em; padding-left: 1.3em; }
+.article-body li { margin: 0.5em 0; }
+.article-body img { max-width: 100%; height: auto; border-radius: var(--radius-sm); }
+.article-body figure { margin: 2.2em 0; }
+.article-body figure img { display: block; width: 100%; }
+.article-body figcaption {
+  margin-top: 10px; text-align: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px; color: var(--text-muted); line-height: 1.5;
+}
+.article-body code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82em; background: var(--bg-secondary); padding: 0.15em 0.45em; border-radius: 4px; }
+.article-body pre { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px 18px; overflow-x: auto; margin: 1.5em 0; }
+.article-body pre code { background: none; padding: 0; font-size: 0.8em; line-height: 1.6; }
+.article-body table { border-collapse: collapse; width: 100%; margin: 1.5em 0; font-size: 0.9em; }
+.article-body th, .article-body td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+.article-body th { background: var(--bg-secondary); font-weight: 600; }
+.article-body hr { border: none; text-align: center; margin: 2.4em 0; }
+.article-body hr::before { content: '· · ·'; color: var(--text-muted); font-size: 1.4em; letter-spacing: 0.5em; }
+/* Classic-Medium drop cap on the opening paragraph */
+.article-body > p:first-of-type::first-letter {
+  float: left; font-family: Charter, Georgia, serif; font-size: 3.1em; line-height: 0.72;
+  padding: 0.06em 0.12em 0 0; color: var(--text-primary);
+}
+
+@media (max-width: 720px) {
+  .article-head { padding: 18px 20px 0; }
+  .article-title { font-size: 29px; }
+  .article-body {
+    font-size: 18px; line-height: 1.7; padding-top: 22px;
+    grid-template-columns: [full-start] 20px [main-start] minmax(0, 1fr) [main-end] 20px [full-end];
+  }
+  .article-body h2 { font-size: 1.4em; }
+  .article-body h3 { font-size: 1.2em; }
+  .article-foot { padding: 20px 20px 56px; }
+  .article-body > p:first-of-type::first-letter { font-size: 2.7em; }
+}
+
 /* Jobs tab — posting card */
 .jobs-card { transition: box-shadow var(--transition), border-color var(--transition); }
 .jobs-card:hover { box-shadow: var(--shadow-md); border-color: var(--border); }
