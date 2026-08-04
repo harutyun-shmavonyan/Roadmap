@@ -70,7 +70,9 @@ public record PerformanceSummaryDto(
     List<CompletedTaskDto> CompletedTasks,
     List<CustomLogDto> CustomLogs,
     List<CategoryTimeDto> CategoryBreakdown,
-    List<SprintGoalDto> SprintGoals
+    List<SprintGoalDto> SprintGoals,
+    /// <summary>Total flat bonus earned for items finished inside this sprint. Earned, never planned.</summary>
+    double CompletionBonusPoints = 0
 );
 
 /// <summary>
@@ -91,7 +93,9 @@ public record PerformanceItemDto(
     bool WillComplete, string? ProjectedCompletionDate,
     List<DailyCumulativeDto> DailyCumulative,
     bool IsNodeCompleted,
-    bool IsBonus = false
+    bool IsBonus = false,
+    /// <summary>Flat bonus this item earned by being finished inside the sprint; 0 if it was not.</summary>
+    double CompletionBonus = 0
 );
 
 /// <summary>
