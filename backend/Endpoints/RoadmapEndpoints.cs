@@ -818,6 +818,7 @@ public static class RoadmapEndpoints
 
             var items = new List<PerformanceItemDto>();
             var dailyPointsMap = dates.ToDictionary(d => d, _ => 0.0);
+            var today = AppClock.Today();
 
             // First pass: compute per-item planned/done points
             var itemDataList = new List<(Guid NodeId, RoadmapNode Node, double TotalPlannedPts, double TotalDonePts, int Sessions,
@@ -889,22 +890,16 @@ public static class RoadmapEndpoints
                 else if (node.TotalSize.HasValue && node.TotalSize.Value > 0)
                 {
                     var totalLogged = await db.WorkLogs.AsNoTracking().Where(w => w.NodeId == nodeId).SumAsync(w => w.Amount);
-                    double running = totalLogged;
                     var projSource = sprint.IsStarted
                         ? forecastByNode.GetValueOrDefault(nodeId, []).OrderBy(p => p.Date)
                             .Select(p => (p.Date, p.PlannedUnits)).ToList()
                         : planByNode.GetValueOrDefault(nodeId, []).OrderBy(p => p.Date)
                             .Select(p => (p.Date, p.PlannedUnits)).ToList();
-                    foreach (var p in projSource)
-                    {
-                        running += p.PlannedUnits;
-                        if (running >= node.TotalSize.Value)
-                        {
-                            willComplete = true;
-                            projectedDate = p.Date.ToString("yyyy-MM-dd");
-                            break;
-                        }
-                    }
+                    var loggedToday = logsByNode.GetValueOrDefault(nodeId, [])
+                        .Where(w => w.Date == today).Sum(w => w.Amount);
+                    (willComplete, projectedDate) = ProjectCompletion(
+                        node.TotalSize.Value, totalLogged, loggedToday, projSource,
+                        sprint.IsStarted ? today : null);
                 }
 
                 items.Add(new PerformanceItemDto(nodeId, node.Title, node.Unit, node.TotalSize, node.UnitsPerHour, node.PointsPerUnit,
@@ -916,7 +911,6 @@ public static class RoadmapEndpoints
             }
 
             // Add habit points: +2 for checked, -2 for missed (strictly past days only)
-            var today = AppClock.Today();
             var sprintHabits = await db.SprintHabits.AsNoTracking().Include(sh => sh.Checks)
                 .Where(sh => sh.SprintId == sprintId && !sh.IsPaused).ToListAsync();
             double totalHabitPlannedPts = 0;
@@ -1172,6 +1166,13 @@ public static class RoadmapEndpoints
             var allTimeLogs = await db.WorkLogs.AsNoTracking().Where(w => nodeIds.Contains(w.NodeId))
                 .GroupBy(w => w.NodeId).Select(g => new { g.Key, Total = g.Sum(w => w.Amount) })
                 .ToDictionaryAsync(x => x.Key, x => x.Total);
+            // Today's own logs, which the projection must not count twice against today's plan.
+            // The week being viewed is not necessarily the current one, so read them directly.
+            var todayLocal = AppClock.Today();
+            var todayLogs = await db.WorkLogs.AsNoTracking()
+                .Where(w => nodeIds.Contains(w.NodeId) && w.Date == todayLocal)
+                .GroupBy(w => w.NodeId).Select(g => new { g.Key, Total = g.Sum(w => w.Amount) })
+                .ToDictionaryAsync(x => x.Key, x => x.Total);
 
             var scheduledItems = nodeIds.Select(nid =>
             {
@@ -1193,12 +1194,10 @@ public static class RoadmapEndpoints
                 }
                 else if (totalSize.HasValue && totalSize.Value > 0)
                 {
-                    double running = totalLogged;
-                    foreach (var p in allSprintPlan.Where(p => p.NodeId == nid))
-                    {
-                        running += p.PlannedUnits;
-                        if (running >= totalSize.Value) { willComplete = true; projDate = p.Date.ToString("yyyy-MM-dd"); break; }
-                    }
+                    (willComplete, projDate) = ProjectCompletion(totalSize.Value, totalLogged,
+                        todayLogs.GetValueOrDefault(nid, 0),
+                        allSprintPlan.Where(p => p.NodeId == nid).Select(p => (p.Date, p.PlannedUnits)),
+                        todayLocal);
                 }
 
                 return new WeekScheduledItemDto(nid, first.Node.Title, first.Node.Unit, first.Node.UnitsPerHour,
@@ -1960,6 +1959,45 @@ public static class RoadmapEndpoints
         if (!item.TotalSize.HasValue) return double.MaxValue;
         var logged = allTimeLogged.GetValueOrDefault(item.Id, 0);
         return Math.Max(0, item.TotalSize.Value - logged);
+    }
+
+    /// <summary>
+    /// Project whether an item reaches its total size before the plan runs out, and on which day.
+    ///
+    /// A day is counted exactly once. Days already lived count what was actually logged — that
+    /// work is already inside <paramref name="totalLogged"/> — and only the unlived part of the
+    /// plan is still ahead: everything after <paramref name="cutoff"/>, plus whatever is left of
+    /// the cutoff day's own sessions once the work already done that day is subtracted.
+    ///
+    /// Counting the frozen (past) half of the plan on top of the logs it produced would credit
+    /// the same units twice and finish items early, and would credit sessions that were skipped
+    /// outright as if they had happened. <paramref name="cutoff"/> is null for a draft sprint,
+    /// which is pure projection with no lived days to double-count.
+    /// </summary>
+    private static (bool WillComplete, string? ProjectedDate) ProjectCompletion(
+        double totalSize, double totalLogged, double loggedOnCutoffDay,
+        IEnumerable<(DateOnly Date, double PlannedUnits)> plan, DateOnly? cutoff)
+    {
+        var running = totalLogged;
+        var alreadyDoneToday = loggedOnCutoffDay;
+
+        foreach (var p in plan.OrderBy(p => p.Date))
+        {
+            var credit = p.PlannedUnits;
+            if (cutoff is DateOnly c)
+            {
+                if (p.Date < c) continue;
+                if (p.Date == c)
+                {
+                    var covered = Math.Min(credit, alreadyDoneToday);
+                    credit -= covered;
+                    alreadyDoneToday -= covered;
+                }
+            }
+            running += credit;
+            if (running >= totalSize) return (true, p.Date.ToString("yyyy-MM-dd"));
+        }
+        return (false, null);
     }
 
     /// <summary>
