@@ -8,6 +8,9 @@ namespace Roadmap.Api.Endpoints;
 
 public static class RoadmapEndpoints
 {
+    /// <summary>Flat reward for reaching a sprint goal, on top of the amounts logged toward it.</summary>
+    private const double GoalBonusPoints = 10;
+
     public static void MapRoadmapEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/roadmaps").WithTags("Roadmaps").RequireAuthorization();
@@ -770,6 +773,9 @@ public static class RoadmapEndpoints
             List<WorkLog> sprintLogs;
             var pointsPerUnit = new Dictionary<Guid, double>();
             List<SprintPlanEntry> forecast = [];
+            // What each item already had behind it when the plan was drawn — the same figure the
+            // plan capped itself against, so "did the plan cover the whole item" is exact.
+            var loggedBeforePlan = new Dictionary<Guid, double>();
 
             if (sprint.IsStarted)
             {
@@ -782,6 +788,9 @@ public static class RoadmapEndpoints
                     .Where(c => c.Date >= sprint.StartDate && c.Date <= sprint.EndDate)
                     .Select(c => (c.NodeId, c.Date, c.PlannedUnits, c.DurationMinutes)).ToList();
                 foreach (var c in commitment) pointsPerUnit[c.NodeId] = c.PointsPerUnit;
+                if (snap is not null)
+                    foreach (var (id, amount) in snap.LoggedBefore)
+                        if (Guid.TryParse(id, out var nid)) loggedBeforePlan[nid] = amount;
 
                 forecast = await db.SprintPlanEntries.AsNoTracking()
                     .Where(p => p.SprintId == sprintId && p.Date >= sprint.StartDate && p.Date <= sprint.EndDate)
@@ -797,6 +806,7 @@ public static class RoadmapEndpoints
                 var loggedBefore = await LoggedBeforeAsync(db, roadmapId, sprint.StartDate);
                 var computed = ComputeSprintPlan(allNodes, blocks, dates, loggedBefore, ParseRelaxDays(sprint.RelaxDays));
                 planData = computed.Select(c => (c.NodeId, c.Date, c.PlannedUnits, c.DurationMinutes)).ToList();
+                loggedBeforePlan = loggedBefore;
                 sprintLogs = []; // no logs for draft
             }
 
@@ -900,6 +910,15 @@ public static class RoadmapEndpoints
                     (willComplete, projectedDate) = ProjectCompletion(
                         node.TotalSize.Value, totalLogged, loggedToday, projSource,
                         sprint.IsStarted ? today : null);
+
+                    // ...but the sprint only *promises* what its commitment covers. The plan is
+                    // capped at what was left of the item when it was drawn, so falling short of
+                    // the item's size means the sprint never planned to finish it. Beating the
+                    // plan can still finish it early — it just isn't something this sprint
+                    // undertook, so it is not advertised here, exactly as bonus work isn't.
+                    var coveredByPlan = loggedBeforePlan.GetValueOrDefault(nodeId, 0) + totalPlannedUnits
+                        >= node.TotalSize.Value - 0.01;
+                    willComplete &= coveredByPlan;
                 }
 
                 items.Add(new PerformanceItemDto(nodeId, node.Title, node.Unit, node.TotalSize, node.UnitsPerHour, node.PointsPerUnit,
@@ -1038,10 +1057,32 @@ public static class RoadmapEndpoints
             }
             grandEarned += totalSprintGoalPts;
 
+            // Reaching a sprint goal pays a flat bonus on the day it was reached, on top of the
+            // amounts logged along the way. Earned only, never planned — like a completed task,
+            // it is upside you cannot fall short of.
+            double totalGoalBonusPts = 0;
+            foreach (var goal in sprintGoals)
+            {
+                if (goal.TargetAmount <= 0) continue;
+                double cumulative = 0;
+                foreach (var log in goal.Logs.OrderBy(l => l.Date))
+                {
+                    cumulative += log.Amount;
+                    if (cumulative < goal.TargetAmount) continue;
+                    if (dailyPointsMap.ContainsKey(log.Date))
+                    {
+                        dailyPointsMap[log.Date] += GoalBonusPoints;
+                        totalGoalBonusPts += GoalBonusPoints;
+                    }
+                    break;
+                }
+            }
+            grandEarned += totalGoalBonusPts;
+
             return Results.Ok(new PerformanceSummaryDto(items, Math.Round(grandPlanned, 1),
                 Math.Round(grandEarned, 1),
                 dates.Select(d => new DailyPointsDto(d.ToString("yyyy-MM-dd"), Math.Round(dailyPointsMap[d], 1))).ToList(),
-                ctDtos, customLogDtos, catDtos, goalDtos));
+                ctDtos, customLogDtos, catDtos, goalDtos, Math.Round(totalGoalBonusPts, 1)));
         });
 
         // ===== Work Logs (sprint-scoped) =====
@@ -1173,6 +1214,17 @@ public static class RoadmapEndpoints
                 .Where(w => nodeIds.Contains(w.NodeId) && w.Date == todayLocal)
                 .GroupBy(w => w.NodeId).Select(g => new { g.Key, Total = g.Sum(w => w.Amount) })
                 .ToDictionaryAsync(x => x.Key, x => x.Total);
+            // The sprint's commitment, to keep "completing this sprint" meaning the same thing
+            // here as it does in Performance: promised by the plan, not merely reachable at pace.
+            var weekSnap = await GetOrCapturePlanInputsAsync(db, sprint, persist: false);
+            var weekCommitment = weekSnap is null ? [] : await ComputeCommitmentAsync(db, sprint, weekSnap);
+            var committedUnits = weekCommitment
+                .Where(c => c.Date >= sprint.StartDate && c.Date <= sprint.EndDate)
+                .GroupBy(c => c.NodeId).ToDictionary(g => g.Key, g => g.Sum(c => c.PlannedUnits));
+            var loggedBeforeSprint = new Dictionary<Guid, double>();
+            if (weekSnap is not null)
+                foreach (var (id, amount) in weekSnap.LoggedBefore)
+                    if (Guid.TryParse(id, out var snapNid)) loggedBeforeSprint[snapNid] = amount;
 
             var scheduledItems = nodeIds.Select(nid =>
             {
@@ -1198,6 +1250,9 @@ public static class RoadmapEndpoints
                         todayLogs.GetValueOrDefault(nid, 0),
                         allSprintPlan.Where(p => p.NodeId == nid).Select(p => (p.Date, p.PlannedUnits)),
                         todayLocal);
+                    // Only what the sprint actually promised — see the Performance endpoint.
+                    willComplete &= loggedBeforeSprint.GetValueOrDefault(nid, 0)
+                        + committedUnits.GetValueOrDefault(nid, 0) >= totalSize.Value - 0.01;
                 }
 
                 return new WeekScheduledItemDto(nid, first.Node.Title, first.Node.Unit, first.Node.UnitsPerHour,

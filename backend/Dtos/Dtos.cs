@@ -70,7 +70,9 @@ public record PerformanceSummaryDto(
     List<CompletedTaskDto> CompletedTasks,
     List<CustomLogDto> CustomLogs,
     List<CategoryTimeDto> CategoryBreakdown,
-    List<SprintGoalDto> SprintGoals
+    List<SprintGoalDto> SprintGoals,
+    /// <summary>Total flat bonus earned for sprint goals reached. Earned, never planned.</summary>
+    double GoalBonusPoints = 0
 );
 
 /// <summary>

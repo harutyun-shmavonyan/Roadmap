@@ -152,7 +152,13 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
 
             {/* Sprint Goals */}
             <div className="perf-section">
-              <h2>Sprint Goals</h2>
+              <h2>Sprint Goals
+                {perf.goalBonusPoints > 0 && (
+                  <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 600, color: 'var(--success)', fontFamily: 'var(--font-mono)' }}>
+                    +{perf.goalBonusPoints}pt earned
+                  </span>
+                )}
+              </h2>
               <SprintGoalsPanel roadmapId={roadmapId} sprintId={selectedSprint!} goals={perf.sprintGoals || []} onChanged={loadPerf} />
             </div>
 
@@ -649,6 +655,7 @@ function SprintGoalsPanel({ roadmapId, sprintId, goals, onChanged }: { roadmapId
                 {fmtUnit(g.loggedAmount, g.unit)} / {fmtUnit(g.targetAmount, g.unit)}
               </span>
               <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: done ? 'var(--success)' : 'var(--accent)', fontWeight: 600 }}>{pct}%</span>
+              {done && <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--success)', fontWeight: 600 }}>+10pt</span>}
             </div>
             {g.description && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>{g.description}</div>}
             <div style={{ height: 6, background: 'var(--border-subtle)', borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>

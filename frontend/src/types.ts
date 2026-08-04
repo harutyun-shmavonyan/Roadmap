@@ -43,6 +43,8 @@ export interface PerformanceSummary {
   customLogs: { id: string; title: string; points: number; date: string; note: string | null }[];
   categoryBreakdown: CategoryTimeNode[];
   sprintGoals: SprintGoalDto[];
+  /** Total flat bonus earned for sprint goals reached. Earned, never planned. */
+  goalBonusPoints: number;
 }
 export interface CategoryTimeNode { categoryName: string; totalMinutes: number; totalPoints: number; depth: number; children: CategoryTimeNode[]; }
 export interface PerformanceItem {
