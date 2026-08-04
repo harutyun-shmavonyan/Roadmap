@@ -123,13 +123,7 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
             {/* Items completing this sprint */}
             {perf.items.filter(i => i.willComplete).length > 0 && (
               <div className="perf-section">
-                <h2>Completing This Sprint ({perf.items.filter(i => i.willComplete).length})
-                  {perf.completionBonusPoints > 0 && (
-                    <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 600, color: 'var(--success)', fontFamily: 'var(--font-mono)' }}>
-                      +{perf.completionBonusPoints}pt earned
-                    </span>
-                  )}
-                </h2>
+                <h2>Completing This Sprint ({perf.items.filter(i => i.willComplete).length})</h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {perf.items.filter(i => i.willComplete).map(item => {
                     const pct = item.isNodeCompleted ? 100 : (item.plannedUnits > 0 ? Math.round(item.doneUnits / item.plannedUnits * 100) : 0);
@@ -148,11 +142,7 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
                             ~{item.projectedCompletionDate}
                           </span>
                         )}
-                        {item.isNodeCompleted && (
-                          <span style={{ fontSize: 11, color: 'var(--success)', fontWeight: 600 }}>
-                            Done!{item.completionBonus > 0 && ` +${item.completionBonus}pt`}
-                          </span>
-                        )}
+                        {item.isNodeCompleted && <span style={{ fontSize: 11, color: 'var(--success)', fontWeight: 600 }}>Done!</span>}
                       </div>
                     );
                   })}

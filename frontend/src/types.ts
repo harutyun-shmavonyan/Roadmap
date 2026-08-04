@@ -43,8 +43,6 @@ export interface PerformanceSummary {
   customLogs: { id: string; title: string; points: number; date: string; note: string | null }[];
   categoryBreakdown: CategoryTimeNode[];
   sprintGoals: SprintGoalDto[];
-  /** Total flat bonus earned for items finished inside this sprint. Earned, never planned. */
-  completionBonusPoints: number;
 }
 export interface CategoryTimeNode { categoryName: string; totalMinutes: number; totalPoints: number; depth: number; children: CategoryTimeNode[]; }
 export interface PerformanceItem {
@@ -58,8 +56,6 @@ export interface PerformanceItem {
   isNodeCompleted: boolean;
   /** Worked on but never committed to — the queue only reached it because you got ahead. */
   isBonus: boolean;
-  /** Flat bonus this item earned by being finished inside the sprint; 0 if it was not. */
-  completionBonus: number;
 }
 
 export interface CreateNodeRequest {

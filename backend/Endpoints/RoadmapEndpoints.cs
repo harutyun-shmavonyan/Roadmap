@@ -8,9 +8,6 @@ namespace Roadmap.Api.Endpoints;
 
 public static class RoadmapEndpoints
 {
-    /// <summary>Flat reward for finishing a roadmap item inside a sprint, on top of its units.</summary>
-    private const double CompletionBonusPoints = 10;
-
     public static void MapRoadmapEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/roadmaps").WithTags("Roadmaps").RequireAuthorization();
@@ -823,24 +820,6 @@ public static class RoadmapEndpoints
             var dailyPointsMap = dates.ToDictionary(d => d, _ => 0.0);
             var today = AppClock.Today();
 
-            // Carrying an item all the way to done is worth a flat bonus on the day it was
-            // closed, on top of the units it paid out along the way. Earned only, never
-            // planned — like a completed task, it is upside you cannot fall short of, and a
-            // sprint pays only for what it actually finished inside its own window.
-            var closedOn = new Dictionary<Guid, DateOnly>();
-            var completedIds = nodeLookup.Values.Where(n => n.Status == ActionItemStatus.Completed)
-                .Select(n => n.Id).ToHashSet();
-            if (completedIds.Count > 0)
-            {
-                var closures = await db.StatusChanges.AsNoTracking()
-                    .Where(s => s.RoadmapId == roadmapId && s.NewStatus == ActionItemStatus.Completed
-                        && completedIds.Contains(s.NodeId))
-                    .Select(s => new { s.NodeId, s.ChangedAt }).ToListAsync();
-                closedOn = closures.GroupBy(s => s.NodeId)
-                    .ToDictionary(g => g.Key, g => AppClock.ToLocalDate(g.Max(x => x.ChangedAt)));
-            }
-            double totalCompletionBonusPts = 0;
-
             // First pass: compute per-item planned/done points
             var itemDataList = new List<(Guid NodeId, RoadmapNode Node, double TotalPlannedPts, double TotalDonePts, int Sessions,
                 double TotalPlannedUnits, double TotalDoneUnits, double TotalMins,
@@ -923,28 +902,12 @@ public static class RoadmapEndpoints
                         sprint.IsStarted ? today : null);
                 }
 
-                // Items closed before status history was kept fall back to their last logged day.
-                double completionBonus = 0;
-                if (node.Status == ActionItemStatus.Completed)
-                {
-                    var closed = closedOn.TryGetValue(nodeId, out var cd)
-                        ? cd
-                        : logsByNode.GetValueOrDefault(nodeId, []).OrderByDescending(w => w.Date)
-                            .FirstOrDefault()?.Date;
-                    if (closed is DateOnly day && day >= sprint.StartDate && day <= sprint.EndDate)
-                    {
-                        completionBonus = CompletionBonusPoints;
-                        totalCompletionBonusPts += completionBonus;
-                        dailyPointsMap[day] += completionBonus;
-                    }
-                }
-
                 items.Add(new PerformanceItemDto(nodeId, node.Title, node.Unit, node.TotalSize, node.UnitsPerHour, node.PointsPerUnit,
                     sessions, Math.Round(totalPlannedUnits, 1), Math.Round(totalDoneUnits, 1),
                     Math.Round(totalPlannedPts, 1), Math.Round(totalDonePts, 1), Math.Round(totalMins, 0),
                     // Bonus work is never advertised as "completing this sprint" — it was never promised.
                     willComplete && !isBonus, projectedDate, dailyCum,
-                    node.Status == ActionItemStatus.Completed, isBonus, completionBonus));
+                    node.Status == ActionItemStatus.Completed, isBonus));
             }
 
             // Add habit points: +2 for checked, -2 for missed (strictly past days only)
@@ -1001,8 +964,7 @@ public static class RoadmapEndpoints
             var customLogDtos = customLogs.Select(c => new CustomLogDto(c.Id, c.Title, c.Points, c.Date.ToString("yyyy-MM-dd"), c.Note)).ToList();
 
             var grandPlanned = items.Sum(i => i.PlannedPoints) + totalHabitPlannedPts;
-            var grandEarned = items.Sum(i => i.EarnedPoints) + totalHabitEarnedPts + totalTaskEarnedPts
-                + totalCustomPts + totalCompletionBonusPts;
+            var grandEarned = items.Sum(i => i.EarnedPoints) + totalHabitEarnedPts + totalTaskEarnedPts + totalCustomPts;
 
             var ctDtos = completedTasks.Select(t => new CompletedTaskDto(t.Id, t.Title, t.Priority.ToString(),
                 t.EstimatedHours, Math.Floor(t.EstimatedHours * 2), t.CompletedDate!.Value.ToString("yyyy-MM-dd"))).ToList();
@@ -1079,7 +1041,7 @@ public static class RoadmapEndpoints
             return Results.Ok(new PerformanceSummaryDto(items, Math.Round(grandPlanned, 1),
                 Math.Round(grandEarned, 1),
                 dates.Select(d => new DailyPointsDto(d.ToString("yyyy-MM-dd"), Math.Round(dailyPointsMap[d], 1))).ToList(),
-                ctDtos, customLogDtos, catDtos, goalDtos, Math.Round(totalCompletionBonusPts, 1)));
+                ctDtos, customLogDtos, catDtos, goalDtos));
         });
 
         // ===== Work Logs (sprint-scoped) =====
