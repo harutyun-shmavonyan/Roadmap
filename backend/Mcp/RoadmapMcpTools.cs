@@ -228,10 +228,10 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         if (!string.IsNullOrEmpty(sprint.RelaxDays))
             try { relaxSet = JsonSerializer.Deserialize<HashSet<string>>(sprint.RelaxDays) ?? []; } catch { }
 
-        var computed = ComputeSprintPlan(allNodes, blocks, dates, allTimeLogged, relaxSet);
+        var computed = RoadmapEndpoints.ComputeSprintPlan(allNodes, blocks, dates, allTimeLogged, relaxSet);
         var entries = computed.Select(c => new SprintPlanEntry
         {
-            Id = Guid.NewGuid(), SprintId = sprint.Id, NodeId = c.NodeId,
+            Id = Guid.NewGuid(), SprintId = sprint.Id, NodeId = c.NodeId, BlockId = c.BlockId,
             Date = c.Date, StartMinute = c.StartMinute, DurationMinutes = c.DurationMinutes, PlannedUnits = c.PlannedUnits
         }).ToList();
 
@@ -250,21 +250,53 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         var sprint = await db.Sprints.AsNoTracking().FirstOrDefaultAsync(s => s.Id == sprint_id && s.RoadmapId == roadmap_id);
         if (sprint is null) return J(new { error = "Sprint not found" });
 
-        var planEntries = await db.SprintPlanEntries.AsNoTracking().Include(p => p.Node)
+        var planEntries = await db.SprintPlanEntries.AsNoTracking().Include(p => p.Node).Include(p => p.Block)
             .Where(p => p.SprintId == sprint_id).ToListAsync();
         var sprintLogs = await db.WorkLogs.AsNoTracking().Include(w => w.Node)
             .Where(w => w.SprintId == sprint_id).ToListAsync();
 
-        var nodeIds = planEntries.Select(p => p.NodeId).Distinct().ToList();
+        var nodeIds = planEntries.Where(p => p.NodeId.HasValue).Select(p => p.NodeId!.Value).Distinct().ToList();
         var items = nodeIds.Select(nid =>
         {
             var nodePlan = planEntries.Where(p => p.NodeId == nid).ToList();
-            var node = nodePlan.First().Node;
+            var node = nodePlan.First().Node!;
             var plannedUnits = nodePlan.Sum(p => p.PlannedUnits);
             var doneUnits = sprintLogs.Where(w => w.NodeId == nid).Sum(w => w.Amount);
             var plannedPts = Math.Round(plannedUnits * (node.PointsPerUnit ?? 0), 1);
             var earnedPts = Math.Round(doneUnits * (node.PointsPerUnit ?? 0), 1);
             return new { nodeId = nid, title = node.Title, unit = node.Unit, plannedUnits = Math.Round(plannedUnits, 1), doneUnits = Math.Round(doneUnits, 1), plannedPoints = plannedPts, earnedPoints = earnedPts };
+        }).ToList();
+
+        // Pool blocks were committed to as blocks, so they get one line each with the members'
+        // work rolled up. The average rate is read live here (the frozen one lives with the
+        // sprint's commitment, which the HTTP performance endpoint serves).
+        var poolMembers = await db.Nodes.AsNoTracking()
+            .Where(n => n.RoadmapId == roadmap_id && n.ScheduleBlockId != null)
+            .Select(n => new { n.Id, n.Title, n.PointsPerUnit, n.UnitsPerHour, n.IsActiveInBlock, BlockId = n.ScheduleBlockId!.Value })
+            .ToListAsync();
+        var poolOf = poolMembers.ToDictionary(m => m.Id, m => m.BlockId);
+        var pools = planEntries.Where(p => p.BlockId.HasValue).GroupBy(p => p.BlockId!.Value).Select(g =>
+        {
+            var logs = sprintLogs.Where(w => poolOf.TryGetValue(w.NodeId, out var b) && b == g.Key).ToList();
+            var rated = poolMembers.Where(m => m.BlockId == g.Key && m.IsActiveInBlock && m.UnitsPerHour > 0).ToList();
+            var avgPpu = rated.Count > 0 ? rated.Average(m => m.PointsPerUnit ?? 0) : 0;
+            var plannedUnits = g.Sum(p => p.PlannedUnits);
+            return new
+            {
+                blockId = g.Key,
+                title = g.First().Block?.Name ?? "?",
+                plannedUnits = Math.Round(plannedUnits, 1),
+                doneUnits = Math.Round(logs.Sum(w => w.Amount), 1),
+                plannedPoints = Math.Round(plannedUnits * avgPpu, 1),
+                earnedPoints = Math.Round(logs.Sum(w => w.Amount * (w.Node.PointsPerUnit ?? 0)), 1),
+                items = logs.GroupBy(w => w.NodeId).Select(lg => new
+                {
+                    nodeId = lg.Key,
+                    title = lg.First().Node.Title,
+                    doneUnits = Math.Round(lg.Sum(w => w.Amount), 1),
+                    earnedPoints = Math.Round(lg.Sum(w => w.Amount * (w.Node.PointsPerUnit ?? 0)), 1)
+                }).OrderByDescending(x => x.earnedPoints).ToList()
+            };
         }).ToList();
 
         var dates = new List<DateOnly>();
@@ -279,9 +311,10 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         return J(new
         {
             sprint = new { sprint.Id, sprint.Name, startDate = sprint.StartDate.ToString("yyyy-MM-dd"), endDate = sprint.EndDate.ToString("yyyy-MM-dd") },
-            totalPlannedPoints = Math.Round(items.Sum(i => i.plannedPoints), 1),
-            totalEarnedPoints = Math.Round(items.Sum(i => i.earnedPoints), 1),
+            totalPlannedPoints = Math.Round(items.Sum(i => i.plannedPoints) + pools.Sum(p => p.plannedPoints), 1),
+            totalEarnedPoints = Math.Round(items.Sum(i => i.earnedPoints) + pools.Sum(p => p.earnedPoints), 1),
             items,
+            pools,
             dailyPoints = dailyMap.Select(kv => new { date = kv.Key.ToString("yyyy-MM-dd"), points = Math.Round(kv.Value, 1) }).OrderBy(x => x.date)
         });
     }
@@ -327,6 +360,40 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
             {
                 var tmpl = ParseTemplate(sblock.ScheduleTemplate);
                 if (tmpl is null || !tmpl.Days.Contains(dow)) continue;
+
+                if (sblock.Mode == ScheduleBlockMode.Pool)
+                {
+                    // The block itself holds the slot; the exact item is picked when logging, so
+                    // the session is reported at the pool's average rate with its candidates.
+                    var poolItems = sblock.Items
+                        .Where(n => n.IsActionable && n.IsActiveInBlock
+                            && (n.Status == ActionItemStatus.Active || n.Status == ActionItemStatus.NotStarted))
+                        .ToList();
+                    var poolRated = poolItems.Where(n => n.UnitsPerHour > 0).ToList();
+                    if (poolRated.Count == 0) continue;
+                    var poolLeft = poolRated.Sum(n => n.TotalSize.HasValue
+                        ? Math.Max(0, n.TotalSize.Value - logTotals.GetValueOrDefault(n.Id, 0))
+                        : double.MaxValue);
+                    if (poolLeft <= 0.01) continue;
+                    var poolDur = tmpl.GetDurationMinutes(dow);
+                    var poolPlanned = Math.Min(poolDur / 60.0 * poolRated.Average(n => n.UnitsPerHour!.Value), poolLeft);
+                    blocks.Add(new
+                    {
+                        blockId = sblock.Id,
+                        title = sblock.Name,
+                        mode = "Pool",
+                        plannedUnits = Math.Round(poolPlanned, 1),
+                        startMinute = tmpl.GetStartMinute(dow),
+                        durationMinutes = poolDur,
+                        items = poolItems.Select(n => new
+                        {
+                            nodeId = n.Id, title = n.Title, unit = n.Unit,
+                            totalLogged = logTotals.GetValueOrDefault(n.Id, 0), totalSize = n.TotalSize
+                        }).ToList()
+                    });
+                    continue;
+                }
+
                 var queue = sblock.Items
                     .Where(n => n.IsActionable && (n.Status == ActionItemStatus.Active || n.Status == ActionItemStatus.NotStarted))
                     .OrderBy(n => n.BlockSortOrder).ToList();
@@ -913,75 +980,9 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         catch { return null; }
     }
 
-    private record ComputedPlanEntry(Guid NodeId, DateOnly Date, int StartMinute, int DurationMinutes, double PlannedUnits);
-
-    private static List<ComputedPlanEntry> ComputeSprintPlan(
-        List<RoadmapNode> allNodes, List<ScheduleBlock> blocks, List<DateOnly> dates,
-        Dictionary<Guid, double> allTimeLogged, HashSet<string>? relaxDays = null)
-    {
-        var entries = new List<ComputedPlanEntry>();
-        var blockItemIds = new HashSet<Guid>();
-        var relaxSet = relaxDays ?? [];
-
-        foreach (var block in blocks)
-        {
-            var blockTmpl = ParseTemplate(block.ScheduleTemplate); if (blockTmpl is null) continue;
-            var queue = block.Items
-                .Where(n => n.IsActionable && (n.Status == ActionItemStatus.Active || n.Status == ActionItemStatus.NotStarted))
-                .OrderBy(n => n.BlockSortOrder).ToList();
-            if (queue.Count == 0) continue;
-            foreach (var item in queue) blockItemIds.Add(item.Id);
-            int qi = 0;
-            double remainingForCurrent = GetRemaining(queue[qi], allTimeLogged);
-            foreach (var date in dates)
-            {
-                var ddow = (int)date.DayOfWeek;
-                if (!blockTmpl.Days.Contains(ddow)) continue;
-                if (relaxSet.Contains(date.ToString("yyyy-MM-dd"))) continue;
-                if (qi >= queue.Count) break;
-                var item = queue[qi];
-                var dur = blockTmpl.GetDurationMinutes(ddow);
-                var rawPlanned = item.UnitsPerHour.HasValue ? (dur / 60.0) * item.UnitsPerHour.Value : 0;
-                var actualPlanned = Math.Min(rawPlanned, remainingForCurrent);
-                if (actualPlanned > 0)
-                    entries.Add(new ComputedPlanEntry(item.Id, date, blockTmpl.GetStartMinute(ddow), dur, Math.Round(actualPlanned, 2)));
-                remainingForCurrent -= actualPlanned;
-                if (remainingForCurrent <= 0.01 && qi + 1 < queue.Count)
-                {
-                    qi++;
-                    remainingForCurrent = GetRemaining(queue[qi], allTimeLogged);
-                }
-            }
-        }
-
-        foreach (var n in allNodes.Where(n => n.IsActionable && n.ScheduleTemplate != null
-            && !blockItemIds.Contains(n.Id)
-            && (n.Status == ActionItemStatus.Active || n.Status == ActionItemStatus.NotStarted)))
-        {
-            var tmpl = ParseTemplate(n.ScheduleTemplate); if (tmpl is null) continue;
-            var remaining = GetRemaining(n, allTimeLogged);
-            foreach (var date in dates)
-            {
-                if (remaining <= 0.01) break;
-                var ddow = (int)date.DayOfWeek;
-                if (!tmpl.Days.Contains(ddow)) continue;
-                if (relaxSet.Contains(date.ToString("yyyy-MM-dd"))) continue;
-                var dur = tmpl.GetDurationMinutes(ddow);
-                var rawPlanned = n.UnitsPerHour.HasValue ? (dur / 60.0) * n.UnitsPerHour.Value : 0;
-                var actualPlanned = Math.Min(rawPlanned, remaining);
-                entries.Add(new ComputedPlanEntry(n.Id, date, tmpl.GetStartMinute(ddow), dur, Math.Round(actualPlanned, 2)));
-                remaining -= actualPlanned;
-            }
-        }
-        return entries;
-    }
-
-    private static double GetRemaining(RoadmapNode item, Dictionary<Guid, double> allTimeLogged)
-    {
-        if (!item.TotalSize.HasValue) return double.MaxValue;
-        return Math.Max(0, item.TotalSize.Value - allTimeLogged.GetValueOrDefault(item.Id, 0));
-    }
-
+    // Planning lives in RoadmapEndpoints — this file used to carry a second, slowly diverging
+    // copy of it. It is called through rather than reimplemented so pool blocks, capping and
+    // queue-advance behave the same however a sprint is started.
     private static RoadmapNode? ProjectBlockQueueToDate(List<RoadmapNode> queue, TemplateData blockTmpl,
         DateOnly targetDate, DateOnly baseDate, Dictionary<Guid, HashSet<DateOnly>> workLogDates, DateOnly today)
     {

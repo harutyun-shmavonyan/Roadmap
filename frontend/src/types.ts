@@ -17,13 +17,25 @@ export interface NodeDto {
 export interface CategoryLinkDto { linkId: string; categoryId: string; categoryTitle: string; }
 export interface ScheduleTemplate { days: number[]; startMinute: number; durationMinutes: number; perDay?: Record<string, { startMinute: number; durationMinutes: number }>; }
 
+/**
+ * One thing on the day's calendar. Normally an item (`nodeId` set). For a pool block it is the
+ * block itself: `nodeId` is null, `blockId` and `poolItems` are set, the figures are the pool's
+ * (average rate, summed progress), and the exact item is picked from `poolItems` when logging.
+ */
 export interface ScheduleBlock {
-  nodeId: string; nodeTitle: string; nodePath: string; unit: string | null;
+  nodeId: string | null; nodeTitle: string; nodePath: string; unit: string | null;
   unitsPerHour: number | null; plannedUnits: number;
   startMinute: number; durationMinutes: number;
   totalLogged: number; totalSize: number | null; completionPercent: number;
   pointsPerUnit: number | null;
   isChecklist: boolean;
+  blockId: string | null;
+  poolItems: ScheduleBlockOption[] | null;
+}
+export interface ScheduleBlockOption {
+  nodeId: string; title: string; path: string; unit: string | null;
+  totalSize: number | null; totalLogged: number;
+  unitsPerHour: number | null; pointsPerUnit: number | null; isChecklist: boolean;
 }
 export interface ScheduleResponse { blocks: ScheduleBlock[]; activeSprint: SprintDto | null; isRelaxDay: boolean; }
 
@@ -58,6 +70,9 @@ export interface PerformanceItem {
   isNodeCompleted: boolean;
   /** Worked on but never committed to — the queue only reached it because you got ahead. */
   isBonus: boolean;
+  /** This row is a pool block: `nodeId` is the block id and `poolItems` holds the breakdown. */
+  isPool: boolean;
+  poolItems: PerformanceItem[] | null;
 }
 
 export interface CreateNodeRequest {
@@ -122,8 +137,10 @@ export interface ScheduleTaskDto { id: string; title: string; priority: string; 
 export interface CustomLogDto { id: string; title: string; points: number; date: string; note: string | null; }
 
 // Schedule Blocks
-export interface ScheduleBlockDef { id: string; name: string; scheduleTemplate: string | null; sortOrder: number; items: ScheduleBlockItem[]; }
-export interface ScheduleBlockItem { nodeId: string; title: string; unit: string | null; totalSize: number | null; unitsPerHour: number | null; status: string; blockSortOrder: number; }
+/** Queue: items take the slot one after another, in order. Pool: the block takes the slot. */
+export type ScheduleBlockMode = 'Queue' | 'Pool';
+export interface ScheduleBlockDef { id: string; name: string; scheduleTemplate: string | null; sortOrder: number; mode: ScheduleBlockMode; items: ScheduleBlockItem[]; }
+export interface ScheduleBlockItem { nodeId: string; title: string; unit: string | null; totalSize: number | null; unitsPerHour: number | null; status: string; blockSortOrder: number; isActiveInBlock: boolean; }
 
 // Sprint Goals
 export interface SprintGoalDto { id: string; title: string; unit: string | null; targetAmount: number; description: string | null; sortOrder: number; loggedAmount: number; }

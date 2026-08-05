@@ -18,8 +18,13 @@ public sealed record PlanSnapshot(
     Dictionary<string, double> LoggedBefore
 );
 
-/// <summary>A schedule block and its queue order as they stood at Start Sprint.</summary>
-public sealed record SnapshotBlock(Guid Id, string? ScheduleTemplate, List<Guid> ItemIds);
+/// <summary>
+/// A schedule block, its mode and its queue order as they stood at Start Sprint. <c>Mode</c> is
+/// absent from snapshots taken before pool blocks existed and reads back as Queue, which is what
+/// those sprints were planned as.
+/// </summary>
+public sealed record SnapshotBlock(Guid Id, string? ScheduleTemplate, List<Guid> ItemIds,
+    ScheduleBlockMode Mode = ScheduleBlockMode.Queue);
 
 /// <summary>
 /// One actionable item's planning inputs at Start Sprint. <c>TotalSize</c> is the estimate that
@@ -34,5 +39,10 @@ public sealed record SnapshotNode(
     Guid? BlockId,
     int BlockSortOrder,
     int SortOrder,
-    ActionItemStatus Status
+    ActionItemStatus Status,
+    /// <summary>
+    /// Pool membership as it stood at Start Sprint. Null in snapshots taken before pool blocks
+    /// existed, and read as "active" — those blocks are all queues, which ignore the flag.
+    /// </summary>
+    bool? IsActiveInBlock = null
 );

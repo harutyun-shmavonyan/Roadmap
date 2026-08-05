@@ -74,6 +74,7 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
                 .OnDelete(DeleteBehavior.SetNull);
 
             e.Property(n => n.BlockSortOrder).HasDefaultValue(0);
+            e.Property(n => n.IsActiveInBlock).HasDefaultValue(true);
             e.Property(n => n.IsChecklist).HasDefaultValue(false);
 
             e.HasIndex(n => new { n.RoadmapId, n.ParentId, n.SortOrder });
@@ -86,6 +87,10 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.HasKey(sb => sb.Id);
             e.Property(sb => sb.Name).HasMaxLength(256).IsRequired();
             e.Property(sb => sb.ScheduleTemplate).HasMaxLength(1024);
+            e.Property(sb => sb.Mode)
+                .HasConversion<string>()
+                .HasMaxLength(16)
+                .HasDefaultValue(ScheduleBlockMode.Queue);
             e.HasOne(sb => sb.Roadmap).WithMany().HasForeignKey(sb => sb.RoadmapId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(sb => new { sb.RoadmapId, sb.SortOrder });
         });
@@ -170,6 +175,12 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.HasOne(p => p.Node)
                 .WithMany()
                 .HasForeignKey(p => p.NodeId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Pool sessions belong to the block, not to any one item.
+            e.HasOne(p => p.Block)
+                .WithMany()
+                .HasForeignKey(p => p.BlockId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             e.HasIndex(p => new { p.SprintId, p.Date });

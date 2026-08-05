@@ -120,6 +120,8 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showSprintModal, setShowSprintModal] = useState(false);
   const [logPopup, setLogPopup] = useState<{ block: ScheduleBlock; x: number; y: number } | null>(null);
+  // Which item a pool block's log goes to. Null for ordinary blocks, which already know.
+  const [logTarget, setLogTarget] = useState<string | null>(null);
   const [logAmount, setLogAmount] = useState('');
   const [logBusy, setLogBusy] = useState(false);
   const [nowMin, setNowMin] = useState(() => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); });
@@ -154,13 +156,21 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
     return () => document.removeEventListener('mousedown', handler);
   }, [logPopup]);
 
+  // A pool block's work always lands on one of its items — the picker decides which.
+  const targetOf = (block: ScheduleBlock) => block.poolItems ? logTarget : block.nodeId;
+  const poolLogsFor = (block: ScheduleBlock) => block.poolItems
+    ? workLogs.filter(w => block.poolItems!.some(p => p.nodeId === w.nodeId))
+    : workLogs.filter(w => w.nodeId === block.nodeId);
+
   const doLog = async () => {
     if (!logPopup || logBusy) return;
+    const targetId = targetOf(logPopup.block);
+    if (!targetId) return;
     const val = parseFloat(logAmount);
     if (isNaN(val) || val <= 0) return;
     setLogBusy(true);
     try {
-      await api.logWork(roadmapId, logPopup.block.nodeId, date, val);
+      await api.logWork(roadmapId, targetId, date, val);
       setLogAmount('');
       await refresh();
       setLogPopup(null);
@@ -177,6 +187,9 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const y = rect.bottom + 8 > window.innerHeight - 220 ? Math.max(8, rect.top - 200) : rect.bottom + 8;
     setLogPopup({ block, x: Math.min(rect.left, window.innerWidth - 320), y });
+    // Pre-pick whatever was already worked today, else the first candidate.
+    const already = block.poolItems?.find(p => workLogs.some(w => w.nodeId === p.nodeId));
+    setLogTarget(block.poolItems ? (already ?? block.poolItems[0])?.nodeId ?? null : null);
     setLogAmount('');
   };
 
@@ -359,7 +372,7 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
                 const c = getPointColor(b);
                 const wp = 100 / b.totalCols;
                 const lp = b.col * wp;
-                const dayLog = workLogs.filter(w => w.nodeId === b.nodeId).reduce((s, w) => s + w.amount, 0);
+                const dayLog = poolLogsFor(b).reduce((s, w) => s + w.amount, 0);
                 const dayDone = b.plannedUnits > 0 && dayLog >= b.plannedUnits;
                 const blockPts = Math.round((b.plannedUnits ?? 0) * (b.pointsPerUnit ?? 0) * 10) / 10;
                 const durLabel = b.durationMinutes >= 60
@@ -367,13 +380,13 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
                   : `${b.durationMinutes}m`;
 
                 return (
-                  <div key={`${b.nodeId}-${i}`} className={`sched-entry ${isCompact ? 'compact' : ''}`}
+                  <div key={`${b.nodeId ?? b.blockId}-${i}`} className={`sched-entry ${isCompact ? 'compact' : ''}`}
                     style={{ top, height, backgroundColor: c.bg, borderLeftColor: c.border, color: c.text,
                       left: `calc(${lp}% + 4px)`, right: `calc(${100 - lp - wp}% + 4px)`, width: 'auto' }}
                     onClick={e => openLogPopup(e, b)}>
                     <div className="entry-row-top">
                       {dayDone && <span className="entry-done-check">✓</span>}
-                      <span className="entry-title">{b.nodeTitle} <span className="entry-inline-meta">{blockPts > 0 ? `${blockPts}pt` : ''} {durLabel}</span></span>
+                      <span className="entry-title">{b.poolItems ? '◇ ' : ''}{b.nodeTitle} <span className="entry-inline-meta">{blockPts > 0 ? `${blockPts}pt` : ''} {durLabel}</span></span>
                     </div>
                     {!isCompact && rawH >= 52 && (
                       <div className="entry-row-mid">
@@ -397,23 +410,55 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
       {/* Log popup — positioned fixed, outside-click handled via document listener */}
       {logPopup && (() => {
         const b = logPopup.block;
-        const todayLogs = workLogs.filter(w => w.nodeId === b.nodeId);
+        const pool = b.poolItems;
+        const picked = pool?.find(p => p.nodeId === logTarget) ?? null;
+        // For a pool the popup speaks in the picked item's unit — that is what gets logged.
+        const unit = pool ? picked?.unit ?? null : b.unit;
+        const todayLogs = poolLogsFor(b);
         const todayTotal = todayLogs.reduce((s, w) => s + w.amount, 0);
         const dayDone = b.plannedUnits > 0 && todayTotal >= b.plannedUnits;
+        const isChecklist = pool ? !!picked?.isChecklist : b.isChecklist;
+        const targetId = pool ? logTarget : b.nodeId;
         return (
         <div className="entry-log-form" ref={logFormRef}
           style={{ position: 'fixed', left: logPopup.x, top: logPopup.y, zIndex: 200 }}>
           <h3 style={{ marginBottom: 6 }}>{b.nodeTitle}</h3>
+          {pool && (
+            <div style={{ marginBottom: 8 }}>
+              <label style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Item</label>
+              <select value={logTarget ?? ''} onChange={e => setLogTarget(e.target.value || null)}
+                style={{ width: '100%', marginTop: 4, background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', fontSize: 13, padding: '6px 8px', outline: 'none' }}>
+                {pool.length === 0 && <option value="">No active items</option>}
+                {pool.map(p => (
+                  <option key={p.nodeId} value={p.nodeId}>
+                    {p.title}{p.totalSize != null ? ` — ${Math.round(p.totalLogged)}/${p.totalSize}${p.unit ? ' ' + p.unit : ''}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
             {b.plannedUnits > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Today's plan:</span>
                 <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: dayDone ? 'var(--success)' : 'var(--text-primary)' }}>
-                  {fmtUnit(todayTotal, b.unit)} / {fmtUnit(b.plannedUnits, b.unit)} {dayDone ? '✅' : ''}
+                  {fmtUnit(todayTotal, unit)} / {fmtUnit(b.plannedUnits, unit)} {dayDone ? '✅' : ''}
                 </span>
               </div>
             )}
-            {b.totalSize != null && (
+            {/* For a pool, "overall" is the picked item's own progress — the block's total is
+                already on the card and means something different. */}
+            {picked && picked.totalSize != null && (
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>{picked.title}:</span>
+                <span style={{ fontFamily: 'var(--font-mono)' }}>
+                  {fmtUnit(picked.totalLogged, picked.unit)} / {fmtUnit(picked.totalSize, picked.unit)}
+                  {' '}({Math.round(picked.totalLogged / picked.totalSize * 100)}%)
+                </span>
+              </div>
+            )}
+            {!pool && b.totalSize != null && (
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Overall:</span>
                 <span style={{ fontFamily: 'var(--font-mono)' }}>{fmtUnit(b.totalLogged, b.unit)} / {fmtUnit(b.totalSize, b.unit)} ({b.completionPercent}%)</span>
@@ -425,24 +470,27 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Today's logs</div>
               {todayLogs.map(w => (
                 <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '3px 0' }}>
-                  <span style={{ flex: 1 }}>{fmtUnit(w.amount, b.unit)}</span>
+                  <span style={{ flex: 1 }}>
+                    {pool && <span style={{ color: 'var(--text-muted)' }}>{w.nodeTitle} · </span>}
+                    {fmtUnit(w.amount, w.unit)}
+                  </span>
                   <button className="btn btn-ghost btn-sm" style={{ fontSize: 10, padding: '0 4px', color: 'var(--danger)' }}
                     onClick={async (e) => { e.stopPropagation(); await api.deleteWorkLog(roadmapId, w.id); await refresh(); }}>✕</button>
                 </div>
               ))}
             </div>
           )}
-          {b.isChecklist && <ChecklistSubPointPanel roadmapId={roadmapId} date={date} nodeId={b.nodeId} onChange={refresh} />}
-          {!b.isChecklist && <div className="log-form-row">
+          {isChecklist && targetId && <ChecklistSubPointPanel roadmapId={roadmapId} date={date} nodeId={targetId} onChange={refresh} />}
+          {!isChecklist && <div className="log-form-row">
             <label>Add</label>
             <input ref={logInputRef} type="number" value={logAmount} step="any"
               onChange={e => setLogAmount(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); doLog(); } if (e.key === 'Escape') setLogPopup(null); }}
               placeholder="0" />
-            <span className="unit-hint">{b.unit ? b.unit + 's' : 'units'}</span>
+            <span className="unit-hint">{unit ? unit + 's' : 'units'}</span>
           </div>}
           <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-            <button className="btn btn-sm btn-accent" disabled={logBusy}
+            <button className="btn btn-sm btn-accent" disabled={logBusy || !targetId}
               onClick={(e) => { e.stopPropagation(); doLog(); }}>
               {logBusy ? '...' : 'Log'}
             </button>
@@ -450,17 +498,18 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
           </div>
           <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: 10, paddingTop: 8 }}>
             <button className="btn btn-sm btn-ghost" style={{ width: '100%', justifyContent: 'center', color: 'var(--success)' }}
-              disabled={logBusy}
+              disabled={logBusy || !targetId}
               onClick={async (e) => {
                 e.stopPropagation();
+                if (!targetId) return;
                 setLogBusy(true);
                 try {
-                  await api.updateNodeStatus(roadmapId, b.nodeId, 'Completed');
+                  await api.updateNodeStatus(roadmapId, targetId, 'Completed');
                   setLogPopup(null);
                   await refresh();
                 } finally { setLogBusy(false); }
               }}>
-              ✓ Mark complete
+              ✓ Mark complete{pool && picked ? ` — ${picked.title}` : ''}
             </button>
           </div>
         </div>

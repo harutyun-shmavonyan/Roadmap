@@ -360,6 +360,36 @@ public static class RoadmapEndpoints
                 {
                     var blockTmpl = ParseTemplate(sblock.ScheduleTemplate);
                     if (blockTmpl is null || !blockTmpl.Days.Contains(dow)) continue;
+
+                    if (sblock.Mode == ScheduleBlockMode.Pool)
+                    {
+                        // A pool block puts *itself* on the calendar: the session is priced off
+                        // the average of its active items, and which one you actually work is
+                        // decided at log time, from the picker carried on the row.
+                        var pool = BuildPool(sblock, logTotals);
+                        if (pool is null || pool.Remaining <= 0.01) continue;
+
+                        var poolDur = blockTmpl.GetDurationMinutes(dow);
+                        var poolPlanned = Math.Min(poolDur / 60.0 * pool.AvgUnitsPerHour, pool.Remaining);
+                        var poolLogged = pool.Items.Sum(n => logTotals.GetValueOrDefault(n.Id, 0));
+                        // Only a pool where every item is sized has a total worth showing.
+                        double? poolSize = pool.Items.All(n => n.TotalSize.HasValue)
+                            ? pool.Items.Sum(n => n.TotalSize!.Value)
+                            : null;
+                        var poolPct = poolSize is > 0 ? Math.Round(poolLogged / poolSize.Value * 100, 1) : 0;
+                        var poolUnits = pool.Items.Select(n => n.Unit).Distinct().ToList();
+
+                        blocks.Add(new ScheduleBlockDto(null, sblock.Name, sblock.Name,
+                            poolUnits.Count == 1 ? poolUnits[0] : null,
+                            Math.Round(pool.AvgUnitsPerHour, 2), Math.Round(poolPlanned, 2),
+                            blockTmpl.GetStartMinute(dow), poolDur, poolLogged, poolSize, poolPct,
+                            Math.Round(pool.AvgPointsPerUnit, 3), false, sblock.Id,
+                            pool.Items.Select(n => new ScheduleBlockOptionDto(n.Id, n.Title, BuildPath(n, lk),
+                                n.Unit, n.TotalSize, logTotals.GetValueOrDefault(n.Id, 0), n.UnitsPerHour,
+                                n.PointsPerUnit, n.IsChecklist)).ToList()));
+                        continue;
+                    }
+
                     // Completed items stay in the queue so past/current days keep showing them;
                     // the projection advances past them only after their completion date.
                     var queue = sblock.Items
@@ -697,7 +727,7 @@ public static class RoadmapEndpoints
             var computed = ComputeSprintPlan(allNodes, blocks, dates, loggedBefore, ParseRelaxDays(sprint.RelaxDays));
             var entries = computed.Select(c => new SprintPlanEntry
             {
-                Id = Guid.NewGuid(), SprintId = sprint.Id, NodeId = c.NodeId,
+                Id = Guid.NewGuid(), SprintId = sprint.Id, NodeId = c.NodeId, BlockId = c.BlockId,
                 CategoryId = null, Date = c.Date, StartMinute = c.StartMinute,
                 DurationMinutes = c.DurationMinutes, PlannedUnits = c.PlannedUnits
             }).ToList();
@@ -729,13 +759,20 @@ public static class RoadmapEndpoints
             var commitment = await ComputeCommitmentAsync(db, sprint, snap);
             var titles = await db.Nodes.AsNoTracking().Where(n => n.RoadmapId == roadmapId)
                 .Select(n => new { n.Id, n.Title }).ToDictionaryAsync(n => n.Id, n => n.Title);
+            var blockNames = await db.ScheduleBlocks.AsNoTracking().Where(b => b.RoadmapId == roadmapId)
+                .Select(b => new { b.Id, b.Name }).ToDictionaryAsync(b => b.Id, b => b.Name);
             return Results.Ok(new
             {
                 sprint = ToSprintDto(sprint),
-                items = commitment.GroupBy(c => c.NodeId).Select(g => new
+                // Pool sessions belong to a block, so the commitment lists the block by name
+                // alongside the items — one line per thing that was on the hook.
+                items = commitment.GroupBy(c => c.NodeId ?? c.BlockId ?? Guid.Empty).Select(g => new
                 {
-                    nodeId = g.Key,
-                    title = titles.GetValueOrDefault(g.Key, "?"),
+                    nodeId = g.First().NodeId,
+                    blockId = g.First().BlockId,
+                    title = g.First().BlockId is Guid bid
+                        ? blockNames.GetValueOrDefault(bid, "?")
+                        : titles.GetValueOrDefault(g.Key, "?"),
                     plannedUnits = Math.Round(g.Sum(c => c.PlannedUnits), 2),
                     sessions = g.Select(c => c.Date).Distinct().Count()
                 }).OrderByDescending(x => x.plannedUnits).ToList()
@@ -746,9 +783,11 @@ public static class RoadmapEndpoints
         {
             var sprint = await db.Sprints.AsNoTracking().FirstOrDefaultAsync(s => s.Id == sprintId && s.RoadmapId == roadmapId);
             if (sprint is null) return Results.NotFound();
-            var entries = await db.SprintPlanEntries.AsNoTracking().Include(p => p.Node)
+            var entries = await db.SprintPlanEntries.AsNoTracking().Include(p => p.Node).Include(p => p.Block)
                 .Where(p => p.SprintId == sprintId).OrderBy(p => p.Date).ThenBy(p => p.StartMinute).ToListAsync();
-            return Results.Ok(entries.Select(p => new SprintPlanEntryDto(p.NodeId, p.Node.Title, p.Date.ToString("yyyy-MM-dd"), p.StartMinute, p.DurationMinutes, p.PlannedUnits)));
+            return Results.Ok(entries.Select(p => new SprintPlanEntryDto(p.NodeId, p.BlockId,
+                p.Node?.Title ?? p.Block?.Name ?? "?", p.Date.ToString("yyyy-MM-dd"), p.StartMinute,
+                p.DurationMinutes, p.PlannedUnits)));
         });
 
         // ===== Performance — sprint-scoped. Draft sprints get projected plan, no actual data. =====
@@ -769,7 +808,7 @@ public static class RoadmapEndpoints
             //               things are projected to finish.
             // Anything worked on that the commitment never included is bonus: it earns points
             // and owes none.
-            List<(Guid NodeId, DateOnly Date, double PlannedUnits, int DurationMinutes)> planData;
+            List<(Guid? NodeId, Guid? BlockId, DateOnly Date, double PlannedUnits, int DurationMinutes)> planData;
             List<WorkLog> sprintLogs;
             var pointsPerUnit = new Dictionary<Guid, double>();
             List<SprintPlanEntry> forecast = [];
@@ -786,8 +825,11 @@ public static class RoadmapEndpoints
                 var commitment = snap is null ? [] : await ComputeCommitmentAsync(db, sprint, snap);
                 planData = commitment
                     .Where(c => c.Date >= sprint.StartDate && c.Date <= sprint.EndDate)
-                    .Select(c => (c.NodeId, c.Date, c.PlannedUnits, c.DurationMinutes)).ToList();
-                foreach (var c in commitment) pointsPerUnit[c.NodeId] = c.PointsPerUnit;
+                    .Select(c => (c.NodeId, c.BlockId, c.Date, c.PlannedUnits, c.DurationMinutes)).ToList();
+                // Keyed by whatever the session belonged to — an item, or a pool block, whose
+                // rate is the average frozen at Start Sprint.
+                foreach (var c in commitment)
+                    if ((c.NodeId ?? c.BlockId) is Guid key) pointsPerUnit[key] = c.PointsPerUnit;
                 if (snap is not null)
                     foreach (var (id, amount) in snap.LoggedBefore)
                         if (Guid.TryParse(id, out var nid)) loggedBeforePlan[nid] = amount;
@@ -805,15 +847,31 @@ public static class RoadmapEndpoints
                 var blocks = await db.ScheduleBlocks.AsNoTracking().Include(sb => sb.Items).Where(sb => sb.RoadmapId == roadmapId).ToListAsync();
                 var loggedBefore = await LoggedBeforeAsync(db, roadmapId, sprint.StartDate);
                 var computed = ComputeSprintPlan(allNodes, blocks, dates, loggedBefore, ParseRelaxDays(sprint.RelaxDays));
-                planData = computed.Select(c => (c.NodeId, c.Date, c.PlannedUnits, c.DurationMinutes)).ToList();
+                planData = computed.Select(c => (c.NodeId, c.BlockId, c.Date, c.PlannedUnits, c.DurationMinutes)).ToList();
+                foreach (var c in computed)
+                    if ((c.NodeId ?? c.BlockId) is Guid key) pointsPerUnit[key] = c.PointsPerUnit;
                 loggedBeforePlan = loggedBefore;
                 sprintLogs = []; // no logs for draft
             }
 
+            // Work inside a pool block belongs to the block's row, not to a row of its own: the
+            // sprint committed to the block, and the items under it are interchangeable.
+            var poolBlocks = await db.ScheduleBlocks.AsNoTracking().Include(b => b.Items)
+                .Where(b => b.RoadmapId == roadmapId && b.Mode == ScheduleBlockMode.Pool).ToListAsync();
+            var poolOfNode = new Dictionary<Guid, Guid>();
+            foreach (var pb in poolBlocks)
+                foreach (var pi in pb.Items) poolOfNode[pi.Id] = pb.Id;
+
             // Group by node
-            var planByNode = planData.GroupBy(p => p.NodeId).ToDictionary(g => g.Key, g => g.ToList());
-            var logsByNode = sprintLogs.GroupBy(w => w.NodeId).ToDictionary(g => g.Key, g => g.ToList());
-            var forecastByNode = forecast.GroupBy(p => p.NodeId).ToDictionary(g => g.Key, g => g.ToList());
+            var planByNode = planData.Where(p => p.NodeId.HasValue)
+                .GroupBy(p => p.NodeId!.Value).ToDictionary(g => g.Key, g => g.ToList());
+            var planByBlock = planData.Where(p => p.BlockId.HasValue)
+                .GroupBy(p => p.BlockId!.Value).ToDictionary(g => g.Key, g => g.ToList());
+            var poolLogs = sprintLogs.Where(w => poolOfNode.ContainsKey(w.NodeId)).ToList();
+            var logsByNode = sprintLogs.Where(w => !poolOfNode.ContainsKey(w.NodeId))
+                .GroupBy(w => w.NodeId).ToDictionary(g => g.Key, g => g.ToList());
+            var forecastByNode = forecast.Where(p => p.NodeId.HasValue)
+                .GroupBy(p => p.NodeId!.Value).ToDictionary(g => g.Key, g => g.ToList());
             // Committed items stay listed even if never touched — a dropped commitment must stay
             // visible. Bonus items appear once there is work to show for them.
             var nodeIds = planByNode.Keys.Union(logsByNode.Keys).ToHashSet();
@@ -927,6 +985,92 @@ public static class RoadmapEndpoints
                     // Bonus work is never advertised as "completing this sprint" — it was never promised.
                     willComplete && !isBonus, projectedDate, dailyCum,
                     node.Status == ActionItemStatus.Completed, isBonus));
+            }
+
+            // ===== Pool blocks =====
+            // One row per pool block. Planned is the block's own commitment — the frozen average
+            // rate times the sessions it was given — because no item was ever named. Earned is
+            // what its members actually took, each priced at its *own* rate, which is what the
+            // day view and the daily-points total use; only the plan speaks in averages.
+            var poolIds = planByBlock.Keys
+                .Union(poolLogs.Select(w => poolOfNode[w.NodeId]))
+                .Distinct().ToList();
+            foreach (var poolId in poolIds)
+            {
+                var block = poolBlocks.FirstOrDefault(b => b.Id == poolId);
+                if (block is null) continue;
+
+                var blockPlan = planByBlock.GetValueOrDefault(poolId, []);
+                var avgPpu = pointsPerUnit.GetValueOrDefault(poolId, 0);
+                var memberLogs = poolLogs.Where(w => poolOfNode[w.NodeId] == poolId).ToList();
+                var memberById = block.Items.ToDictionary(i => i.Id);
+                double MemberPpu(Guid id) => memberById.TryGetValue(id, out var m) ? m.PointsPerUnit ?? 0 : 0;
+
+                var poolPlannedUnits = blockPlan.Sum(p => p.PlannedUnits);
+                var poolPlannedPts = poolPlannedUnits * avgPpu;
+                var poolDoneUnits = memberLogs.Sum(w => w.Amount);
+                var poolDonePts = memberLogs.Sum(w => w.Amount * MemberPpu(w.NodeId));
+                grandTotalPlannedPts += poolPlannedPts;
+
+                foreach (var log in memberLogs)
+                    if (dailyPointsMap.ContainsKey(log.Date))
+                        dailyPointsMap[log.Date] += log.Amount * MemberPpu(log.NodeId);
+
+                // Same curve as an item's: actual against the block's commitment, ideal against
+                // the shape of that commitment. A pool with no commitment is bonus, so it is
+                // drawn against its own output instead.
+                var poolIsBonus = poolPlannedPts <= 0 && poolDonePts > 0;
+                var poolDenom = poolIsBonus ? poolDonePts : poolPlannedPts;
+                var poolCum = new List<DailyCumulativeDto>();
+                double runPlanned = 0, runDone = 0;
+                foreach (var d in dates)
+                {
+                    runPlanned += blockPlan.Where(p => p.Date == d).Sum(p => p.PlannedUnits) * avgPpu;
+                    runDone += memberLogs.Where(w => w.Date == d).Sum(w => w.Amount * MemberPpu(w.NodeId));
+                    poolCum.Add(new DailyCumulativeDto(d.ToString("yyyy-MM-dd"),
+                        poolDenom > 0 ? Math.Round(runDone / poolDenom * 100, 1) : 0,
+                        poolPlannedPts > 0 ? Math.Round(runPlanned / poolPlannedPts * 100, 1) : 0));
+                }
+
+                // The breakdown behind the row: every member that was worked, plus the ones still
+                // in play that were not, so an untouched item is visible rather than absent.
+                var breakdownIds = memberLogs.Select(w => w.NodeId)
+                    .Union(block.Items.Where(i => i.IsActiveInBlock && i.IsActionable).Select(i => i.Id))
+                    .Distinct().ToList();
+                var poolItems = new List<PerformanceItemDto>();
+                foreach (var mid in breakdownIds)
+                {
+                    if (!memberById.TryGetValue(mid, out var member)) continue;
+                    var mLogs = memberLogs.Where(w => w.NodeId == mid).ToList();
+                    var mPpu = member.PointsPerUnit ?? 0;
+                    var mDoneUnits = mLogs.Sum(w => w.Amount);
+                    var mDonePts = mDoneUnits * mPpu;
+                    double mRun = 0;
+                    var mCum = dates.Select(d =>
+                    {
+                        mRun += mLogs.Where(w => w.Date == d).Sum(w => w.Amount) * mPpu;
+                        return new DailyCumulativeDto(d.ToString("yyyy-MM-dd"),
+                            mDonePts > 0 ? Math.Round(mRun / mDonePts * 100, 1) : 0, 0);
+                    }).ToList();
+
+                    poolItems.Add(new PerformanceItemDto(member.Id, member.Title, member.Unit,
+                        member.TotalSize, member.UnitsPerHour, member.PointsPerUnit,
+                        // Nothing was committed per item inside a pool, so sessions/planned are 0.
+                        0, 0, Math.Round(mDoneUnits, 1), 0, Math.Round(mDonePts, 1), 0,
+                        false, null, mCum, member.Status == ActionItemStatus.Completed));
+                }
+                poolItems = [.. poolItems.OrderByDescending(i => i.EarnedPoints).ThenBy(i => i.Title)];
+
+                var poolUnitSet = block.Items.Where(i => i.IsActiveInBlock).Select(i => i.Unit).Distinct().ToList();
+                items.Add(new PerformanceItemDto(block.Id, block.Name,
+                    poolUnitSet.Count == 1 ? poolUnitSet[0] : null,
+                    null, null, avgPpu > 0 ? avgPpu : null,
+                    blockPlan.Select(p => p.Date).Distinct().Count(),
+                    Math.Round(poolPlannedUnits, 1), Math.Round(poolDoneUnits, 1),
+                    Math.Round(poolPlannedPts, 1), Math.Round(poolDonePts, 1),
+                    Math.Round(blockPlan.Sum(p => (double)p.DurationMinutes), 0),
+                    // A pool has no single finish line, so it never advertises a completion date.
+                    false, null, poolCum, false, poolIsBonus, true, poolItems));
             }
 
             // Add habit points: +2 for checked, -2 for missed (strictly past days only)
@@ -1195,13 +1339,13 @@ public static class RoadmapEndpoints
 
             // Get sprint plan entries for this week
             var weekDates = Enumerable.Range(0, 7).Select(i => monday.AddDays(i)).Where(d => d >= sprint.StartDate && d <= sprint.EndDate).ToList();
-            var planEntries = await db.SprintPlanEntries.AsNoTracking().Include(p => p.Node)
+            var planEntries = await db.SprintPlanEntries.AsNoTracking().Include(p => p.Node).Include(p => p.Block)
                 .Where(p => p.SprintId == sprint.Id && weekDates.Contains(p.Date)).ToListAsync();
             var weekLogs = await db.WorkLogs.AsNoTracking()
                 .Where(w => w.SprintId == sprint.Id && weekDates.Contains(w.Date)).ToListAsync();
 
             // Aggregate by node — with sprint-level completion projections
-            var nodeIds = planEntries.Select(p => p.NodeId).Distinct().ToList();
+            var nodeIds = planEntries.Where(p => p.NodeId.HasValue).Select(p => p.NodeId!.Value).Distinct().ToList();
             var allSprintPlan = await db.SprintPlanEntries.AsNoTracking().Include(p => p.Node)
                 .Where(p => p.SprintId == sprint.Id).OrderBy(p => p.Date).ToListAsync();
             var allTimeLogs = await db.WorkLogs.AsNoTracking().Where(w => nodeIds.Contains(w.NodeId))
@@ -1220,7 +1364,8 @@ public static class RoadmapEndpoints
             var weekCommitment = weekSnap is null ? [] : await ComputeCommitmentAsync(db, sprint, weekSnap);
             var committedUnits = weekCommitment
                 .Where(c => c.Date >= sprint.StartDate && c.Date <= sprint.EndDate)
-                .GroupBy(c => c.NodeId).ToDictionary(g => g.Key, g => g.Sum(c => c.PlannedUnits));
+                .Where(c => c.NodeId.HasValue)
+                .GroupBy(c => c.NodeId!.Value).ToDictionary(g => g.Key, g => g.Sum(c => c.PlannedUnits));
             var loggedBeforeSprint = new Dictionary<Guid, double>();
             if (weekSnap is not null)
                 foreach (var (id, amount) in weekSnap.LoggedBefore)
@@ -1233,13 +1378,13 @@ public static class RoadmapEndpoints
                 var sessions = nodePlan.Select(p => p.Date).Distinct().Count();
                 var planned = nodePlan.Sum(p => p.PlannedUnits);
                 var logged = weekLogs.Where(w => w.NodeId == nid).Sum(w => w.Amount);
-                var totalSize = first.Node.TotalSize;
+                var totalSize = first.Node!.TotalSize;
                 var totalLogged = allTimeLogs.GetValueOrDefault(nid, 0);
 
                 // Project completion across the full sprint
                 var willComplete = false;
                 string? projDate = null;
-                if (first.Node.Status == ActionItemStatus.Completed)
+                if (first.Node!.Status == ActionItemStatus.Completed)
                 {
                     willComplete = true;
                     projDate = weekLogs.Where(w => w.NodeId == nid).OrderByDescending(w => w.Date).FirstOrDefault()?.Date.ToString("yyyy-MM-dd");
@@ -1255,11 +1400,28 @@ public static class RoadmapEndpoints
                         + committedUnits.GetValueOrDefault(nid, 0) >= totalSize.Value - 0.01;
                 }
 
-                return new WeekScheduledItemDto(nid, first.Node.Title, first.Node.Unit, first.Node.UnitsPerHour,
+                return new WeekScheduledItemDto(nid, first.Node!.Title, first.Node.Unit, first.Node.UnitsPerHour,
                     sessions, Math.Round(planned, 1), Math.Round(logged, 1),
                     totalSize, Math.Round(totalLogged, 1), willComplete, projDate,
                     first.Node.Status == ActionItemStatus.Completed);
             }).ToList();
+
+            // Pool blocks sit in the week as themselves — the sessions were promised to the block,
+            // and the week's logged figure is whatever its members took. There is no single item
+            // to project a finish for, so they never claim to complete.
+            var weekPoolMembers = await db.Nodes.AsNoTracking()
+                .Where(n => n.RoadmapId == roadmapId && n.ScheduleBlockId != null)
+                .Select(n => new { n.Id, BlockId = n.ScheduleBlockId!.Value }).ToListAsync();
+            var weekPoolOfNode = weekPoolMembers.ToDictionary(x => x.Id, x => x.BlockId);
+            foreach (var g in planEntries.Where(p => p.BlockId.HasValue).GroupBy(p => p.BlockId!.Value))
+            {
+                var loggedInPool = weekLogs
+                    .Where(w => weekPoolOfNode.TryGetValue(w.NodeId, out var b) && b == g.Key)
+                    .Sum(w => w.Amount);
+                scheduledItems.Add(new WeekScheduledItemDto(g.Key, g.First().Block?.Name ?? "?", null, null,
+                    g.Select(p => p.Date).Distinct().Count(), Math.Round(g.Sum(p => p.PlannedUnits), 1),
+                    Math.Round(loggedInPool, 1), null, Math.Round(loggedInPool, 1), false, null));
+            }
 
             // Completed tasks this week
             var completedTasks = await db.SingleTasks.AsNoTracking()
@@ -1394,16 +1556,17 @@ public static class RoadmapEndpoints
         {
             var blocks = await db.ScheduleBlocks.AsNoTracking().Include(sb => sb.Items.OrderBy(i => i.BlockSortOrder))
                 .Where(sb => sb.RoadmapId == roadmapId).OrderBy(sb => sb.SortOrder).ToListAsync();
-            return Results.Ok(blocks.Select(sb => new ScheduleBlockDefDto(sb.Id, sb.Name, sb.ScheduleTemplate, sb.SortOrder,
-                sb.Items.Select(i => new ScheduleBlockItemDto(i.Id, i.Title, i.Unit, i.TotalSize, i.UnitsPerHour, i.Status.ToString(), i.BlockSortOrder)).ToList())).ToList());
+            return Results.Ok(blocks.Select(sb => new ScheduleBlockDefDto(sb.Id, sb.Name, sb.ScheduleTemplate, sb.SortOrder, sb.Mode.ToString(),
+                sb.Items.Select(i => new ScheduleBlockItemDto(i.Id, i.Title, i.Unit, i.TotalSize, i.UnitsPerHour, i.Status.ToString(), i.BlockSortOrder, i.IsActiveInBlock)).ToList())).ToList());
         });
 
         sblocks.MapPost("/", async (Guid roadmapId, CreateScheduleBlockRequest req, RoadmapDbContext db) =>
         {
             var maxSort = await db.ScheduleBlocks.Where(sb => sb.RoadmapId == roadmapId).MaxAsync(sb => (int?)sb.SortOrder) ?? -1;
-            var sb = new ScheduleBlock { Id = Guid.NewGuid(), RoadmapId = roadmapId, Name = req.Name.Trim(), ScheduleTemplate = req.ScheduleTemplate, SortOrder = maxSort + 1 };
+            var sb = new ScheduleBlock { Id = Guid.NewGuid(), RoadmapId = roadmapId, Name = req.Name.Trim(),
+                ScheduleTemplate = req.ScheduleTemplate, SortOrder = maxSort + 1, Mode = ParseBlockMode(req.Mode) };
             db.ScheduleBlocks.Add(sb); await db.SaveChangesAsync();
-            return Results.Created("", new ScheduleBlockDefDto(sb.Id, sb.Name, sb.ScheduleTemplate, sb.SortOrder, []));
+            return Results.Created("", new ScheduleBlockDefDto(sb.Id, sb.Name, sb.ScheduleTemplate, sb.SortOrder, sb.Mode.ToString(), []));
         });
 
         sblocks.MapPut("/{blockId:guid}", async (Guid roadmapId, Guid blockId, UpdateScheduleBlockRequest req, RoadmapDbContext db) =>
@@ -1411,6 +1574,22 @@ public static class RoadmapEndpoints
             var sb = await db.ScheduleBlocks.FirstOrDefaultAsync(x => x.Id == blockId && x.RoadmapId == roadmapId);
             if (sb is null) return Results.NotFound();
             sb.Name = req.Name.Trim(); sb.ScheduleTemplate = req.ScheduleTemplate;
+            // Omitting mode leaves it alone, so callers that predate pools can't reset a block.
+            if (req.Mode is not null) sb.Mode = ParseBlockMode(req.Mode);
+            await db.SaveChangesAsync();
+            await ReplanStartedSprintsAsync(db, roadmapId);
+            return Results.NoContent();
+        });
+
+        // Which items are in play in a pool block. The request carries the whole active set, so
+        // the checkbox list saves as one call and anything left out goes inactive.
+        sblocks.MapPut("/{blockId:guid}/items/active", async (Guid roadmapId, Guid blockId, SetBlockItemsActiveRequest req, RoadmapDbContext db) =>
+        {
+            var sb = await db.ScheduleBlocks.FirstOrDefaultAsync(x => x.Id == blockId && x.RoadmapId == roadmapId);
+            if (sb is null) return Results.NotFound();
+            var active = new HashSet<Guid>(req.ActiveNodeIds);
+            var items = await db.Nodes.Where(n => n.ScheduleBlockId == blockId).ToListAsync();
+            foreach (var i in items) i.IsActiveInBlock = active.Contains(i.Id);
             await db.SaveChangesAsync();
             await ReplanStartedSprintsAsync(db, roadmapId);
             return Results.NoContent();
@@ -2001,6 +2180,10 @@ public static class RoadmapEndpoints
         catch { return null; }
     }
 
+    /// <summary>Anything unrecognised (including null) is a queue — the mode blocks have always had.</summary>
+    private static ScheduleBlockMode ParseBlockMode(string? mode) =>
+        Enum.TryParse<ScheduleBlockMode>(mode, ignoreCase: true, out var m) ? m : ScheduleBlockMode.Queue;
+
     private static SprintDto ToSprintDto(Sprint s) => new(s.Id, s.Name,
         s.StartDate.ToString("yyyy-MM-dd"), s.EndDate.ToString("yyyy-MM-dd"), s.IsOpen, s.IsStarted, s.RelaxDays);
 
@@ -2057,8 +2240,37 @@ public static class RoadmapEndpoints
 
     /// <summary>
     /// Lightweight plan entry used for both snapshot persistence and on-the-fly projection.
+    /// Exactly one of <paramref name="NodeId"/> / <paramref name="BlockId"/> is set: a session
+    /// belongs to an item, or — for a Pool block — to the block itself.
     /// </summary>
-    private record ComputedPlanEntry(Guid NodeId, DateOnly Date, int StartMinute, int DurationMinutes, double PlannedUnits);
+    internal record ComputedPlanEntry(Guid? NodeId, Guid? BlockId, DateOnly Date, int StartMinute,
+        int DurationMinutes, double PlannedUnits, double PointsPerUnit);
+
+    /// <summary>
+    /// What a Pool block draws from: its active, still-open items and the averages the plan is
+    /// built from. Items with no rate cannot be planned, so they get no vote on the averages and
+    /// do not extend the pool's life — but they stay in <see cref="Items"/>, because you can
+    /// still pick them when logging.
+    /// </summary>
+    private record PoolPlan(List<RoadmapNode> Items, double AvgUnitsPerHour, double AvgPointsPerUnit, double Remaining);
+
+    /// <summary>
+    /// Read a Pool block's current pool. Null when nothing in it can be planned, which is what
+    /// takes the block off the schedule.
+    /// </summary>
+    private static PoolPlan? BuildPool(ScheduleBlock block, Dictionary<Guid, double> allTimeLogged)
+    {
+        var active = block.Items
+            .Where(n => n.IsActionable && n.IsActiveInBlock
+                && (n.Status == ActionItemStatus.Active || n.Status == ActionItemStatus.NotStarted))
+            .OrderBy(n => n.BlockSortOrder).ToList();
+        var rated = active.Where(n => n.UnitsPerHour is > 0).ToList();
+        if (rated.Count == 0) return null;
+        return new PoolPlan(active,
+            rated.Average(n => n.UnitsPerHour!.Value),
+            rated.Average(n => n.PointsPerUnit ?? 0),
+            rated.Sum(n => GetRemaining(n, allTimeLogged)));
+    }
 
     /// <summary>
     /// Compute queue-aware, capped plan entries for a sprint date range.
@@ -2070,7 +2282,7 @@ public static class RoadmapEndpoints
     /// so hitting Complete today leaves today's session with that item and hands the next
     /// queued item the *following* scheduled day, matching the daily schedule view.
     /// </summary>
-    private static List<ComputedPlanEntry> ComputeSprintPlan(
+    internal static List<ComputedPlanEntry> ComputeSprintPlan(
         List<RoadmapNode> allNodes, List<ScheduleBlock> blocks, List<DateOnly> dates, Dictionary<Guid, double> allTimeLogged,
         HashSet<string>? relaxDays = null, Dictionary<Guid, DateOnly>? completionBoundaries = null)
     {
@@ -2096,6 +2308,37 @@ public static class RoadmapEndpoints
         foreach (var block in blocks)
         {
             var blockTmpl = ParseTemplate(block.ScheduleTemplate); if (blockTmpl is null) continue;
+
+            if (block.Mode == ScheduleBlockMode.Pool)
+            {
+                // The block owns the session and its items are interchangeable, so there is no
+                // "current item" to plan against. The session is priced off the pool's average
+                // rate instead — frozen with everything else at Start Sprint, which is why
+                // activating an item mid-sprint cannot move what the sprint promised.
+                foreach (var item in block.Items) blockItemIds.Add(item.Id);
+                var pool = BuildPool(block, allTimeLogged);
+                if (pool is null) continue;
+
+                // The pool runs dry as a whole: sessions keep coming until the work left across
+                // its active items is used up, no matter which items that work sits in.
+                var poolRemaining = pool.Remaining;
+                foreach (var date in dates)
+                {
+                    if (poolRemaining <= 0.01) break;
+                    var pdow = (int)date.DayOfWeek;
+                    if (!blockTmpl.Days.Contains(pdow)) continue;
+                    if (relaxSet.Contains(date.ToString("yyyy-MM-dd"))) continue;
+
+                    var poolDur = blockTmpl.GetDurationMinutes(pdow);
+                    var poolPlanned = Math.Min(poolDur / 60.0 * pool.AvgUnitsPerHour, poolRemaining);
+                    if (poolPlanned <= 0) break;
+                    entries.Add(new ComputedPlanEntry(null, block.Id, date, blockTmpl.GetStartMinute(pdow),
+                        poolDur, Math.Round(poolPlanned, 2), pool.AvgPointsPerUnit));
+                    poolRemaining -= poolPlanned;
+                }
+                continue;
+            }
+
             var queue = block.Items
                 .Where(n => n.IsActionable && (n.Status == ActionItemStatus.Active || n.Status == ActionItemStatus.NotStarted
                     || (n.Status == ActionItemStatus.Completed && OccupiedThrough(n) >= planFrom)))
@@ -2137,7 +2380,8 @@ public static class RoadmapEndpoints
                 var actualPlanned = isClosed ? rawPlanned : Math.Min(rawPlanned, remainingForCurrent);
 
                 if (actualPlanned > 0)
-                    entries.Add(new ComputedPlanEntry(item.Id, date, blockTmpl.GetStartMinute(ddow), dur, Math.Round(actualPlanned, 2)));
+                    entries.Add(new ComputedPlanEntry(item.Id, null, date, blockTmpl.GetStartMinute(ddow), dur,
+                        Math.Round(actualPlanned, 2), item.PointsPerUnit ?? 0));
 
                 if (!isClosed) remainingForCurrent -= actualPlanned;
             }
@@ -2162,7 +2406,8 @@ public static class RoadmapEndpoints
                 var dur = tmpl.GetDurationMinutes(ddow);
                 var rawPlanned = n.UnitsPerHour.HasValue ? (dur / 60.0) * n.UnitsPerHour.Value : 0;
                 var actualPlanned = occupiedThrough.HasValue ? rawPlanned : Math.Min(rawPlanned, remaining);
-                entries.Add(new ComputedPlanEntry(n.Id, date, tmpl.GetStartMinute(ddow), dur, Math.Round(actualPlanned, 2)));
+                entries.Add(new ComputedPlanEntry(n.Id, null, date, tmpl.GetStartMinute(ddow), dur,
+                    Math.Round(actualPlanned, 2), n.PointsPerUnit ?? 0));
                 if (!occupiedThrough.HasValue) remaining -= actualPlanned;
             }
         }
@@ -2204,17 +2449,18 @@ public static class RoadmapEndpoints
             sprint.EndDate.ToString("yyyy-MM-dd"),
             [.. ParseRelaxDays(sprint.RelaxDays)],
             blocks.Select(b => new SnapshotBlock(b.Id, b.ScheduleTemplate,
-                b.Items.OrderBy(i => i.BlockSortOrder).Select(i => i.Id).ToList())).ToList(),
+                b.Items.OrderBy(i => i.BlockSortOrder).Select(i => i.Id).ToList(), b.Mode)).ToList(),
             nodes.Where(n => n.IsActionable).Select(n => new SnapshotNode(n.Id, n.TotalSize, n.UnitsPerHour,
                 n.PointsPerUnit, n.ScheduleTemplate, n.ScheduleBlockId, n.BlockSortOrder, n.SortOrder,
-                statusAtStart.GetValueOrDefault(n.Id, n.Status))).ToList(),
+                statusAtStart.GetValueOrDefault(n.Id, n.Status), n.IsActiveInBlock)).ToList(),
             loggedBefore.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value));
     }
 
     /// <summary>
     /// One line of the sprint's commitment: what this item was on the hook for on this day.
     /// </summary>
-    internal record BaselineEntry(Guid NodeId, DateOnly Date, int DurationMinutes, double PlannedUnits, double PointsPerUnit);
+    internal record BaselineEntry(Guid? NodeId, Guid? BlockId, DateOnly Date, int DurationMinutes,
+        double PlannedUnits, double PointsPerUnit);
 
     /// <summary>
     /// Rebuild the sprint's commitment from its frozen inputs.
@@ -2254,13 +2500,14 @@ public static class RoadmapEndpoints
             Id = s.Id, RoadmapId = sprint.RoadmapId, IsActionable = true,
             Status = s.Status, TotalSize = CorrectedSize(s), UnitsPerHour = s.UnitsPerHour,
             PointsPerUnit = s.PointsPerUnit, ScheduleTemplate = s.ScheduleTemplate,
-            ScheduleBlockId = s.BlockId, BlockSortOrder = s.BlockSortOrder, SortOrder = s.SortOrder
+            ScheduleBlockId = s.BlockId, BlockSortOrder = s.BlockSortOrder, SortOrder = s.SortOrder,
+            IsActiveInBlock = s.IsActiveInBlock ?? true
         }).OrderBy(n => n.SortOrder).ToList();
         var byId = nodes.ToDictionary(n => n.Id);
 
         var blocks = snap.Blocks.Select(b => new ScheduleBlock
         {
-            Id = b.Id, RoadmapId = sprint.RoadmapId, ScheduleTemplate = b.ScheduleTemplate,
+            Id = b.Id, RoadmapId = sprint.RoadmapId, ScheduleTemplate = b.ScheduleTemplate, Mode = b.Mode,
             Items = b.ItemIds.Where(byId.ContainsKey).Select(id => byId[id]).ToList()
         }).ToList();
 
@@ -2274,8 +2521,10 @@ public static class RoadmapEndpoints
             .ToDictionary(kv => Guid.Parse(kv.Key), kv => kv.Value);
 
         var computed = ComputeSprintPlan(nodes, blocks, dates, loggedBefore, [.. snap.RelaxDays]);
-        return computed.Select(c => new BaselineEntry(c.NodeId, c.Date, c.DurationMinutes, c.PlannedUnits,
-            byId.TryGetValue(c.NodeId, out var n) ? n.PointsPerUnit ?? 0 : 0)).ToList();
+        // The rate a session was priced at is decided by the planner — an item's own for a
+        // per-item session, the pool's frozen average for a block one — so it comes straight out.
+        return computed.Select(c => new BaselineEntry(c.NodeId, c.BlockId, c.Date, c.DurationMinutes,
+            c.PlannedUnits, c.PointsPerUnit)).ToList();
     }
 
     /// <summary>
@@ -2390,9 +2639,9 @@ public static class RoadmapEndpoints
 
             db.SprintPlanEntries.AddRange(computed.Select(c => new SprintPlanEntry
             {
-                Id = Guid.NewGuid(), SprintId = sprint.Id, NodeId = c.NodeId, CategoryId = null,
-                Date = c.Date, StartMinute = c.StartMinute, DurationMinutes = c.DurationMinutes,
-                PlannedUnits = c.PlannedUnits
+                Id = Guid.NewGuid(), SprintId = sprint.Id, NodeId = c.NodeId, BlockId = c.BlockId,
+                CategoryId = null, Date = c.Date, StartMinute = c.StartMinute,
+                DurationMinutes = c.DurationMinutes, PlannedUnits = c.PlannedUnits
             }));
         }
 
@@ -2474,6 +2723,12 @@ public static class RoadmapEndpoints
         // Check block queue first
         if (completedNode.ScheduleBlockId.HasValue)
         {
+            // Nothing queues behind anything in a pool block — every active item is already in
+            // play — so finishing one there hands the slot to no one in particular.
+            var mode = await db.ScheduleBlocks.AsNoTracking()
+                .Where(b => b.Id == completedNode.ScheduleBlockId).Select(b => b.Mode).FirstOrDefaultAsync();
+            if (mode == ScheduleBlockMode.Pool) return;
+
             var blockSiblings = await db.Nodes.Where(n => n.ScheduleBlockId == completedNode.ScheduleBlockId && n.IsActionable && n.Id != completedNode.Id
                 && n.Status != ActionItemStatus.Completed && n.Status != ActionItemStatus.Stopped).OrderBy(n => n.BlockSortOrder).ToListAsync();
             var next = blockSiblings.FirstOrDefault(n => n.BlockSortOrder > completedNode.BlockSortOrder) ?? blockSiblings.FirstOrDefault();

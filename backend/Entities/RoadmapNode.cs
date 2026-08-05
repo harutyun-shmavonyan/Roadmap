@@ -51,9 +51,16 @@ public class RoadmapNode
     /// <summary>Optional: if assigned to a schedule block, the item inherits the block's schedule and queues sequentially.</summary>
     public Guid? ScheduleBlockId { get; set; }
     
-    /// <summary>Sort order within the schedule block queue.</summary>
+    /// <summary>Sort order within the schedule block queue. Ignored by Pool blocks.</summary>
     public int BlockSortOrder { get; set; }
-    
+
+    /// <summary>
+    /// Whether this item is currently in play inside its Pool block — the checkbox on the block's
+    /// item list. Inactive items keep their membership but are left out of the pool's average and
+    /// out of the item picker when logging. Queue blocks ignore this flag entirely.
+    /// </summary>
+    public bool IsActiveInBlock { get; set; } = true;
+
     public int SortOrder { get; set; }
     
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

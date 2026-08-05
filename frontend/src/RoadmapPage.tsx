@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { RoadmapTree, NodeDto, ActionItemStatus, ScheduleTemplate, ScheduleBlockDef } from './types';
+import type { RoadmapTree, NodeDto, ActionItemStatus, ScheduleTemplate, ScheduleBlockDef, ScheduleBlockMode } from './types';
 import { api } from './api';
 import { fmtUnit } from './unitFormat';
 import { AddNodeModal, EditNodeModal, PerDayEditor, TIMES, DURATIONS } from './AddNodeModal';
@@ -111,6 +111,7 @@ export function RoadmapPage({ roadmapId, onBack }: { roadmapId: string; onBack: 
   };
   const [editBlockId, setEditBlockId] = useState<string | null>(null);
   const [reorderBlockId, setReorderBlockId] = useState<string | null>(null);
+  const [itemsBlockId, setItemsBlockId] = useState<string | null>(null);
   const [editCatId, setEditCatId] = useState<string | null>(null);
   const [editCatName, setEditCatName] = useState('');
   const [moveCatNode, setMoveCatNode] = useState<NodeDto | null>(null);
@@ -274,17 +275,24 @@ export function RoadmapPage({ roadmapId, onBack }: { roadmapId: string; onBack: 
                 {schedBlocks.map(sb => (
                   <div key={sb.id} style={{ padding: '8px 10px', background: 'var(--bg-primary)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', fontSize: 13 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                      <span style={{ fontWeight: 600, flex: 1 }}>{sb.name}</span>
+                      <span style={{ fontWeight: 600, flex: 1 }}>{sb.mode === 'Pool' ? '◇ ' : ''}{sb.name}</span>
                       <button className="btn btn-ghost" style={{ padding: '0 4px', fontSize: 10 }}
                         onClick={() => setEditBlockId(sb.id)}>⚙</button>
                       <button className="btn btn-ghost" style={{ padding: '0 4px', fontSize: 10, color: 'var(--danger)' }}
                         onClick={async () => { await api.deleteBlock(roadmapId, sb.id); await refresh(); }}>✕</button>
                     </div>
                     {sb.scheduleTemplate && (() => { try { return <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{fmtSchedule(JSON.parse(sb.scheduleTemplate))}</div>; } catch { return null; } })()}
+                    {/* A pool has no order to set — what it has is which items are in play. */}
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, cursor: sb.items.length > 0 ? 'pointer' : 'default' }}
-                      onClick={() => { if (sb.items.length > 0) setReorderBlockId(sb.id); }}>
-                      {sb.items.length} item{sb.items.length !== 1 ? 's' : ''}
-                      {sb.items.length > 0 && <span style={{ color: 'var(--accent)', marginLeft: 4 }}>— click to reorder</span>}
+                      onClick={() => {
+                        if (sb.items.length === 0) return;
+                        if (sb.mode === 'Pool') setItemsBlockId(sb.id); else setReorderBlockId(sb.id);
+                      }}>
+                      {sb.mode === 'Pool'
+                        ? `${sb.items.filter(i => i.isActiveInBlock).length}/${sb.items.length} active`
+                        : `${sb.items.length} item${sb.items.length !== 1 ? 's' : ''}`}
+                      {sb.items.length > 0 && <span style={{ color: 'var(--accent)', marginLeft: 4 }}>
+                        — click to {sb.mode === 'Pool' ? 'choose items' : 'reorder'}</span>}
                     </div>
                   </div>
                 ))}
@@ -498,6 +506,11 @@ export function RoadmapPage({ roadmapId, onBack }: { roadmapId: string; onBack: 
         if (!sb) return null;
         return <BlockReorderModal block={sb} roadmapId={roadmapId} onClose={() => setReorderBlockId(null)} onSaved={() => { setReorderBlockId(null); refresh(); }} />;
       })()}
+      {itemsBlockId && (() => {
+        const sb = schedBlocks.find(b => b.id === itemsBlockId);
+        if (!sb) return null;
+        return <BlockItemsModal block={sb} roadmapId={roadmapId} onClose={() => setItemsBlockId(null)} onSaved={() => { setItemsBlockId(null); refresh(); }} />;
+      })()}
     </div>
   );
 }
@@ -521,6 +534,7 @@ function EditBlockModal({ block, roadmapId, onClose, onSaved }: { block: Schedul
     return pd;
   });
   const [showPerDay, setShowPerDay] = useState(() => !!parsed?.perDay && Object.keys(parsed.perDay).length > 0);
+  const [mode, setMode] = useState<ScheduleBlockMode>(block.mode ?? 'Queue');
   const [busy, setBusy] = useState(false);
 
   const toggleDay = (v: number) => setDays(p => p.includes(v) ? p.filter(x => x !== v) : [...p, v]);
@@ -533,7 +547,7 @@ function EditBlockModal({ block, roadmapId, onClose, onSaved }: { block: Schedul
       if (showPerDay && Object.keys(perDay).length > 0) obj.perDay = perDay;
       tmpl = JSON.stringify(obj);
     }
-    await api.updateBlock(roadmapId, block.id, name.trim() || block.name, tmpl ?? undefined);
+    await api.updateBlock(roadmapId, block.id, name.trim() || block.name, tmpl ?? undefined, mode);
     setBusy(false); onSaved();
   };
 
@@ -542,6 +556,16 @@ function EditBlockModal({ block, roadmapId, onClose, onSaved }: { block: Schedul
       <h2>Edit Block</h2>
       <label>Name</label>
       <input type="text" value={name} onChange={e => setName(e.target.value)} />
+      <label>Type</label>
+      <select value={mode} onChange={e => setMode(e.target.value as ScheduleBlockMode)}>
+        <option value="Queue">Queue — items take the slot one at a time, in order</option>
+        <option value="Pool">Pool — the block is scheduled; pick the item when logging</option>
+      </select>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+        {mode === 'Pool'
+          ? 'Sessions are planned from the average rate of the active items, frozen when the sprint starts.'
+          : 'Each session is planned from the item currently at the head of the queue.'}
+      </div>
       <label>Days</label>
       <div className="weekday-picker">{EDAYS.map((d,i) => (
         <button key={i} type="button" className={`weekday-btn ${days.includes(EDAY_VALUES[i]) ? 'active' : ''}`} onClick={() => toggleDay(EDAY_VALUES[i])}>{d}</button>
@@ -566,6 +590,61 @@ function EditBlockModal({ block, roadmapId, onClose, onSaved }: { block: Schedul
     </div></div>
   );
 }
+/**
+ * Which items are in play in a pool block. Inactive items keep their membership — they are just
+ * left out of the pool's average and out of the picker when logging.
+ */
+function BlockItemsModal({ block, roadmapId, onClose, onSaved }: { block: ScheduleBlockDef; roadmapId: string; onClose: () => void; onSaved: () => void }) {
+  const [active, setActive] = useState<Set<string>>(() => new Set(block.items.filter(i => i.isActiveInBlock).map(i => i.nodeId)));
+  const [busy, setBusy] = useState(false);
+  const toggle = (id: string) => setActive(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const save = async () => {
+    setBusy(true);
+    await api.setBlockItemsActive(roadmapId, block.id, [...active]);
+    setBusy(false); onSaved();
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480, display: 'flex', flexDirection: 'column', maxHeight: '80vh' }}>
+        <h2 style={{ flexShrink: 0 }}>Items — {block.name}</h2>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8, flexShrink: 0 }}>
+          Checked items are in the pool: they set the block's average rate and are offered when you log.
+        </p>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexShrink: 0 }}>
+          <button className="btn btn-sm" onClick={() => setActive(new Set(block.items.map(i => i.nodeId)))}>Select all</button>
+          <button className="btn btn-sm" onClick={() => setActive(new Set())}>Clear</button>
+          <div style={{ flex: 1 }} />
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', alignSelf: 'center' }}>{active.size}/{block.items.length} active</span>
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', minHeight: 100 }}>
+          {block.items.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No items assigned to this block yet.</div>}
+          {block.items.map(item => (
+            <label key={item.nodeId} className="checkbox-row"
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', cursor: 'pointer',
+                background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-sm)', marginBottom: 4 }}>
+              <input type="checkbox" checked={active.has(item.nodeId)} onChange={() => toggle(item.nodeId)} />
+              <span style={{ flex: 1, fontSize: 14, opacity: active.has(item.nodeId) ? 1 : 0.55 }}>{item.title}</span>
+              {item.unitsPerHour != null && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{item.unitsPerHour}/{item.unit ? item.unit[0] : 'u'}/hr</span>}
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{item.status}</span>
+            </label>
+          ))}
+        </div>
+        <div className="modal-actions" style={{ flexShrink: 0, marginTop: 12 }}>
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn btn-accent" onClick={save} disabled={busy}>{busy ? 'Saving...' : 'Save'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BlockReorderModal({ block, roadmapId, onClose, onSaved }: { block: ScheduleBlockDef; roadmapId: string; onClose: () => void; onSaved: () => void }) {
   const [items, setItems] = useState(() => [...block.items].sort((a, b) => a.blockSortOrder - b.blockSortOrder));
   const [dragIdx, setDragIdx] = useState<number | null>(null);

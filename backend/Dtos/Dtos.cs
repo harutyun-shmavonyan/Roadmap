@@ -39,18 +39,33 @@ public record ActionableItemDto(
     double TotalLogged, string? ScheduleTemplate
 );
 
+/// <summary>
+/// One thing occupying the day's calendar. Normally an item — <c>NodeId</c> set, log straight to
+/// it. For a pool block it is the *block*: <c>NodeId</c> is null, <c>BlockId</c> and
+/// <c>PoolItems</c> are set, the figures are the pool's (average rate, summed progress), and the
+/// exact item is chosen from <c>PoolItems</c> when logging.
+/// </summary>
 public record ScheduleBlockDto(
-    Guid NodeId, string NodeTitle, string NodePath, string? Unit,
+    Guid? NodeId, string NodeTitle, string NodePath, string? Unit,
     double? UnitsPerHour, double PlannedUnits,
     int StartMinute, int DurationMinutes,
     double TotalLogged, double? TotalSize, double CompletionPercent,
     double? PointsPerUnit,
-    bool IsChecklist = false
+    bool IsChecklist = false,
+    Guid? BlockId = null,
+    List<ScheduleBlockOptionDto>? PoolItems = null
+);
+
+/// <summary>One candidate inside a pool block's session — what the log picker offers.</summary>
+public record ScheduleBlockOptionDto(
+    Guid NodeId, string Title, string Path, string? Unit,
+    double? TotalSize, double TotalLogged, double? UnitsPerHour, double? PointsPerUnit,
+    bool IsChecklist
 );
 
 public record SprintDto(Guid Id, string Name, string StartDate, string EndDate, bool IsOpen, bool IsStarted, string? RelaxDays);
 
-public record SprintPlanEntryDto(Guid NodeId, string NodeTitle, string Date, int StartMinute, int DurationMinutes, double PlannedUnits);
+public record SprintPlanEntryDto(Guid? NodeId, Guid? BlockId, string NodeTitle, string Date, int StartMinute, int DurationMinutes, double PlannedUnits);
 
 public record WorkLogDto(Guid Id, Guid NodeId, string NodeTitle, string Date, double Amount, string? Unit, string? Note);
 
@@ -93,7 +108,15 @@ public record PerformanceItemDto(
     bool WillComplete, string? ProjectedCompletionDate,
     List<DailyCumulativeDto> DailyCumulative,
     bool IsNodeCompleted,
-    bool IsBonus = false
+    bool IsBonus = false,
+    /// <summary>
+    /// This row is a pool block, not an item: NodeId is the block's id, the planned figures are
+    /// the block's commitment, and the done figures are everything its members took. The items
+    /// themselves are in <see cref="PoolItems"/> — planned is meaningless per item there, since
+    /// the sprint never committed to any one of them.
+    /// </summary>
+    bool IsPool = false,
+    List<PerformanceItemDto>? PoolItems = null
 );
 
 /// <summary>
@@ -184,10 +207,14 @@ public record CustomLogDto(Guid Id, string Title, double Points, string Date, st
 public record CreateCustomLogRequest(string Title, double Points, string Date, string? Note);
 
 // --- Schedule Blocks ---
-public record ScheduleBlockDefDto(Guid Id, string Name, string? ScheduleTemplate, int SortOrder, List<ScheduleBlockItemDto> Items);
-public record ScheduleBlockItemDto(Guid NodeId, string Title, string? Unit, double? TotalSize, double? UnitsPerHour, string Status, int BlockSortOrder);
-public record CreateScheduleBlockRequest(string Name, string? ScheduleTemplate);
-public record UpdateScheduleBlockRequest(string Name, string? ScheduleTemplate);
+// Mode is "Queue" (items take the slot one after another, in order) or "Pool" (the block takes
+// the slot; its active items are interchangeable candidates).
+public record ScheduleBlockDefDto(Guid Id, string Name, string? ScheduleTemplate, int SortOrder, string Mode, List<ScheduleBlockItemDto> Items);
+public record ScheduleBlockItemDto(Guid NodeId, string Title, string? Unit, double? TotalSize, double? UnitsPerHour, string Status, int BlockSortOrder, bool IsActiveInBlock);
+public record CreateScheduleBlockRequest(string Name, string? ScheduleTemplate, string? Mode = null);
+public record UpdateScheduleBlockRequest(string Name, string? ScheduleTemplate, string? Mode = null);
+/// <summary>The full set of items that should be active in a pool block — anything absent goes inactive.</summary>
+public record SetBlockItemsActiveRequest(List<Guid> ActiveNodeIds);
 public record AssignToBlockRequest(Guid NodeId, int BlockSortOrder);
 public record BatchReorderRequest(List<Guid> NodeIds);
 public record CategoryTimeDto(string CategoryName, double TotalMinutes, double TotalPoints, int Depth, List<CategoryTimeDto> Children);

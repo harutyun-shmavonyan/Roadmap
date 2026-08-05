@@ -1,7 +1,7 @@
 import type { RoadmapSummary, RoadmapTree, NodeDto, CreateNodeRequest, ActionableItem,
   ActionItemStatus, SprintDto, WorkLogDto, ScheduleResponse, PerformanceSummary, StatusChangeDto,
   WeekPlan, WeekPlanGoal, WorkLogHistory, HabitDto, SprintHabitDto, ScheduleHabitDto,
-  SingleTaskDto, ScheduleTaskDto, CustomLogDto, ScheduleBlockDef, SprintGoalDto,
+  SingleTaskDto, ScheduleTaskDto, CustomLogDto, ScheduleBlockDef, ScheduleBlockMode, SprintGoalDto,
   NodeSubPointDto, ScheduleSubPointDto, NoteDto,
   ArticleSummaryDto, ArticleDto, ArticleImageDto, ArticleFormat,
   JobRunDto, JobRunSummaryDto,
@@ -153,10 +153,13 @@ export const api = {
 
   // Schedule Blocks
   getBlocks: (r: string) => req<ScheduleBlockDef[]>(`${B}/${r}/blocks`),
-  createBlock: (r: string, name: string, scheduleTemplate?: string) =>
-    req<ScheduleBlockDef>(`${B}/${r}/blocks`, { method: 'POST', body: JSON.stringify({ name, scheduleTemplate }) }),
-  updateBlock: (r: string, bid: string, name: string, scheduleTemplate?: string) =>
-    req<void>(`${B}/${r}/blocks/${bid}`, { method: 'PUT', body: JSON.stringify({ name, scheduleTemplate }) }),
+  createBlock: (r: string, name: string, scheduleTemplate?: string, mode?: ScheduleBlockMode) =>
+    req<ScheduleBlockDef>(`${B}/${r}/blocks`, { method: 'POST', body: JSON.stringify({ name, scheduleTemplate, mode }) }),
+  updateBlock: (r: string, bid: string, name: string, scheduleTemplate?: string, mode?: ScheduleBlockMode) =>
+    req<void>(`${B}/${r}/blocks/${bid}`, { method: 'PUT', body: JSON.stringify({ name, scheduleTemplate, mode }) }),
+  // The whole active set at once — anything left out goes inactive.
+  setBlockItemsActive: (r: string, bid: string, activeNodeIds: string[]) =>
+    req<void>(`${B}/${r}/blocks/${bid}/items/active`, { method: 'PUT', body: JSON.stringify({ activeNodeIds }) }),
   deleteBlock: (r: string, bid: string) => req<void>(`${B}/${r}/blocks/${bid}`, { method: 'DELETE' }),
   assignToBlock: (r: string, bid: string, nodeId: string) =>
     req<void>(`${B}/${r}/blocks/${bid}/items`, { method: 'POST', body: JSON.stringify({ nodeId, blockSortOrder: 0 }) }),

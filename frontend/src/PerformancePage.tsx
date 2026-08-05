@@ -200,7 +200,7 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
                         <tr key={item.nodeId} className={`perf-row ${isExpanded ? 'perf-row-active' : ''}`}
                           style={{ cursor: 'pointer' }}
                           onClick={() => setExpandedItem(isExpanded ? null : item.nodeId)}>
-                          <td><span className="perf-dot" style={{ background: COLORS[origIdx % COLORS.length] }} />{item.title}
+                          <td><span className="perf-dot" style={{ background: COLORS[origIdx % COLORS.length] }} />{item.isPool ? '◇ ' : ''}{item.title}
                             {item.isNodeCompleted
                               ? <span title="Completed" style={{ marginLeft: 4 }}>✅</span>
                               : item.willComplete && <span title={`Projected: ${item.projectedCompletionDate}`} style={{ marginLeft: 4 }}>🎯</span>}
@@ -230,11 +230,34 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
                 <div key={item.nodeId} className="perf-section">
                   <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span className="perf-dot" style={{ background: COLORS[cIdx % COLORS.length] }} />
-                    {item.title}
+                    {item.isPool ? '◇ ' : ''}{item.title}
                     {item.totalSize && <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 400 }}>
                       ({item.doneUnits}/{item.totalSize} {item.unit})
                     </span>}
                   </h2>
+                  {/* A pool was committed to as a whole, so the per-item numbers below are what
+                      each one actually took — there is no per-item plan to compare against. */}
+                  {item.isPool && item.poolItems && item.poolItems.length > 0 && (
+                    <div className="perf-table-wrap" style={{ marginBottom: 16 }}>
+                      <table className="perf-table">
+                        <thead><tr>
+                          <th>Item</th><th>Done this sprint</th><th>Size</th><th>Pts</th>
+                        </tr></thead>
+                        <tbody>
+                          {item.poolItems.map(sub => (
+                            <tr key={sub.nodeId}>
+                              <td>{sub.title}{sub.isNodeCompleted && <span title="Completed" style={{ marginLeft: 4 }}>✅</span>}</td>
+                              <td>{fmtUnit(sub.doneUnits, sub.unit)}</td>
+                              <td>{sub.totalSize != null
+                                ? fmtUnit(sub.totalSize, sub.unit)
+                                : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                              <td>{sub.earnedPoints}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                   <SingleItemChart item={item} color={COLORS[cIdx % COLORS.length]} />
                 </div>
               );

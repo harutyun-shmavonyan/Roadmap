@@ -13,11 +13,21 @@ namespace Roadmap.Api.Entities;
 public class SprintPlanEntry
 {
     public Guid Id { get; set; }
-    
+
     public Guid SprintId { get; set; }
-    
-    public Guid NodeId { get; set; }
-    
+
+    /// <summary>
+    /// The item this session is planned for. Null for a Pool block's session, which is planned
+    /// for the block as a whole — see <see cref="BlockId"/>. Exactly one of the two is set.
+    /// </summary>
+    public Guid? NodeId { get; set; }
+
+    /// <summary>
+    /// The Pool block this session belongs to, when no single item owns it. Null for the
+    /// ordinary per-item entries that queue blocks and self-scheduled items produce.
+    /// </summary>
+    public Guid? BlockId { get; set; }
+
     /// <summary>
     /// The category that owns this time slot (null if item has its own schedule).
     /// </summary>
@@ -36,5 +46,6 @@ public class SprintPlanEntry
     
     // Navigation
     public Sprint Sprint { get; set; } = null!;
-    public RoadmapNode Node { get; set; } = null!;
+    public RoadmapNode? Node { get; set; }
+    public ScheduleBlock? Block { get; set; }
 }
