@@ -267,33 +267,39 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
             return new { nodeId = nid, title = node.Title, unit = node.Unit, plannedUnits = Math.Round(plannedUnits, 1), doneUnits = Math.Round(doneUnits, 1), plannedPoints = plannedPts, earnedPoints = earnedPts };
         }).ToList();
 
-        // Pool blocks were committed to as blocks, so they get one line each with the members'
-        // work rolled up. The average rate is read live here (the frozen one lives with the
-        // sprint's commitment, which the HTTP performance endpoint serves).
+        // Pool blocks were committed to as blocks and are measured in hours — their items share
+        // no unit. Members' work is converted to hours at each member's own rate; the per-item
+        // breakdown keeps the real units. The average points-per-hour is read live here (the
+        // frozen one lives with the sprint's commitment, which the HTTP endpoint serves).
         var poolMembers = await db.Nodes.AsNoTracking()
             .Where(n => n.RoadmapId == roadmap_id && n.ScheduleBlockId != null)
-            .Select(n => new { n.Id, n.Title, n.PointsPerUnit, n.UnitsPerHour, n.IsActiveInBlock, BlockId = n.ScheduleBlockId!.Value })
+            .Select(n => new { n.Id, n.Title, n.Unit, n.PointsPerUnit, n.UnitsPerHour, n.IsActiveInBlock, BlockId = n.ScheduleBlockId!.Value })
             .ToListAsync();
-        var poolOf = poolMembers.ToDictionary(m => m.Id, m => m.BlockId);
+        var poolOf = poolMembers.ToDictionary(m => m.Id, m => m);
+        double Hours(Guid nodeId, double units) =>
+            poolOf.TryGetValue(nodeId, out var m) && m.UnitsPerHour is > 0 ? units / m.UnitsPerHour.Value : 0;
         var pools = planEntries.Where(p => p.BlockId.HasValue).GroupBy(p => p.BlockId!.Value).Select(g =>
         {
-            var logs = sprintLogs.Where(w => poolOf.TryGetValue(w.NodeId, out var b) && b == g.Key).ToList();
+            var logs = sprintLogs.Where(w => poolOf.TryGetValue(w.NodeId, out var m) && m.BlockId == g.Key).ToList();
             var rated = poolMembers.Where(m => m.BlockId == g.Key && m.IsActiveInBlock && m.UnitsPerHour > 0).ToList();
-            var avgPpu = rated.Count > 0 ? rated.Average(m => m.PointsPerUnit ?? 0) : 0;
-            var plannedUnits = g.Sum(p => p.PlannedUnits);
+            var avgPph = rated.Count > 0 ? rated.Average(m => m.UnitsPerHour!.Value * (m.PointsPerUnit ?? 0)) : 0;
+            var plannedHours = g.Sum(p => p.PlannedUnits);
             return new
             {
                 blockId = g.Key,
                 title = g.First().Block?.Name ?? "?",
-                plannedUnits = Math.Round(plannedUnits, 1),
-                doneUnits = Math.Round(logs.Sum(w => w.Amount), 1),
-                plannedPoints = Math.Round(plannedUnits * avgPpu, 1),
+                unit = "hour",
+                plannedHours = Math.Round(plannedHours, 1),
+                doneHours = Math.Round(logs.Sum(w => Hours(w.NodeId, w.Amount)), 1),
+                plannedPoints = Math.Round(plannedHours * avgPph, 1),
                 earnedPoints = Math.Round(logs.Sum(w => w.Amount * (w.Node.PointsPerUnit ?? 0)), 1),
                 items = logs.GroupBy(w => w.NodeId).Select(lg => new
                 {
                     nodeId = lg.Key,
                     title = lg.First().Node.Title,
+                    unit = lg.First().Node.Unit,
                     doneUnits = Math.Round(lg.Sum(w => w.Amount), 1),
+                    doneHours = Math.Round(lg.Sum(w => Hours(w.NodeId, w.Amount)), 1),
                     earnedPoints = Math.Round(lg.Sum(w => w.Amount * (w.Node.PointsPerUnit ?? 0)), 1)
                 }).OrderByDescending(x => x.earnedPoints).ToList()
             };
@@ -363,28 +369,30 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
 
                 if (sblock.Mode == ScheduleBlockMode.Pool)
                 {
-                    // The block itself holds the slot; the exact item is picked when logging, so
-                    // the session is reported at the pool's average rate with its candidates.
+                    // The block itself holds the slot and is measured in hours — its items share
+                    // no unit. The exact item is picked when logging, in that item's own unit.
                     var poolItems = sblock.Items
                         .Where(n => n.IsActionable && n.IsActiveInBlock
                             && (n.Status == ActionItemStatus.Active || n.Status == ActionItemStatus.NotStarted))
                         .ToList();
                     var poolRated = poolItems.Where(n => n.UnitsPerHour > 0).ToList();
                     if (poolRated.Count == 0) continue;
-                    var poolLeft = poolRated.Sum(n => n.TotalSize.HasValue
-                        ? Math.Max(0, n.TotalSize.Value - logTotals.GetValueOrDefault(n.Id, 0))
+                    var poolHoursLeft = poolRated.Sum(n => n.TotalSize.HasValue
+                        ? Math.Max(0, n.TotalSize.Value - logTotals.GetValueOrDefault(n.Id, 0)) / n.UnitsPerHour!.Value
                         : double.MaxValue);
-                    if (poolLeft <= 0.01) continue;
+                    if (poolHoursLeft <= 0.01) continue;
                     var poolDur = tmpl.GetDurationMinutes(dow);
-                    var poolPlanned = Math.Min(poolDur / 60.0 * poolRated.Average(n => n.UnitsPerHour!.Value), poolLeft);
                     blocks.Add(new
                     {
                         blockId = sblock.Id,
                         title = sblock.Name,
                         mode = "Pool",
-                        plannedUnits = Math.Round(poolPlanned, 1),
+                        unit = "hour",
+                        plannedHours = Math.Round(Math.Min(poolDur / 60.0, poolHoursLeft), 2),
+                        pointsPerHour = Math.Round(poolRated.Average(n => n.UnitsPerHour!.Value * (n.PointsPerUnit ?? 0)), 2),
                         startMinute = tmpl.GetStartMinute(dow),
                         durationMinutes = poolDur,
+                        // Log against one of these, in its own unit.
                         items = poolItems.Select(n => new
                         {
                             nodeId = n.Id, title = n.Title, unit = n.Unit,

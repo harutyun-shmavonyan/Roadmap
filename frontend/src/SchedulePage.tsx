@@ -161,6 +161,14 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
   const poolLogsFor = (block: ScheduleBlock) => block.poolItems
     ? workLogs.filter(w => block.poolItems!.some(p => p.nodeId === w.nodeId))
     : workLogs.filter(w => w.nodeId === block.nodeId);
+  // A pool is measured in hours — its items have no unit in common. Each item's logged
+  // units convert at its own rate, which is what makes them addable.
+  const amountOf = (block: ScheduleBlock, logs: WorkLogDto[]) => block.poolItems
+    ? logs.reduce((s, w) => {
+        const it = block.poolItems!.find(p => p.nodeId === w.nodeId);
+        return s + (it?.unitsPerHour ? w.amount / it.unitsPerHour : 0);
+      }, 0)
+    : logs.reduce((s, w) => s + w.amount, 0);
 
   const doLog = async () => {
     if (!logPopup || logBusy) return;
@@ -372,7 +380,7 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
                 const c = getPointColor(b);
                 const wp = 100 / b.totalCols;
                 const lp = b.col * wp;
-                const dayLog = poolLogsFor(b).reduce((s, w) => s + w.amount, 0);
+                const dayLog = amountOf(b, poolLogsFor(b));
                 const dayDone = b.plannedUnits > 0 && dayLog >= b.plannedUnits;
                 const blockPts = Math.round((b.plannedUnits ?? 0) * (b.pointsPerUnit ?? 0) * 10) / 10;
                 const durLabel = b.durationMinutes >= 60
@@ -412,11 +420,16 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
         const b = logPopup.block;
         const pool = b.poolItems;
         const picked = pool?.find(p => p.nodeId === logTarget) ?? null;
-        // For a pool the popup speaks in the picked item's unit — that is what gets logged.
-        const unit = pool ? picked?.unit ?? null : b.unit;
+        // The session is measured in b.unit ("hour" for a pool), but you type in the picked
+        // item's own unit — pages, episodes, whatever it counts in.
+        const entryUnit = pool ? picked?.unit ?? null : b.unit;
         const todayLogs = poolLogsFor(b);
-        const todayTotal = todayLogs.reduce((s, w) => s + w.amount, 0);
+        const todayTotal = amountOf(b, todayLogs);
         const dayDone = b.plannedUnits > 0 && todayTotal >= b.plannedUnits;
+        // What the amount being typed is worth, in the session's terms.
+        const typed = parseFloat(logAmount);
+        const typedHours = pool && picked?.unitsPerHour && typed > 0 ? typed / picked.unitsPerHour : null;
+        const typedPts = picked?.pointsPerUnit && typed > 0 ? typed * picked.pointsPerUnit : null;
         const isChecklist = pool ? !!picked?.isChecklist : b.isChecklist;
         const targetId = pool ? logTarget : b.nodeId;
         return (
@@ -443,7 +456,7 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Today's plan:</span>
                 <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: dayDone ? 'var(--success)' : 'var(--text-primary)' }}>
-                  {fmtUnit(todayTotal, unit)} / {fmtUnit(b.plannedUnits, unit)} {dayDone ? '✅' : ''}
+                  {fmtUnit(todayTotal, b.unit)} / {fmtUnit(b.plannedUnits, b.unit)} {dayDone ? '✅' : ''}
                 </span>
               </div>
             )}
@@ -487,8 +500,15 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
               onChange={e => setLogAmount(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); doLog(); } if (e.key === 'Escape') setLogPopup(null); }}
               placeholder="0" />
-            <span className="unit-hint">{unit ? unit + 's' : 'units'}</span>
+            <span className="unit-hint">{entryUnit ? entryUnit + 's' : 'units'}</span>
           </div>}
+          {!isChecklist && (typedHours !== null || typedPts !== null) && (
+            <div style={{ fontSize: 12, color: 'var(--accent)', marginTop: 4 }}>
+              {typedHours !== null && `= ${Math.round(typedHours * 100) / 100} h`}
+              {typedHours !== null && typedPts !== null && ' · '}
+              {typedPts !== null && `${Math.round(typedPts * 10) / 10} pts`}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
             <button className="btn btn-sm btn-accent" disabled={logBusy || !targetId}
               onClick={(e) => { e.stopPropagation(); doLog(); }}>

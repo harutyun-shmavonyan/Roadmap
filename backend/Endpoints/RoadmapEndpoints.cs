@@ -363,27 +363,29 @@ public static class RoadmapEndpoints
 
                     if (sblock.Mode == ScheduleBlockMode.Pool)
                     {
-                        // A pool block puts *itself* on the calendar: the session is priced off
-                        // the average of its active items, and which one you actually work is
-                        // decided at log time, from the picker carried on the row.
+                        // A pool block puts *itself* on the calendar, measured in hours — its
+                        // items don't share a unit. Which item you actually work is decided at
+                        // log time, from the picker carried on the row, in that item's own unit.
                         var pool = BuildPool(sblock, logTotals);
-                        if (pool is null || pool.Remaining <= 0.01) continue;
+                        if (pool is null || pool.RemainingHours <= 0.01) continue;
 
                         var poolDur = blockTmpl.GetDurationMinutes(dow);
-                        var poolPlanned = Math.Min(poolDur / 60.0 * pool.AvgUnitsPerHour, pool.Remaining);
-                        var poolLogged = pool.Items.Sum(n => logTotals.GetValueOrDefault(n.Id, 0));
+                        var poolHours = Math.Min(poolDur / 60.0, pool.RemainingHours);
+                        // Everything logged so far, converted to hours at each item's own rate —
+                        // the only way pages and episodes add up to one figure.
+                        var poolLoggedHours = pool.Items.Sum(n => UnitsToHours(n, logTotals.GetValueOrDefault(n.Id, 0)));
                         // Only a pool where every item is sized has a total worth showing.
-                        double? poolSize = pool.Items.All(n => n.TotalSize.HasValue)
-                            ? pool.Items.Sum(n => n.TotalSize!.Value)
+                        double? poolSizeHours = pool.Items.All(n => n.TotalSize.HasValue && n.UnitsPerHour is > 0)
+                            ? pool.Items.Sum(n => UnitsToHours(n, n.TotalSize!.Value))
                             : null;
-                        var poolPct = poolSize is > 0 ? Math.Round(poolLogged / poolSize.Value * 100, 1) : 0;
-                        var poolUnits = pool.Items.Select(n => n.Unit).Distinct().ToList();
+                        var poolPct = poolSizeHours is > 0 ? Math.Round(poolLoggedHours / poolSizeHours.Value * 100, 1) : 0;
 
-                        blocks.Add(new ScheduleBlockDto(null, sblock.Name, sblock.Name,
-                            poolUnits.Count == 1 ? poolUnits[0] : null,
-                            Math.Round(pool.AvgUnitsPerHour, 2), Math.Round(poolPlanned, 2),
-                            blockTmpl.GetStartMinute(dow), poolDur, poolLogged, poolSize, poolPct,
-                            Math.Round(pool.AvgPointsPerUnit, 3), false, sblock.Id,
+                        blocks.Add(new ScheduleBlockDto(null, sblock.Name, sblock.Name, PoolUnit,
+                            1, Math.Round(poolHours, 3),
+                            blockTmpl.GetStartMinute(dow), poolDur,
+                            Math.Round(poolLoggedHours, 2),
+                            poolSizeHours.HasValue ? Math.Round(poolSizeHours.Value, 1) : null, poolPct,
+                            Math.Round(pool.AvgPointsPerHour, 3), false, sblock.Id,
                             pool.Items.Select(n => new ScheduleBlockOptionDto(n.Id, n.Title, BuildPath(n, lk),
                                 n.Unit, n.TotalSize, logTotals.GetValueOrDefault(n.Id, 0), n.UnitsPerHour,
                                 n.PointsPerUnit, n.IsChecklist)).ToList()));
@@ -988,10 +990,14 @@ public static class RoadmapEndpoints
             }
 
             // ===== Pool blocks =====
-            // One row per pool block. Planned is the block's own commitment — the frozen average
-            // rate times the sessions it was given — because no item was ever named. Earned is
-            // what its members actually took, each priced at its *own* rate, which is what the
-            // day view and the daily-points total use; only the plan speaks in averages.
+            // One row per pool block, measured in hours — its items have no unit in common.
+            // Planned is the block's own commitment: the hours it was given, priced at the
+            // average points-per-hour frozen at Start Sprint, because no item was ever named.
+            // Done converts each member's logged units back to hours at that member's rate.
+            // Earned is what its members actually took, each priced at its *own* rate — the same
+            // figure the day view and the daily-points total use; only the plan uses an average.
+            // The per-item breakdown underneath keeps the real units, which is where they mean
+            // something.
             var poolIds = planByBlock.Keys
                 .Union(poolLogs.Select(w => poolOfNode[w.NodeId]))
                 .Distinct().ToList();
@@ -1001,14 +1007,16 @@ public static class RoadmapEndpoints
                 if (block is null) continue;
 
                 var blockPlan = planByBlock.GetValueOrDefault(poolId, []);
-                var avgPpu = pointsPerUnit.GetValueOrDefault(poolId, 0);
+                var avgPph = pointsPerUnit.GetValueOrDefault(poolId, 0);
                 var memberLogs = poolLogs.Where(w => poolOfNode[w.NodeId] == poolId).ToList();
                 var memberById = block.Items.ToDictionary(i => i.Id);
                 double MemberPpu(Guid id) => memberById.TryGetValue(id, out var m) ? m.PointsPerUnit ?? 0 : 0;
+                double ToHours(Guid id, double units) =>
+                    memberById.TryGetValue(id, out var m) ? UnitsToHours(m, units) : 0;
 
-                var poolPlannedUnits = blockPlan.Sum(p => p.PlannedUnits);
-                var poolPlannedPts = poolPlannedUnits * avgPpu;
-                var poolDoneUnits = memberLogs.Sum(w => w.Amount);
+                var poolPlannedHours = blockPlan.Sum(p => p.PlannedUnits);
+                var poolPlannedPts = poolPlannedHours * avgPph;
+                var poolDoneHours = memberLogs.Sum(w => ToHours(w.NodeId, w.Amount));
                 var poolDonePts = memberLogs.Sum(w => w.Amount * MemberPpu(w.NodeId));
                 grandTotalPlannedPts += poolPlannedPts;
 
@@ -1025,7 +1033,7 @@ public static class RoadmapEndpoints
                 double runPlanned = 0, runDone = 0;
                 foreach (var d in dates)
                 {
-                    runPlanned += blockPlan.Where(p => p.Date == d).Sum(p => p.PlannedUnits) * avgPpu;
+                    runPlanned += blockPlan.Where(p => p.Date == d).Sum(p => p.PlannedUnits) * avgPph;
                     runDone += memberLogs.Where(w => w.Date == d).Sum(w => w.Amount * MemberPpu(w.NodeId));
                     poolCum.Add(new DailyCumulativeDto(d.ToString("yyyy-MM-dd"),
                         poolDenom > 0 ? Math.Round(runDone / poolDenom * 100, 1) : 0,
@@ -1061,12 +1069,10 @@ public static class RoadmapEndpoints
                 }
                 poolItems = [.. poolItems.OrderByDescending(i => i.EarnedPoints).ThenBy(i => i.Title)];
 
-                var poolUnitSet = block.Items.Where(i => i.IsActiveInBlock).Select(i => i.Unit).Distinct().ToList();
-                items.Add(new PerformanceItemDto(block.Id, block.Name,
-                    poolUnitSet.Count == 1 ? poolUnitSet[0] : null,
-                    null, null, avgPpu > 0 ? avgPpu : null,
+                items.Add(new PerformanceItemDto(block.Id, block.Name, PoolUnit,
+                    null, 1, avgPph > 0 ? avgPph : null,
                     blockPlan.Select(p => p.Date).Distinct().Count(),
-                    Math.Round(poolPlannedUnits, 1), Math.Round(poolDoneUnits, 1),
+                    Math.Round(poolPlannedHours, 1), Math.Round(poolDoneHours, 1),
                     Math.Round(poolPlannedPts, 1), Math.Round(poolDonePts, 1),
                     Math.Round(blockPlan.Sum(p => (double)p.DurationMinutes), 0),
                     // A pool has no single finish line, so it never advertises a completion date.
@@ -1406,21 +1412,23 @@ public static class RoadmapEndpoints
                     first.Node.Status == ActionItemStatus.Completed);
             }).ToList();
 
-            // Pool blocks sit in the week as themselves — the sessions were promised to the block,
-            // and the week's logged figure is whatever its members took. There is no single item
-            // to project a finish for, so they never claim to complete.
+            // Pool blocks sit in the week as themselves, in hours — the sessions were promised to
+            // the block, and the week's logged figure is its members' work converted to hours at
+            // their own rates. There is no single item to project a finish for, so they never
+            // claim to complete.
             var weekPoolMembers = await db.Nodes.AsNoTracking()
                 .Where(n => n.RoadmapId == roadmapId && n.ScheduleBlockId != null)
-                .Select(n => new { n.Id, BlockId = n.ScheduleBlockId!.Value }).ToListAsync();
-            var weekPoolOfNode = weekPoolMembers.ToDictionary(x => x.Id, x => x.BlockId);
+                .Select(n => new { n.Id, n.UnitsPerHour, BlockId = n.ScheduleBlockId!.Value }).ToListAsync();
+            var weekPoolOfNode = weekPoolMembers.ToDictionary(x => x.Id, x => x);
             foreach (var g in planEntries.Where(p => p.BlockId.HasValue).GroupBy(p => p.BlockId!.Value))
             {
-                var loggedInPool = weekLogs
-                    .Where(w => weekPoolOfNode.TryGetValue(w.NodeId, out var b) && b == g.Key)
-                    .Sum(w => w.Amount);
-                scheduledItems.Add(new WeekScheduledItemDto(g.Key, g.First().Block?.Name ?? "?", null, null,
+                var loggedHours = weekLogs
+                    .Where(w => weekPoolOfNode.TryGetValue(w.NodeId, out var m) && m.BlockId == g.Key)
+                    .Sum(w => weekPoolOfNode[w.NodeId].UnitsPerHour is > 0
+                        ? w.Amount / weekPoolOfNode[w.NodeId].UnitsPerHour!.Value : 0);
+                scheduledItems.Add(new WeekScheduledItemDto(g.Key, g.First().Block?.Name ?? "?", PoolUnit, 1,
                     g.Select(p => p.Date).Distinct().Count(), Math.Round(g.Sum(p => p.PlannedUnits), 1),
-                    Math.Round(loggedInPool, 1), null, Math.Round(loggedInPool, 1), false, null));
+                    Math.Round(loggedHours, 1), null, Math.Round(loggedHours, 1), false, null));
             }
 
             // Completed tasks this week
@@ -2247,12 +2255,30 @@ public static class RoadmapEndpoints
         int DurationMinutes, double PlannedUnits, double PointsPerUnit);
 
     /// <summary>
-    /// What a Pool block draws from: its active, still-open items and the averages the plan is
-    /// built from. Items with no rate cannot be planned, so they get no vote on the averages and
+    /// What a Pool block draws from: its active, still-open items, priced in **hours**.
+    ///
+    /// A pool mixes items whose units do not add up — pages, episodes, minutes — so nothing
+    /// unit-shaped can be averaged across it. Hours are the one thing every item shares: an
+    /// hour of a session is an hour whatever you spend it on. So a pool plans in hours and
+    /// prices them at the average points-per-hour of its items (each item's own
+    /// <c>UnitsPerHour × PointsPerUnit</c>). Units reappear only where they mean something —
+    /// when you log against one item, and in the per-item breakdown.
+    ///
+    /// Items with no rate cannot be converted to hours, so they get no vote on the average and
     /// do not extend the pool's life — but they stay in <see cref="Items"/>, because you can
     /// still pick them when logging.
     /// </summary>
-    private record PoolPlan(List<RoadmapNode> Items, double AvgUnitsPerHour, double AvgPointsPerUnit, double Remaining);
+    private record PoolPlan(List<RoadmapNode> Items, double AvgPointsPerHour, double RemainingHours);
+
+    /// <summary>The unit every pool speaks in. Items keep their own; the block does not have one.</summary>
+    private const string PoolUnit = "hour";
+
+    /// <summary>
+    /// What an item's logged units are worth in hours, at the rate it declares. This is what
+    /// makes a pool's progress addable across items that measure themselves differently.
+    /// </summary>
+    private static double UnitsToHours(RoadmapNode item, double units) =>
+        item.UnitsPerHour is > 0 ? units / item.UnitsPerHour.Value : 0;
 
     /// <summary>
     /// Read a Pool block's current pool. Null when nothing in it can be planned, which is what
@@ -2267,9 +2293,12 @@ public static class RoadmapEndpoints
         var rated = active.Where(n => n.UnitsPerHour is > 0).ToList();
         if (rated.Count == 0) return null;
         return new PoolPlan(active,
-            rated.Average(n => n.UnitsPerHour!.Value),
-            rated.Average(n => n.PointsPerUnit ?? 0),
-            rated.Sum(n => GetRemaining(n, allTimeLogged)));
+            rated.Average(n => n.UnitsPerHour!.Value * (n.PointsPerUnit ?? 0)),
+            // How many hours of work are left in the pool, whichever items hold them. An
+            // unsized item is open-ended and keeps the pool alive on its own.
+            rated.Sum(n => n.TotalSize.HasValue
+                ? UnitsToHours(n, GetRemaining(n, allTimeLogged))
+                : double.MaxValue));
     }
 
     /// <summary>
@@ -2312,16 +2341,17 @@ public static class RoadmapEndpoints
             if (block.Mode == ScheduleBlockMode.Pool)
             {
                 // The block owns the session and its items are interchangeable, so there is no
-                // "current item" to plan against. The session is priced off the pool's average
-                // rate instead — frozen with everything else at Start Sprint, which is why
-                // activating an item mid-sprint cannot move what the sprint promised.
+                // "current item" to plan against — and no shared unit to plan in. The session is
+                // simply its own length in hours, priced at the pool's average points-per-hour,
+                // frozen with everything else at Start Sprint. That is why activating an item
+                // mid-sprint cannot move what the sprint promised.
                 foreach (var item in block.Items) blockItemIds.Add(item.Id);
                 var pool = BuildPool(block, allTimeLogged);
                 if (pool is null) continue;
 
-                // The pool runs dry as a whole: sessions keep coming until the work left across
-                // its active items is used up, no matter which items that work sits in.
-                var poolRemaining = pool.Remaining;
+                // The pool runs dry as a whole: sessions keep coming until the hours left across
+                // its active items are used up, no matter which items those hours sit in.
+                var poolRemaining = pool.RemainingHours;
                 foreach (var date in dates)
                 {
                     if (poolRemaining <= 0.01) break;
@@ -2330,11 +2360,11 @@ public static class RoadmapEndpoints
                     if (relaxSet.Contains(date.ToString("yyyy-MM-dd"))) continue;
 
                     var poolDur = blockTmpl.GetDurationMinutes(pdow);
-                    var poolPlanned = Math.Min(poolDur / 60.0 * pool.AvgUnitsPerHour, poolRemaining);
-                    if (poolPlanned <= 0) break;
+                    var poolHours = Math.Min(poolDur / 60.0, poolRemaining);
+                    if (poolHours <= 0) break;
                     entries.Add(new ComputedPlanEntry(null, block.Id, date, blockTmpl.GetStartMinute(pdow),
-                        poolDur, Math.Round(poolPlanned, 2), pool.AvgPointsPerUnit));
-                    poolRemaining -= poolPlanned;
+                        poolDur, Math.Round(poolHours, 3), pool.AvgPointsPerHour));
+                    poolRemaining -= poolHours;
                 }
                 continue;
             }
