@@ -85,6 +85,7 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<RoadmapDbContext>();
     await db.Database.MigrateAsync();
     await SeedData.SeedDemoRoadmap(db);
+    await SeedData.SeedMeals(db);
 }
 
 app.UseCors();

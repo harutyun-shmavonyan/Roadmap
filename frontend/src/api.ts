@@ -4,7 +4,8 @@ import type { RoadmapSummary, RoadmapTree, NodeDto, CreateNodeRequest, Actionabl
   SingleTaskDto, ScheduleTaskDto, CustomLogDto, ScheduleBlockDef, SprintGoalDto,
   NodeSubPointDto, ScheduleSubPointDto, NoteDto,
   JobRunDto, JobRunSummaryDto,
-  VocabEntryDto, VocabStatsDto } from './types';
+  VocabEntryDto, VocabStatsDto,
+  MealDto, MealSlot, SaveMealRequest } from './types';
 
 const B = '/api/roadmaps';
 
@@ -185,6 +186,13 @@ export const api = {
   getVocab: () => req<VocabEntryDto[]>('/api/vocab'),
   getVocabStats: () => req<VocabStatsDto>('/api/vocab/stats'),
   deleteVocabEntry: (id: string) => req<void>(`/api/vocab/${id}`, { method: 'DELETE' }),
+
+  // Nutrition (global meal book — read and written straight from the tab)
+  getMeals: (slot?: MealSlot) => req<MealDto[]>(`/api/meals${slot ? `?slot=${slot}` : ''}`),
+  createMeal: (body: SaveMealRequest) => req<MealDto>('/api/meals', { method: 'POST', body: JSON.stringify(body) }),
+  updateMeal: (id: string, body: SaveMealRequest) => req<MealDto>(`/api/meals/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  toggleMealFavorite: (id: string) => req<MealDto>(`/api/meals/${id}/favorite`, { method: 'PATCH' }),
+  deleteMeal: (id: string) => req<void>(`/api/meals/${id}`, { method: 'DELETE' }),
 
   // Job scouting (global — one run per day, imported by the Finder pipeline over MCP)
   getJobRuns: () => req<JobRunSummaryDto[]>('/api/job-runs'),
