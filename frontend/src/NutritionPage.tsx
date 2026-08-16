@@ -4,6 +4,14 @@ import { api } from './api';
 
 const SLOTS: MealSlot[] = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
 
+// One glyph per slot so the tabs are found by shape before they are read.
+const SLOT_EMOJI: Record<MealSlot, string> = {
+  Breakfast: '🍳',
+  Lunch: '🥗',
+  Dinner: '🍽️',
+  Snack: '🍎',
+};
+
 // Split a textarea into a clean list (one item per line) and back again.
 const toLines = (text: string): string[] => text.split('\n').map(s => s.trim()).filter(Boolean);
 const toCsv = (text: string): string[] => text.split(',').map(s => s.trim()).filter(Boolean);
@@ -81,13 +89,15 @@ export function NutritionPage() {
         borderBottom: '1px solid var(--border-subtle)', flexShrink: 0, flexWrap: 'wrap' }}>
         <div className="nav-tabs">
           {SLOTS.map(s => (
-            <button key={s} className={`nav-tab ${slot === s ? 'active' : ''}`} onClick={() => setSlot(s)}>{s}</button>
+            <button key={s} className={`nav-tab ${slot === s ? 'active' : ''}`} onClick={() => setSlot(s)}>
+              {SLOT_EMOJI[s]} {s}
+            </button>
           ))}
         </div>
         <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
           {meals.length} meal{meals.length === 1 ? '' : 's'}
-          {avgKcal != null && <> · avg {avgKcal} kcal</>}
-          {avgProtein != null && <> · {avgProtein} g protein</>}
+          {avgKcal != null && <> · 🔥 avg {avgKcal} kcal</>}
+          {avgProtein != null && <> · 💪 {avgProtein} g protein</>}
         </span>
         <button className="btn btn-accent btn-sm" style={{ marginLeft: 'auto' }}
           onClick={() => setEditing('new')}>+ Add meal</button>
@@ -221,7 +231,7 @@ function MealModal({ meal, onClose, onEdit, onDelete, onStar }: {
         </div>
 
         {meal.ingredients.length > 0 && (
-          <Section title="Ingredients">
+          <Section title="🥕 Ingredients">
             <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14, lineHeight: 1.7, color: 'var(--text-secondary)' }}>
               {meal.ingredients.map((i, n) => <li key={n}>{i}</li>)}
             </ul>
@@ -229,7 +239,7 @@ function MealModal({ meal, onClose, onEdit, onDelete, onStar }: {
         )}
 
         {meal.steps.length > 0 && (
-          <Section title="Method">
+          <Section title="📝 Method">
             <ol style={{ margin: 0, paddingLeft: 18, fontSize: 14, lineHeight: 1.7, color: 'var(--text-secondary)' }}>
               {meal.steps.map((s, n) => <li key={n} style={{ marginBottom: 4 }}>{s}</li>)}
             </ol>
@@ -311,7 +321,7 @@ function MealForm({ meal, defaultSlot, onCancel, onSave }: {
           <div>
             <label>Slot</label>
             <select value={slot} onChange={e => setSlot(e.target.value as MealSlot)}>
-              {SLOTS.map(s => <option key={s} value={s}>{s}</option>)}
+              {SLOTS.map(s => <option key={s} value={s}>{SLOT_EMOJI[s]} {s}</option>)}
             </select>
           </div>
           <div>
