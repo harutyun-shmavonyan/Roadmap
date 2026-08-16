@@ -274,6 +274,88 @@ public static class RoadmapEndpoints
             return Results.NoContent();
         });
 
+        // ===== Nutrition (global — the meal book behind the Nutrition tab) =====
+        // Full CRUD: unlike vocab/jobs these are written straight from the UI.
+        var meals = app.MapGroup("/api/meals").WithTags("Meals").RequireAuthorization();
+
+        // ?slot=breakfast filters to one part of the day; omit it for the whole book.
+        meals.MapGet("/", async (string? slot, RoadmapDbContext db) =>
+        {
+            MealSlot? filter = null;
+            if (!string.IsNullOrWhiteSpace(slot))
+            {
+                if (!Enum.TryParse<MealSlot>(slot, true, out var parsed)) return Results.BadRequest($"Unknown slot '{slot}'.");
+                filter = parsed;
+            }
+            var q = db.Meals.AsNoTracking();
+            if (filter is not null) q = q.Where(m => m.Slot == filter);
+            var list = await q
+                .OrderBy(m => m.Slot)
+                .ThenByDescending(m => m.IsFavorite)
+                .ThenBy(m => m.SortOrder)
+                .ThenBy(m => m.CreatedAt)
+                .ToListAsync();
+            return Results.Ok(list.Select(ToMealDto));
+        });
+
+        meals.MapPost("/", async (SaveMealRequest req, RoadmapDbContext db) =>
+        {
+            var name = (req.Name ?? "").Trim();
+            if (name.Length == 0) return Results.BadRequest("Name is required.");
+            if (!TryParseSlot(req.Slot, out var slotValue)) return Results.BadRequest($"Unknown slot '{req.Slot}'.");
+
+            // New meals land at the end of their slot.
+            var maxOrder = await db.Meals.Where(m => m.Slot == slotValue)
+                .Select(m => (int?)m.SortOrder).MaxAsync() ?? -1;
+
+            var meal = new Meal { Id = Guid.NewGuid(), Slot = slotValue, SortOrder = maxOrder + 1 };
+            ApplyMeal(meal, req, name);
+            db.Meals.Add(meal);
+            await db.SaveChangesAsync();
+            return Results.Ok(ToMealDto(meal));
+        });
+
+        // Whole-meal replace: lists left out of the body are cleared, not kept.
+        meals.MapPut("/{id:guid}", async (Guid id, SaveMealRequest req, RoadmapDbContext db) =>
+        {
+            var meal = await db.Meals.FindAsync(id);
+            if (meal is null) return Results.NotFound();
+            var name = (req.Name ?? "").Trim();
+            if (name.Length == 0) return Results.BadRequest("Name is required.");
+            if (!TryParseSlot(req.Slot, out var slotValue)) return Results.BadRequest($"Unknown slot '{req.Slot}'.");
+
+            // Moving a meal to another slot puts it at the end of the new one.
+            if (slotValue != meal.Slot)
+            {
+                meal.SortOrder = (await db.Meals.Where(m => m.Slot == slotValue)
+                    .Select(m => (int?)m.SortOrder).MaxAsync() ?? -1) + 1;
+                meal.Slot = slotValue;
+            }
+            ApplyMeal(meal, req, name);
+            meal.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            return Results.Ok(ToMealDto(meal));
+        });
+
+        meals.MapPatch("/{id:guid}/favorite", async (Guid id, RoadmapDbContext db) =>
+        {
+            var meal = await db.Meals.FindAsync(id);
+            if (meal is null) return Results.NotFound();
+            meal.IsFavorite = !meal.IsFavorite;
+            meal.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            return Results.Ok(ToMealDto(meal));
+        });
+
+        meals.MapDelete("/{id:guid}", async (Guid id, RoadmapDbContext db) =>
+        {
+            var meal = await db.Meals.FindAsync(id);
+            if (meal is null) return Results.NotFound();
+            db.Meals.Remove(meal);
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        });
+
         // ===== Roadmaps =====
         group.MapGet("/", async (RoadmapDbContext db) =>
             Results.Ok(await db.Roadmaps.OrderBy(r => r.CreatedAt)
@@ -2191,6 +2273,40 @@ public static class RoadmapEndpoints
     /// <summary>Anything unrecognised (including null) is a queue — the mode blocks have always had.</summary>
     private static ScheduleBlockMode ParseBlockMode(string? mode) =>
         Enum.TryParse<ScheduleBlockMode>(mode, ignoreCase: true, out var m) ? m : ScheduleBlockMode.Queue;
+
+    // --- Nutrition helpers ---
+
+    private static bool TryParseSlot(string? slot, out MealSlot value)
+    {
+        if (string.IsNullOrWhiteSpace(slot)) { value = MealSlot.Breakfast; return true; }
+        return Enum.TryParse(slot, true, out value);
+    }
+
+    // Trims every line and drops the blanks — the UI sends lists as free text areas.
+    private static List<string> CleanList(List<string>? raw) =>
+        raw is null ? [] : [.. raw.Select(s => (s ?? "").Trim()).Where(s => s.Length > 0)];
+
+    // Negative macros are meaningless; clamp rather than reject so a typo doesn't lose the meal.
+    private static int? NonNegative(int? v) => v is null ? null : Math.Max(0, v.Value);
+
+    private static void ApplyMeal(Meal meal, SaveMealRequest req, string name)
+    {
+        meal.Name = name;
+        meal.Summary = string.IsNullOrWhiteSpace(req.Summary) ? null : req.Summary.Trim();
+        meal.Ingredients = CleanList(req.Ingredients);
+        meal.Steps = CleanList(req.Steps);
+        meal.Calories = NonNegative(req.Calories);
+        meal.ProteinG = NonNegative(req.ProteinG);
+        meal.CarbsG = NonNegative(req.CarbsG);
+        meal.FatG = NonNegative(req.FatG);
+        meal.PrepMinutes = NonNegative(req.PrepMinutes);
+        meal.Tags = CleanList(req.Tags);
+        if (req.IsFavorite is not null) meal.IsFavorite = req.IsFavorite.Value;
+    }
+
+    private static MealDto ToMealDto(Meal m) => new(m.Id, m.Slot.ToString(), m.Name, m.Summary,
+        m.Ingredients, m.Steps, m.Calories, m.ProteinG, m.CarbsG, m.FatG, m.PrepMinutes,
+        m.Tags, m.IsFavorite, m.SortOrder, m.CreatedAt, m.UpdatedAt);
 
     private static SprintDto ToSprintDto(Sprint s) => new(s.Id, s.Name,
         s.StartDate.ToString("yyyy-MM-dd"), s.EndDate.ToString("yyyy-MM-dd"), s.IsOpen, s.IsStarted, s.RelaxDays);

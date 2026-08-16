@@ -11,8 +11,9 @@ import { NotesPage } from './NotesPage';
 import { ArticlesPage } from './ArticlesPage';
 import { JobsPage } from './JobsPage';
 import { EnglishPage } from './EnglishPage';
+import { NutritionPage } from './NutritionPage';
 
-type Page = 'picker' | 'schedule' | 'roadmap' | 'weekplan' | 'performance' | 'habits' | 'tasks' | 'notes' | 'articles' | 'jobs' | 'english';
+type Page = 'picker' | 'schedule' | 'roadmap' | 'weekplan' | 'performance' | 'habits' | 'tasks' | 'notes' | 'articles' | 'jobs' | 'english' | 'nutrition';
 
 function useTheme() {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -127,6 +128,7 @@ function AuthedApp({ theme, toggleTheme, onLogout }: { theme: string; toggleThem
         <button className={`nav-tab ${page === 'articles' ? 'active' : ''}`} onClick={() => setPage('articles')}>Articles</button>
         <button className={`nav-tab ${page === 'jobs' ? 'active' : ''}`} onClick={() => setPage('jobs')}>Jobs</button>
         <button className={`nav-tab ${page === 'english' ? 'active' : ''}`} onClick={() => setPage('english')}>English</button>
+        <button className={`nav-tab ${page === 'nutrition' ? 'active' : ''}`} onClick={() => setPage('nutrition')}>Nutrition</button>
       </div>
     );
 
@@ -142,6 +144,7 @@ function AuthedApp({ theme, toggleTheme, onLogout }: { theme: string; toggleThem
         case 'articles': return <ArticlesPage roadmapId={selId} />;
         case 'jobs': return <JobsPage />;
         case 'english': return <EnglishPage />;
+        case 'nutrition': return <NutritionPage />;
       }
     };
 

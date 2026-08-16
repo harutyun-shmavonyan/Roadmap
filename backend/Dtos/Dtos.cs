@@ -297,3 +297,16 @@ public record JobRunSummaryDto(Guid Id, string RunDate, List<string> Queries, in
 
 public record JobRunDto(Guid Id, string RunDate, List<string> Queries, int MaxAgeDays,
     int RawCount, DateTime CreatedAt, List<JobPostingDto> Postings);
+
+// --- Nutrition (meals worth keeping, one row per meal) ---
+public record MealDto(Guid Id, string Slot, string Name, string? Summary,
+    List<string> Ingredients, List<string> Steps,
+    int? Calories, int? ProteinG, int? CarbsG, int? FatG, int? PrepMinutes,
+    List<string> Tags, bool IsFavorite, int SortOrder, DateTime CreatedAt, DateTime UpdatedAt);
+
+// Create and update share a shape: the update replaces the whole meal, so a PUT with a
+// missing list clears it. Slot defaults to breakfast when omitted.
+public record SaveMealRequest(string? Slot, string Name, string? Summary,
+    List<string>? Ingredients, List<string>? Steps,
+    int? Calories, int? ProteinG, int? CarbsG, int? FatG, int? PrepMinutes,
+    List<string>? Tags, bool? IsFavorite);

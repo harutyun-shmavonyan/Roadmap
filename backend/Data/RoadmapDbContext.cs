@@ -34,6 +34,7 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
     public DbSet<JobPosting> JobPostings => Set<JobPosting>();
     public DbSet<Article> Articles => Set<Article>();
     public DbSet<ArticleImage> ArticleImages => Set<ArticleImage>();
+    public DbSet<Meal> Meals => Set<Meal>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -447,6 +448,22 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.HasIndex(v => v.NormalizedTerm).IsUnique();
             // The review queue is "everything due on or before today", so it is the hot path.
             e.HasIndex(v => v.DueOn);
+        });
+
+        modelBuilder.Entity<Meal>(e =>
+        {
+            e.ToTable("meals");
+            e.HasKey(m => m.Id);
+            e.Property(m => m.Name).HasMaxLength(200).IsRequired();
+            e.Property(m => m.Summary).HasMaxLength(512);
+            e.Property(m => m.Slot).HasConversion<string>().HasMaxLength(32);
+            // Npgsql maps List<string> to text[] natively — no join tables for what is
+            // read-and-replace, whole-list data. Same rationale as VocabEntry above.
+            e.Property(m => m.Ingredients).HasColumnType("text[]");
+            e.Property(m => m.Steps).HasColumnType("text[]");
+            e.Property(m => m.Tags).HasColumnType("text[]");
+            // The tab always reads one slot at a time, favourites first.
+            e.HasIndex(m => new { m.Slot, m.SortOrder });
         });
 
         modelBuilder.Entity<VocabReview>(e =>
