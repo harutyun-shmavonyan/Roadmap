@@ -195,9 +195,9 @@ export const api = {
   updateArticle: (id: string, title: string, content: string, format: ArticleFormat, chatUrl: string, readMinutes?: number) =>
     req<ArticleDto>(`/api/articles/${id}`, { method: 'PUT', body: JSON.stringify({ title, content, format, chatUrl, readMinutes }) }),
   deleteArticle: (id: string) => req<void>(`/api/articles/${id}`, { method: 'DELETE' }),
-  // roadmapId credits the achievement (3 pts/hr) to the active roadmap for today.
-  markArticleRead: (id: string, roadmapId: string | null) =>
-    req<ArticleDto>(`/api/articles/${id}/read`, { method: 'POST', body: JSON.stringify({ roadmapId }) }),
+  // Records the read date only — reading earns no points.
+  markArticleRead: (id: string) =>
+    req<ArticleDto>(`/api/articles/${id}/read`, { method: 'POST', body: JSON.stringify({}) }),
   markArticleUnread: (id: string) =>
     req<ArticleDto>(`/api/articles/${id}/unread`, { method: 'POST' }),
 

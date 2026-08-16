@@ -72,7 +72,7 @@ type Editor = { id: string | null; title: string; content: string; readMinutes: 
 // Open a chat/conversation URL in a new tab (used by the "Chat about this" button).
 function openChat(url: string) { window.open(url, '_blank', 'noopener'); }
 
-export function ArticlesPage({ roadmapId }: { roadmapId: string | null }) {
+export function ArticlesPage() {
   const narrow = useNarrow();
   const [list, setList] = useState<ArticleSummaryDto[]>([]);
   const [selId, setSelId] = useState<string | null>(null);
@@ -128,7 +128,7 @@ export function ArticlesPage({ roadmapId }: { roadmapId: string | null }) {
     setBusy(true);
     try {
       if (a.isRead) await api.markArticleUnread(a.id);
-      else await api.markArticleRead(a.id, roadmapId);
+      else await api.markArticleRead(a.id);
       await refresh(a.id);
     } finally { setBusy(false); }
   };
@@ -155,7 +155,7 @@ export function ArticlesPage({ roadmapId }: { roadmapId: string | null }) {
   };
 
   const del = async (a: ArticleSummaryDto | ArticleDto) => {
-    if (!confirm(`Delete "${a.title}"? This also removes its achievement if it was read.`)) return;
+    if (!confirm(`Delete "${a.title}"?`)) return;
     setBusy(true);
     try {
       await api.deleteArticle(a.id);
@@ -203,7 +203,6 @@ export function ArticlesPage({ roadmapId }: { roadmapId: string | null }) {
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.title}</div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, display: 'flex', gap: 8, alignItems: 'center' }}>
                 <span>⏱ {a.readMinutes} min</span>
-                <span>+{a.points} pts</span>
                 {a.format === 'html' && <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--accent)', border: '1px solid var(--border)', borderRadius: 4, padding: '0 4px' }}>HTML</span>}
                 {a.imageCount > 0 && <span>🖼 {a.imageCount}</span>}
                 {a.isRead && a.readOn && <span style={{ color: 'var(--accent)' }}>✓ {fmtDate(a.readOn)}</span>}
@@ -220,8 +219,6 @@ export function ArticlesPage({ roadmapId }: { roadmapId: string | null }) {
   const metaLine = (d: ArticleDto) => (
     <>
       <span>⏱ {d.readMinutes} min read</span>
-      <span>·</span>
-      <span>Worth {d.points} pts (3 pts/hr)</span>
       {d.isRead && d.readOn && <>
         <span>·</span>
         <span style={{ color: 'var(--accent)', fontWeight: 600 }}>✓ Read on {fmtDate(d.readOn)}</span>
@@ -233,13 +230,13 @@ export function ArticlesPage({ roadmapId }: { roadmapId: string | null }) {
     <div className="article-foot">
       {d.isRead ? (
         <>
-          <span style={{ fontSize: 14, color: 'var(--accent)', fontWeight: 600 }}>✓ Read — {d.points} pts earned{d.readOn ? ` on ${fmtDate(d.readOn)}` : ''}</span>
+          <span style={{ fontSize: 14, color: 'var(--accent)', fontWeight: 600 }}>✓ Read{d.readOn ? ` on ${fmtDate(d.readOn)}` : ''}</span>
           <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => toggleRead(d)}>Mark as pending</button>
         </>
       ) : (
         <button className="btn btn-accent" disabled={busy} onClick={() => toggleRead(d)}
           style={{ padding: '11px 22px', fontSize: 15 }}>
-          ✓ Mark as Read &nbsp;·&nbsp; +{d.points} pts
+          ✓ Mark as Read
         </button>
       )}
     </div>

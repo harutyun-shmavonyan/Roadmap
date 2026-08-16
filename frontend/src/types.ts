@@ -121,8 +121,8 @@ export interface NoteDto { book: string; dayNumber: number; entryDate: string; c
 
 export type ArticleFormat = 'markdown' | 'html';
 export interface ArticleImageDto { name: string; contentType: string; sortOrder: number; }
-export interface ArticleSummaryDto { id: string; title: string; format: ArticleFormat; readMinutes: number; points: number; isRead: boolean; readOn: string | null; sortOrder: number; imageCount: number; createdAt: string; updatedAt: string; }
-export interface ArticleDto { id: string; title: string; format: ArticleFormat; content: string; readMinutes: number; points: number; isRead: boolean; readOn: string | null; sortOrder: number; images: ArticleImageDto[]; chatUrl: string | null; createdAt: string; updatedAt: string; }
+export interface ArticleSummaryDto { id: string; title: string; format: ArticleFormat; readMinutes: number; isRead: boolean; readOn: string | null; sortOrder: number; imageCount: number; createdAt: string; updatedAt: string; }
+export interface ArticleDto { id: string; title: string; format: ArticleFormat; content: string; readMinutes: number; isRead: boolean; readOn: string | null; sortOrder: number; images: ArticleImageDto[]; chatUrl: string | null; createdAt: string; updatedAt: string; }
 
 // Habits
 export interface HabitDto { id: string; name: string; createdAt: string; }

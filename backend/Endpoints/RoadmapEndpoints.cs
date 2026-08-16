@@ -155,7 +155,7 @@ public static class RoadmapEndpoints
         {
             var a = await db.Articles.FirstOrDefaultAsync(x => x.Id == id);
             if (a is null) return Results.NotFound();
-            // Remove the linked achievement, if any, so deleting a read article cleans up.
+            // Legacy cleanup: articles read before reading stopped earning points still have a log.
             if (a.ReadLogId is Guid logId)
             {
                 var log = await db.CustomLogs.FirstOrDefaultAsync(c => c.Id == logId);
@@ -166,35 +166,18 @@ public static class RoadmapEndpoints
             return Results.NoContent();
         });
 
-        // Mark read → credits a custom achievement (3 pts per hour of reading) to a roadmap.
+        // Mark read → records the date only. Reading no longer earns points: articles are a
+        // library, not a scoring surface, so nothing is credited to a roadmap here.
         articles.MapPost("/{id:guid}/read", async (Guid id, MarkArticleReadRequest? req, RoadmapDbContext db) =>
         {
             var a = await db.Articles.FirstOrDefaultAsync(x => x.Id == id);
             if (a is null) return Results.NotFound();
-            if (a.IsRead) return Results.Ok(ArticleLogic.ToDetail(a)); // idempotent — no double credit
+            if (a.IsRead) return Results.Ok(ArticleLogic.ToDetail(a)); // idempotent
 
             DateOnly date = ArticleLogic.YerevanToday();
             if (!string.IsNullOrWhiteSpace(req?.Date) && !DateOnly.TryParse(req!.Date, out date))
                 return Results.BadRequest("Invalid date.");
 
-            // Credit the achievement to the requested roadmap, else the first one that exists.
-            var roadmapId = req?.RoadmapId
-                ?? await db.Roadmaps.OrderBy(r => r.CreatedAt).Select(r => (Guid?)r.Id).FirstOrDefaultAsync();
-            if (roadmapId is Guid rid)
-            {
-                var points = ArticleLogic.PointsFor(a.ReadMinutes);
-                var log = new CustomLog
-                {
-                    Id = Guid.NewGuid(),
-                    RoadmapId = rid,
-                    Title = $"📖 Read: {a.Title}",
-                    Points = points,
-                    Date = date,
-                    Note = $"{a.ReadMinutes} min read · 3 pts/hr",
-                };
-                db.CustomLogs.Add(log);
-                a.ReadLogId = log.Id;
-            }
             a.IsRead = true;
             a.ReadOn = date;
             a.UpdatedAt = DateTime.UtcNow;
@@ -202,7 +185,8 @@ public static class RoadmapEndpoints
             return Results.Ok(ArticleLogic.ToDetail(a));
         });
 
-        // Mark pending again → removes the achievement created when it was read.
+        // Mark pending again. Reading no longer creates achievements, but articles read before
+        // that change still carry one, so the link is still cleaned up here.
         articles.MapPost("/{id:guid}/unread", async (Guid id, RoadmapDbContext db) =>
         {
             var a = await db.Articles.FirstOrDefaultAsync(x => x.Id == id);

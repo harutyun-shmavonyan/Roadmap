@@ -141,7 +141,7 @@ function AuthedApp({ theme, toggleTheme, onLogout }: { theme: string; toggleThem
         case 'habits': return <HabitsPage roadmapId={selId} onBack={back} />;
         case 'tasks': return <TasksPage roadmapId={selId} onBack={back} />;
         case 'notes': return <NotesPage />;
-        case 'articles': return <ArticlesPage roadmapId={selId} />;
+        case 'articles': return <ArticlesPage />;
         case 'jobs': return <JobsPage />;
         case 'english': return <EnglishPage />;
         case 'nutrition': return <NutritionPage />;

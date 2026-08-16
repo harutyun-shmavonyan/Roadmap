@@ -5,8 +5,8 @@ namespace Roadmap.Api.Entities;
 /// Markdown or a self-contained HTML document (with its own CSS) — see <see cref="Format"/>.
 /// HTML articles may reference uploaded <see cref="Images"/> via <c>{{img:NAME}}</c> placeholders
 /// that are inlined as data URIs when the standalone document is built. Each article carries an
-/// approximate reading time; marking it read credits a custom achievement worth 3 points per
-/// hour of reading (see the /read endpoint / MCP tool).
+/// approximate reading time; marking it read records the date and nothing more — reading
+/// earns no points (see the /read endpoint / MCP tool).
 /// </summary>
 public class Article
 {
@@ -35,8 +35,9 @@ public class Article
     public DateOnly? ReadOn { get; set; }
 
     /// <summary>
-    /// The CustomLog created when this article was marked read, so un-marking can remove the
-    /// exact same achievement. Soft reference (no FK) — cleared when the article goes pending.
+    /// Legacy: the CustomLog created back when marking an article read still earned points.
+    /// Nothing sets this any more, but rows read before that change still carry one, so the
+    /// unread and delete paths keep removing it. Soft reference (no FK).
     /// </summary>
     public Guid? ReadLogId { get; set; }
 

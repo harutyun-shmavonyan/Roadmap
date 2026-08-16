@@ -13,8 +13,9 @@ namespace Roadmap.Api.Mcp;
 
 /// <summary>
 /// CRUD over the global Markdown article library, plus marking an article read/unread.
-/// Marking read credits a custom achievement worth 3 points per hour of reading to a
-/// roadmap (see <see cref="ArticleLogic.PointsFor"/>).
+/// Reading records a date and nothing else — it earns no points and creates no
+/// achievement. Articles read before that changed still carry a log, which the
+/// unread and delete paths clean up.
 /// </summary>
 [McpServerToolType]
 public sealed class ArticleMcpTools(RoadmapDbContext db, IHttpClientFactory httpFactory)
@@ -97,7 +98,7 @@ public sealed class ArticleMcpTools(RoadmapDbContext db, IHttpClientFactory http
         return J(ArticleLogic.ToDetail(a, await LoadImageDtos(article_id)));
     }
 
-    [McpServerTool(Name = "delete_article"), Description("Delete an article. If it was read, its linked achievement is removed too.")]
+    [McpServerTool(Name = "delete_article"), Description("Delete an article. If it was read back when reading still earned points, that old achievement is removed too.")]
     public async Task<string> DeleteArticle([Description("Article UUID")] Guid article_id)
     {
         var a = await db.Articles.FirstOrDefaultAsync(x => x.Id == article_id);
@@ -112,10 +113,9 @@ public sealed class ArticleMcpTools(RoadmapDbContext db, IHttpClientFactory http
         return J(new { deleted = true, article_id });
     }
 
-    [McpServerTool(Name = "mark_article_read"), Description("Mark an article read. Credits a custom achievement worth 3 points per hour of reading to a roadmap (defaults to the only/first roadmap) on the given date (defaults to today, Asia/Yerevan). Idempotent — a read article is not credited twice.")]
+    [McpServerTool(Name = "mark_article_read"), Description("Mark an article read on the given date (defaults to today, Asia/Yerevan). This records the date only — reading does not earn points and creates no achievement. Idempotent.")]
     public async Task<string> MarkArticleRead(
         [Description("Article UUID")] Guid article_id,
-        [Description("Roadmap UUID to credit the achievement to (optional — defaults to the first roadmap)")] Guid? roadmap_id = null,
         [Description("Date the article was read (YYYY-MM-DD, optional — defaults to today)")] string? date = null)
     {
         var a = await db.Articles.FirstOrDefaultAsync(x => x.Id == article_id);
@@ -126,22 +126,6 @@ public sealed class ArticleMcpTools(RoadmapDbContext db, IHttpClientFactory http
         if (!string.IsNullOrWhiteSpace(date) && !DateOnly.TryParse(date, out pd))
             return J(new { error = "Invalid date. Use YYYY-MM-DD." });
 
-        var rid = roadmap_id
-            ?? await db.Roadmaps.OrderBy(r => r.CreatedAt).Select(r => (Guid?)r.Id).FirstOrDefaultAsync();
-        if (rid is Guid roadmapId)
-        {
-            var log = new CustomLog
-            {
-                Id = Guid.NewGuid(),
-                RoadmapId = roadmapId,
-                Title = $"📖 Read: {a.Title}",
-                Points = ArticleLogic.PointsFor(a.ReadMinutes),
-                Date = pd,
-                Note = $"{a.ReadMinutes} min read · 3 pts/hr",
-            };
-            db.CustomLogs.Add(log);
-            a.ReadLogId = log.Id;
-        }
         a.IsRead = true;
         a.ReadOn = pd;
         a.UpdatedAt = DateTime.UtcNow;
@@ -149,7 +133,7 @@ public sealed class ArticleMcpTools(RoadmapDbContext db, IHttpClientFactory http
         return J(ArticleLogic.ToDetail(a));
     }
 
-    [McpServerTool(Name = "mark_article_unread"), Description("Mark an article pending again and remove the achievement that was created when it was read.")]
+    [McpServerTool(Name = "mark_article_unread"), Description("Mark an article pending again. If it carries an achievement from back when reading earned points, that is removed too.")]
     public async Task<string> MarkArticleUnread([Description("Article UUID")] Guid article_id)
     {
         var a = await db.Articles.FirstOrDefaultAsync(x => x.Id == article_id);

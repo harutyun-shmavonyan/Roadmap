@@ -5,13 +5,10 @@ namespace Roadmap.Api;
 
 /// <summary>
 /// Pure helpers shared by the Articles REST endpoints and MCP tools: reading-time
-/// estimation, the "3 points per hour of reading" award, and DTO mapping.
+/// estimation and DTO mapping. Reading an article earns no points.
 /// </summary>
 public static class ArticleLogic
 {
-    /// <summary>Points awarded for finishing an article: 3 points per hour of reading.</summary>
-    public static double PointsFor(int readMinutes) => Math.Round(3.0 * readMinutes / 60.0, 2);
-
     /// <summary>
     /// Estimate reading time from word count at ~200 wpm; always at least 1 minute. When the body
     /// is HTML, tags are stripped first so markup doesn't inflate the count.
@@ -62,11 +59,11 @@ public static class ArticleLogic
     }
 
     public static ArticleSummaryDto ToSummary(Article a, int imageCount) => new(
-        a.Id, a.Title, a.Format, a.ReadMinutes, PointsFor(a.ReadMinutes),
+        a.Id, a.Title, a.Format, a.ReadMinutes,
         a.IsRead, a.ReadOn?.ToString("yyyy-MM-dd"), a.SortOrder, imageCount, a.CreatedAt, a.UpdatedAt);
 
     public static ArticleDto ToDetail(Article a, IReadOnlyList<ArticleImageDto>? images = null) => new(
-        a.Id, a.Title, a.Format, a.Content, a.ReadMinutes, PointsFor(a.ReadMinutes),
+        a.Id, a.Title, a.Format, a.Content, a.ReadMinutes,
         a.IsRead, a.ReadOn?.ToString("yyyy-MM-dd"), a.SortOrder,
         images ?? Array.Empty<ArticleImageDto>(), a.ChatUrl, a.CreatedAt, a.UpdatedAt);
 
