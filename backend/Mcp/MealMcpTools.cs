@@ -18,7 +18,7 @@ namespace Roadmap.Api.Mcp;
 /// argument keeps the stored value and an empty array is the explicit way to clear a list.
 /// </summary>
 [McpServerToolType]
-public sealed class MealMcpTools(RoadmapDbContext db)
+public sealed class MealMcpTools(RoadmapDbContext db, IHttpClientFactory httpFactory)
 {
     private static string J(object? v) => JsonSerializer.Serialize(v, new JsonSerializerOptions { WriteIndented = true });
 
@@ -37,9 +37,10 @@ public sealed class MealMcpTools(RoadmapDbContext db)
     // Negative macros are meaningless; clamp rather than reject so a typo doesn't lose the meal.
     private static int? NonNegative(int? v) => v is null ? null : Math.Max(0, v.Value);
 
-    private static MealDto ToDto(Meal m) => new(m.Id, m.Slot.ToString(), m.Name, m.Summary,
-        m.Ingredients, m.Steps, m.Calories, m.ProteinG, m.CarbsG, m.FatG, m.PrepMinutes,
-        m.Tags, m.IsFavorite, m.SortOrder, m.CreatedAt, m.UpdatedAt);
+    private static MealDto ToDto(Meal m, MealLogic.ImageMeta? image = null) => MealLogic.ToDto(m, image);
+
+    /// <summary>A meal plus its photo metadata — every single-meal reply carries has_image.</summary>
+    private async Task<MealDto> ToDtoWithImage(Meal m) => ToDto(m, await MealLogic.ImageMetaAsync(db, m.Id));
 
     /// <summary>Next free position at the end of a slot.</summary>
     private async Task<int> NextSortOrder(MealSlot slot) =>
@@ -78,14 +79,17 @@ public sealed class MealMcpTools(RoadmapDbContext db)
         if (!string.IsNullOrWhiteSpace(tag))
             list = [.. list.Where(m => m.Tags.Any(t => string.Equals(t, tag.Trim(), StringComparison.OrdinalIgnoreCase)))];
 
-        return J(new { count = list.Count, meals = list.Select(ToDto) });
+        var images = await MealLogic.ImageMetaMapAsync(db);
+        return J(new { count = list.Count, meals = list.Select(m => ToDto(m, images.Lookup(m.Id))) });
     }
 
-    [McpServerTool(Name = "get_meal"), Description("Get one meal in full — ingredients, steps, macros and tags.")]
+    [McpServerTool(Name = "get_meal"), Description(
+        "Get one meal in full — ingredients, steps, macros, tags, and whether it has a photo " +
+        "(has_image). The photo bytes are not returned; the tab renders them from /api/meals/{id}/image.")]
     public async Task<string> GetMeal([Description("Meal UUID")] Guid meal_id)
     {
         var meal = await db.Meals.AsNoTracking().FirstOrDefaultAsync(m => m.Id == meal_id);
-        return meal is null ? J(new { error = "meal not found" }) : J(ToDto(meal));
+        return meal is null ? J(new { error = "meal not found" }) : J(await ToDtoWithImage(meal));
     }
 
     // ===== Write =====
@@ -93,7 +97,9 @@ public sealed class MealMcpTools(RoadmapDbContext db)
     [McpServerTool(Name = "create_meal"), Description(
         "Save a meal worth keeping to the Nutrition tab. This is a cookbook of what to eat, " +
         "not a food log — save a meal when it earns a repeat, not to record that it was eaten. " +
-        "Every macro is optional and can be filled in later. The meal lands at the end of its slot.")]
+        "Every macro is optional and can be filled in later. The meal lands at the end of its slot. " +
+        "Photos are set separately: call set_meal_image_from_url (or set_meal_image) afterwards with " +
+        "the id this returns.")]
     public async Task<string> CreateMeal(
         [Description("What it's called, e.g. \"Greek yogurt, berries & walnuts\"")] string name,
         [Description(SlotHelp + " (default Breakfast)")] string? slot = null,
@@ -132,7 +138,7 @@ public sealed class MealMcpTools(RoadmapDbContext db)
         };
         db.Meals.Add(meal);
         await db.SaveChangesAsync();
-        return J(new { status = "created", meal = ToDto(meal) });
+        return J(new { status = "created", meal = ToDto(meal) }); // brand new — no photo yet
     }
 
     [McpServerTool(Name = "update_meal"), Description(
@@ -188,7 +194,7 @@ public sealed class MealMcpTools(RoadmapDbContext db)
 
         meal.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
-        return J(new { status = "updated", meal = ToDto(meal) });
+        return J(new { status = "updated", meal = await ToDtoWithImage(meal) });
     }
 
     [McpServerTool(Name = "delete_meal"), Description("Permanently delete a meal from the meal book.")]
@@ -199,5 +205,120 @@ public sealed class MealMcpTools(RoadmapDbContext db)
         db.Meals.Remove(meal);
         await db.SaveChangesAsync();
         return J(new { status = "deleted", name = meal.Name });
+    }
+
+    // ===== The meal photo (optional, one per meal) =====
+
+    [McpServerTool(Name = "set_meal_image"), Description(
+        "Set (or replace) the photo shown for a meal on the Nutrition tab. Pass the raw bytes as " +
+        "base64 in data_base64 (a full 'data:image/...;base64,...' URI is also accepted). One photo " +
+        "per meal — setting a new one replaces the old. The image type is read off the bytes, so " +
+        "content_type is only needed for something unusual. Only image types are accepted, up to " +
+        MealLogic.MaxImageHelp + ". For an image already on the web, prefer set_meal_image_from_url: " +
+        "the bytes never pass through the tool call.")]
+    public async Task<string> SetMealImage(
+        [Description("Meal UUID")] Guid meal_id,
+        [Description("Image bytes as base64 (or a full data: URI)")] string data_base64,
+        [Description("MIME type, e.g. 'image/jpeg' (optional — read from a data: URI or guessed from file_name)")] string? content_type = null,
+        [Description("Original filename, e.g. 'oats.jpg' (optional — only used to name the file and guess its type)")] string? file_name = null)
+    {
+        var meal = await db.Meals.FirstOrDefaultAsync(m => m.Id == meal_id);
+        if (meal is null) return J(new { error = "meal not found" });
+
+        // Accept a bare base64 string or a full data: URI (strip the 'data:...;base64,' prefix).
+        var b64 = data_base64?.Trim() ?? "";
+        var mime = content_type;
+        if (b64.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            var comma = b64.IndexOf(',');
+            if (comma < 0) return J(new { error = "malformed data URI" });
+            var header = b64[5..comma]; // e.g. "image/png;base64"
+            if (string.IsNullOrWhiteSpace(mime) && header.Length > 0) mime = header.Split(';')[0];
+            b64 = b64[(comma + 1)..];
+        }
+
+        byte[] bytes;
+        try { bytes = Convert.FromBase64String(b64); }
+        catch (FormatException) { return J(new { error = "data_base64 is not valid base64" }); }
+        if (bytes.Length == 0) return J(new { error = "image data is empty" });
+        // Even under this cap, base64 through a tool call is bounded by the model's context —
+        // for anything more than a couple of MB, use set_meal_image_from_url or the UI upload.
+        if (bytes.Length > MealLogic.MaxImageBytes) return J(new { error = $"image exceeds {MealLogic.MaxImageHelp}" });
+
+        var ct = MealLogic.ResolveImageContentType(mime, file_name, bytes);
+        if (ct is null) return J(new { error = "that is not an image — pass an image/* content_type if the bytes are unusual" });
+
+        var image = await MealLogic.StoreImageAsync(db, meal, bytes, ct, file_name);
+        await db.SaveChangesAsync();
+        return J(new { status = "image set", meal_id, content_type = image.ContentType, bytes = bytes.Length });
+    }
+
+    [McpServerTool(Name = "set_meal_image_from_url"), Description(
+        "Set (or replace) a meal's photo by having the server download it from an http(s) URL — the " +
+        "image bytes never pass through the tool call, so there is no token cost or base64 size limit. " +
+        "Ideal for an AI-generated image at its hosted URL, or any picture already on the web. The URL " +
+        "must be publicly reachable by the server (no login/cookies); it is fetched immediately, so " +
+        "temporary signed URLs are fine.")]
+    public async Task<string> SetMealImageFromUrl(
+        [Description("Meal UUID")] Guid meal_id,
+        [Description("Public http(s) URL of the image to download")] string url,
+        [Description("MIME type (optional — taken from the response, else guessed from the URL's filename)")] string? content_type = null)
+    {
+        var meal = await db.Meals.FirstOrDefaultAsync(m => m.Id == meal_id);
+        if (meal is null) return J(new { error = "meal not found" });
+
+        if (!Uri.TryCreate(url?.Trim(), UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            return J(new { error = "url must be an absolute http(s) URL" });
+        if (await UrlGuard.IsBlockedHostAsync(uri))
+            return J(new { error = "url host is not allowed (private/loopback addresses are blocked)" });
+
+        byte[] bytes;
+        string? headerType;
+        try
+        {
+            var http = httpFactory.CreateClient();
+            http.Timeout = TimeSpan.FromSeconds(30);
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("RoadmapBot/1.0");
+            using var resp = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+            if (!resp.IsSuccessStatusCode) return J(new { error = $"fetch failed: HTTP {(int)resp.StatusCode}" });
+            headerType = resp.Content.Headers.ContentType?.MediaType;
+
+            await using var src = await resp.Content.ReadAsStreamAsync();
+            using var ms = new MemoryStream();
+            var buf = new byte[81920];
+            int read;
+            while ((read = await src.ReadAsync(buf)) > 0)
+            {
+                if (ms.Length + read > MealLogic.MaxImageBytes) return J(new { error = $"image exceeds {MealLogic.MaxImageHelp}" });
+                ms.Write(buf, 0, read);
+            }
+            bytes = ms.ToArray();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return J(new { error = $"could not download the image: {ex.Message}" });
+        }
+        if (bytes.Length == 0) return J(new { error = "downloaded image is empty" });
+
+        var fileName = Path.GetFileName(uri.LocalPath);
+        var ct = MealLogic.ResolveImageContentType(content_type ?? headerType, fileName, bytes);
+        if (ct is null) return J(new { error = $"that URL did not return an image (content type '{headerType ?? "unknown"}')" });
+
+        var image = await MealLogic.StoreImageAsync(db, meal, bytes, ct, fileName);
+        await db.SaveChangesAsync();
+        return J(new { status = "image set", meal_id, content_type = image.ContentType, bytes = bytes.Length, source_url = uri.ToString() });
+    }
+
+    [McpServerTool(Name = "delete_meal_image"), Description(
+        "Remove a meal's photo. The meal itself is untouched — it just goes back to showing no picture.")]
+    public async Task<string> DeleteMealImage([Description("Meal UUID")] Guid meal_id)
+    {
+        var image = await db.MealImages.FirstOrDefaultAsync(i => i.MealId == meal_id);
+        if (image is null) return J(new { error = "that meal has no image" });
+        db.MealImages.Remove(image);
+        var meal = await db.Meals.FirstOrDefaultAsync(m => m.Id == meal_id);
+        if (meal is not null) meal.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        return J(new { status = "image deleted", meal_id });
     }
 }

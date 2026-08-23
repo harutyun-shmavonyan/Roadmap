@@ -4,6 +4,51 @@ import { api } from './api';
 
 const SLOTS: MealSlot[] = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
 
+// One glyph per macro, used everywhere a macro is shown so the numbers are read by shape.
+const KCAL_EMOJI = '🔥';
+const PROTEIN_EMOJI = '💪';
+const CARBS_EMOJI = '🍞';
+const FAT_EMOJI = '🥑';
+
+// Photos live behind the same bearer token as the rest of the API, so they are fetched as blobs
+// and rendered from object URLs. One URL per (meal, photo version): cached so a card re-render or
+// the detail modal opening on top does not refetch, and revoked as soon as a replacement lands.
+const photoUrls = new Map<string, Promise<string>>();
+const photoKeys = new Map<string, string>();
+
+function mealPhotoUrl(id: string, stamp: string | null): Promise<string> {
+  const key = `${id}|${stamp ?? ''}`;
+  const previous = photoKeys.get(id);
+  if (previous && previous !== key) {
+    photoUrls.get(previous)?.then(URL.revokeObjectURL).catch(() => {});
+    photoUrls.delete(previous);
+  }
+  photoKeys.set(id, key);
+  let pending = photoUrls.get(key);
+  if (!pending) {
+    pending = api.fetchMealImageUrl(id);
+    photoUrls.set(key, pending);
+    // A failed fetch must not stick in the cache, or the photo never recovers.
+    pending.catch(() => photoUrls.delete(key));
+  }
+  return pending;
+}
+
+/** The object URL for a meal's photo, or null while it loads / when there is none. */
+function useMealPhoto(meal: MealDto): string | null {
+  const { id, hasImage, imageUpdatedAt } = meal;
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!hasImage) { setUrl(null); return; }
+    let live = true;
+    mealPhotoUrl(id, imageUpdatedAt)
+      .then(u => { if (live) setUrl(u); })
+      .catch(() => { if (live) setUrl(null); });
+    return () => { live = false; };
+  }, [id, hasImage, imageUpdatedAt]);
+  return url;
+}
+
 // One glyph per slot so the tabs are found by shape before they are read.
 const SLOT_EMOJI: Record<MealSlot, string> = {
   Breakfast: '🍳',
@@ -96,8 +141,8 @@ export function NutritionPage() {
         </div>
         <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
           {meals.length} meal{meals.length === 1 ? '' : 's'}
-          {avgKcal != null && <> · 🔥 avg {avgKcal} kcal</>}
-          {avgProtein != null && <> · 💪 {avgProtein} g protein</>}
+          {avgKcal != null && <> · {KCAL_EMOJI} avg {avgKcal} kcal</>}
+          {avgProtein != null && <> · {PROTEIN_EMOJI} {avgProtein} g protein</>}
         </span>
         <button className="btn btn-accent btn-sm" style={{ marginLeft: 'auto' }}
           onClick={() => setEditing('new')}>+ Add meal</button>
@@ -139,26 +184,32 @@ export function NutritionPage() {
   );
 }
 
-// kcal in front, then the macro split — plain numbers, no chrome.
+// kcal in front, then the macro split — one emoji per macro so protein, carbs and fat are told
+// apart at a glance instead of by reading P/C/F.
 function Macros({ meal, size = 'sm' }: { meal: MealDto; size?: 'sm' | 'lg' }) {
-  const parts: string[] = [];
-  if (meal.proteinG != null) parts.push(`${meal.proteinG}P`);
-  if (meal.carbsG != null) parts.push(`${meal.carbsG}C`);
-  if (meal.fatG != null) parts.push(`${meal.fatG}F`);
+  const parts = [
+    { emoji: PROTEIN_EMOJI, title: 'Protein', grams: meal.proteinG },
+    { emoji: CARBS_EMOJI, title: 'Carbs', grams: meal.carbsG },
+    { emoji: FAT_EMOJI, title: 'Fat', grams: meal.fatG },
+  ].filter((m): m is { emoji: string; title: string; grams: number } => m.grams != null);
+
   if (meal.calories == null && parts.length === 0) return null;
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
       {meal.calories != null && (
-        <span style={{ fontSize: size === 'lg' ? 22 : 18, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+        <span title="Calories" style={{ fontSize: size === 'lg' ? 22 : 18, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+          <span style={{ fontSize: size === 'lg' ? 15 : 13, marginRight: 4 }}>{KCAL_EMOJI}</span>
           {meal.calories}
           <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginLeft: 3 }}>kcal</span>
         </span>
       )}
-      {parts.length > 0 && (
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: size === 'lg' ? 13 : 12, color: 'var(--text-muted)' }}>
-          {parts.join(' · ')}
+      {parts.map(m => (
+        <span key={m.title} title={`${m.title} ${m.grams} g`}
+          style={{ display: 'inline-flex', alignItems: 'baseline', gap: 3, fontFamily: 'var(--font-mono)',
+            fontSize: size === 'lg' ? 13 : 12, color: 'var(--text-secondary)' }}>
+          <span style={{ fontFamily: 'initial' }}>{m.emoji}</span>{m.grams}<span style={{ color: 'var(--text-muted)' }}>g</span>
         </span>
-      )}
+      ))}
     </div>
   );
 }
@@ -183,27 +234,37 @@ function Chip({ text }: { text: string }) {
 }
 
 function MealCard({ meal, onOpen, onStar }: { meal: MealDto; onOpen: () => void; onStar: () => void }) {
+  const photo = useMealPhoto(meal);
   return (
     <div className="meal-card" onClick={onOpen} title="Open the recipe"
-      style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '16px 18px', cursor: 'pointer',
+      style={{ display: 'flex', flexDirection: 'column', cursor: 'pointer', overflow: 'hidden',
         background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-        <div style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 600, lineHeight: 1.3 }}>{meal.name}</div>
-        <Star on={meal.isFavorite} onClick={onStar} />
-      </div>
-
-      {meal.summary && (
-        <div style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-secondary)' }}>{meal.summary}</div>
-      )}
-
-      <Macros meal={meal} />
-
-      {(meal.prepMinutes != null || meal.tags.length > 0) && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {meal.prepMinutes != null && <Chip text={`⏱ ${meal.prepMinutes} min`} />}
-          {meal.tags.map(t => <Chip key={t} text={t} />)}
+      {/* The photo is optional; while it loads the band holds its place so cards don't jump. */}
+      {meal.hasImage && (
+        <div style={{ height: 150, background: 'var(--bg-secondary)', flexShrink: 0 }}>
+          {photo && <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
         </div>
       )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '16px 18px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 16, fontWeight: 600, lineHeight: 1.3 }}>{meal.name}</div>
+          <Star on={meal.isFavorite} onClick={onStar} />
+        </div>
+
+        {meal.summary && (
+          <div style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--text-secondary)' }}>{meal.summary}</div>
+        )}
+
+        <Macros meal={meal} />
+
+        {(meal.prepMinutes != null || meal.tags.length > 0) && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {meal.prepMinutes != null && <Chip text={`⏱ ${meal.prepMinutes} min`} />}
+            {meal.tags.map(t => <Chip key={t} text={t} />)}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -212,9 +273,14 @@ function MealModal({ meal, onClose, onEdit, onDelete, onStar }: {
   meal: MealDto; onClose: () => void; onEdit: () => void; onDelete: () => void; onStar: () => void;
 }) {
   const [confirm, setConfirm] = useState(false);
+  const photo = useMealPhoto(meal);
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+        {photo && (
+          <img src={photo} alt="" style={{ width: '100%', maxHeight: 260, objectFit: 'cover', display: 'block',
+            borderRadius: 'var(--radius-md)', marginBottom: 14 }} />
+        )}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
           <h2 style={{ flex: 1, marginBottom: 0 }}>{meal.name}</h2>
           <Star on={meal.isFavorite} onClick={onStar} />
@@ -331,10 +397,10 @@ function MealForm({ meal, defaultSlot, onCancel, onSave }: {
         </div>
 
         <div className="form-row">
-          <div><label>Kcal</label><input type="number" min={0} value={calories} onChange={e => setCalories(e.target.value)} placeholder="420" /></div>
-          <div><label>Protein</label><input type="number" min={0} value={protein} onChange={e => setProtein(e.target.value)} placeholder="30" /></div>
-          <div><label>Carbs</label><input type="number" min={0} value={carbs} onChange={e => setCarbs(e.target.value)} placeholder="35" /></div>
-          <div><label>Fat</label><input type="number" min={0} value={fat} onChange={e => setFat(e.target.value)} placeholder="20" /></div>
+          <div><label>{KCAL_EMOJI} Kcal</label><input type="number" min={0} value={calories} onChange={e => setCalories(e.target.value)} placeholder="420" /></div>
+          <div><label>{PROTEIN_EMOJI} Protein</label><input type="number" min={0} value={protein} onChange={e => setProtein(e.target.value)} placeholder="30" /></div>
+          <div><label>{CARBS_EMOJI} Carbs</label><input type="number" min={0} value={carbs} onChange={e => setCarbs(e.target.value)} placeholder="35" /></div>
+          <div><label>{FAT_EMOJI} Fat</label><input type="number" min={0} value={fat} onChange={e => setFat(e.target.value)} placeholder="20" /></div>
         </div>
 
         <label>Ingredients — one per line</label>

@@ -279,7 +279,9 @@ public static class RoadmapEndpoints
                 .ThenBy(m => m.SortOrder)
                 .ThenBy(m => m.CreatedAt)
                 .ToListAsync();
-            return Results.Ok(list.Select(ToMealDto));
+            // One metadata query for the whole book — the photo bytes never ride along with a list.
+            var images = await MealLogic.ImageMetaMapAsync(db);
+            return Results.Ok(list.Select(m => MealLogic.ToDto(m, images.Lookup(m.Id))));
         });
 
         meals.MapPost("/", async (SaveMealRequest req, RoadmapDbContext db) =>
@@ -296,7 +298,7 @@ public static class RoadmapEndpoints
             ApplyMeal(meal, req, name);
             db.Meals.Add(meal);
             await db.SaveChangesAsync();
-            return Results.Ok(ToMealDto(meal));
+            return Results.Ok(ToMealDto(meal)); // brand new — it cannot have a photo yet
         });
 
         // Whole-meal replace: lists left out of the body are cleared, not kept.
@@ -318,7 +320,7 @@ public static class RoadmapEndpoints
             ApplyMeal(meal, req, name);
             meal.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
-            return Results.Ok(ToMealDto(meal));
+            return Results.Ok(ToMealDto(meal, await MealLogic.ImageMetaAsync(db, id)));
         });
 
         meals.MapPatch("/{id:guid}/favorite", async (Guid id, RoadmapDbContext db) =>
@@ -328,14 +330,61 @@ public static class RoadmapEndpoints
             meal.IsFavorite = !meal.IsFavorite;
             meal.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
-            return Results.Ok(ToMealDto(meal));
+            return Results.Ok(ToMealDto(meal, await MealLogic.ImageMetaAsync(db, id)));
         });
 
         meals.MapDelete("/{id:guid}", async (Guid id, RoadmapDbContext db) =>
         {
             var meal = await db.Meals.FindAsync(id);
             if (meal is null) return Results.NotFound();
+            // The photo row cascades with the meal.
             db.Meals.Remove(meal);
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        });
+
+        // ===== The meal photo (optional, one per meal) =====
+
+        // Upload or replace it via multipart/form-data with a single file field. Mirrors the
+        // article image upload so a phone-sized photo streams instead of riding a JSON payload.
+        meals.MapPost("/{id:guid}/image", async (Guid id, HttpRequest request, RoadmapDbContext db) =>
+        {
+            if (!request.HasFormContentType) return Results.BadRequest("Expected multipart/form-data with one file field.");
+            var meal = await db.Meals.FindAsync(id);
+            if (meal is null) return Results.NotFound();
+
+            var form = await request.ReadFormAsync();
+            var file = form.Files.FirstOrDefault(f => f.Length > 0);
+            if (file is null) return Results.BadRequest("No image uploaded.");
+            if (file.Length > MealLogic.MaxImageBytes) return Results.BadRequest($"Image exceeds {MealLogic.MaxImageHelp}.");
+
+            using var ms = new MemoryStream();
+            await file.CopyToAsync(ms);
+            var bytes = ms.ToArray();
+
+            var ct = MealLogic.ResolveImageContentType(file.ContentType, file.FileName, bytes);
+            if (ct is null) return Results.BadRequest("Only image files are accepted (png, jpeg, gif, webp, avif).");
+
+            var image = await MealLogic.StoreImageAsync(db, meal, bytes, ct, file.FileName);
+            await db.SaveChangesAsync();
+            return Results.Ok(MealLogic.ToDto(meal, new MealLogic.ImageMeta(image.ContentType, image.UpdatedAt)));
+        }).DisableAntiforgery();
+
+        // Raw bytes for the tab to render. Fetched with the same bearer token as everything else,
+        // so the client turns it into an object URL rather than pointing an <img> straight here.
+        meals.MapGet("/{id:guid}/image", async (Guid id, RoadmapDbContext db) =>
+        {
+            var img = await db.MealImages.AsNoTracking().FirstOrDefaultAsync(i => i.MealId == id);
+            return img is null ? Results.NotFound() : Results.File(img.Data, img.ContentType);
+        });
+
+        meals.MapDelete("/{id:guid}/image", async (Guid id, RoadmapDbContext db) =>
+        {
+            var img = await db.MealImages.FirstOrDefaultAsync(i => i.MealId == id);
+            if (img is null) return Results.NotFound();
+            db.MealImages.Remove(img);
+            var meal = await db.Meals.FindAsync(id);
+            if (meal is not null) meal.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             return Results.NoContent();
         });
@@ -2288,9 +2337,7 @@ public static class RoadmapEndpoints
         if (req.IsFavorite is not null) meal.IsFavorite = req.IsFavorite.Value;
     }
 
-    private static MealDto ToMealDto(Meal m) => new(m.Id, m.Slot.ToString(), m.Name, m.Summary,
-        m.Ingredients, m.Steps, m.Calories, m.ProteinG, m.CarbsG, m.FatG, m.PrepMinutes,
-        m.Tags, m.IsFavorite, m.SortOrder, m.CreatedAt, m.UpdatedAt);
+    private static MealDto ToMealDto(Meal m, MealLogic.ImageMeta? image = null) => MealLogic.ToDto(m, image);
 
     private static SprintDto ToSprintDto(Sprint s) => new(s.Id, s.Name,
         s.StartDate.ToString("yyyy-MM-dd"), s.EndDate.ToString("yyyy-MM-dd"), s.IsOpen, s.IsStarted, s.RelaxDays);

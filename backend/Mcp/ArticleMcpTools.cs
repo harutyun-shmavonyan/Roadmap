@@ -1,6 +1,4 @@
 using System.ComponentModel;
-using System.Net;
-using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ModelContextProtocol.Server;
@@ -218,7 +216,7 @@ public sealed class ArticleMcpTools(RoadmapDbContext db, IHttpClientFactory http
 
         if (!Uri.TryCreate(url?.Trim(), UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
             return J(new { error = "url must be an absolute http(s) URL." });
-        if (await IsBlockedHostAsync(uri))
+        if (await UrlGuard.IsBlockedHostAsync(uri))
             return J(new { error = "url host is not allowed (private/loopback addresses are blocked)." });
 
         byte[] bytes;
@@ -268,39 +266,6 @@ public sealed class ArticleMcpTools(RoadmapDbContext db, IHttpClientFactory http
         article.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         return J(new { article_id, name = cleanName, content_type = ct, bytes = bytes.Length, source_url = uri.ToString(), reference = $"{{{{img:{cleanName}}}}}" });
-    }
-
-    // SSRF guard: resolve the URL host and refuse if any resolved address is loopback, private,
-    // link-local (incl. the 169.254.169.254 cloud-metadata address), CGNAT, or IPv6 unique-local.
-    private static async Task<bool> IsBlockedHostAsync(Uri uri)
-    {
-        IPAddress[] addrs;
-        if (IPAddress.TryParse(uri.Host, out var literal)) addrs = new[] { literal };
-        else
-        {
-            try { addrs = await Dns.GetHostAddressesAsync(uri.Host); }
-            catch { return true; }
-        }
-        return addrs.Length == 0 || addrs.Any(IsPrivateAddress);
-    }
-
-    private static bool IsPrivateAddress(IPAddress ip)
-    {
-        if (IPAddress.IsLoopback(ip)) return true;
-        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
-        var b = ip.GetAddressBytes();
-        if (ip.AddressFamily == AddressFamily.InterNetwork)
-        {
-            return b[0] == 0                                   // 0.0.0.0/8
-                || b[0] == 10                                  // 10.0.0.0/8
-                || (b[0] == 100 && b[1] >= 64 && b[1] <= 127)  // 100.64.0.0/10 (CGNAT)
-                || (b[0] == 169 && b[1] == 254)                // 169.254.0.0/16 (link-local + metadata)
-                || (b[0] == 172 && b[1] >= 16 && b[1] <= 31)   // 172.16.0.0/12
-                || (b[0] == 192 && b[1] == 168);               // 192.168.0.0/16
-        }
-        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
-            return ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || (b[0] & 0xFE) == 0xFC; // + fc00::/7 unique-local
-        return true;
     }
 
     [McpServerTool(Name = "list_article_images"), Description("List the images uploaded to an article (name, MIME type, byte size) and the {{img:NAME}} reference to use in an HTML body.")]

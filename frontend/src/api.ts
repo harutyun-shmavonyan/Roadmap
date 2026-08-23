@@ -239,6 +239,16 @@ export const api = {
   toggleMealFavorite: (id: string) => req<MealDto>(`/api/meals/${id}/favorite`, { method: 'PATCH' }),
   deleteMeal: (id: string) => req<void>(`/api/meals/${id}`, { method: 'DELETE' }),
 
+  // The meal photo (optional, one per meal). The tab only ever reads it — photos are set and
+  // removed over MCP. The bytes sit behind the same bearer token as everything else, so an
+  // <img src> cannot reach them directly: fetch them and render from an object URL.
+  fetchMealImageUrl: async (id: string): Promise<string> => {
+    const token = getToken();
+    const r = await fetch(`/api/meals/${id}/image`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!r.ok) throw new Error(`Photo fetch failed: ${r.status}`);
+    return URL.createObjectURL(await r.blob());
+  },
+
   // Job scouting (global — one run per day, imported by the Finder pipeline over MCP)
   getJobRuns: () => req<JobRunSummaryDto[]>('/api/job-runs'),
   getLatestJobRun: () => req<JobRunDto>('/api/job-runs/latest'),

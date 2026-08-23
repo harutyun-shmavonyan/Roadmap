@@ -299,10 +299,15 @@ public record JobRunDto(Guid Id, string RunDate, List<string> Queries, int MaxAg
     int RawCount, DateTime CreatedAt, List<JobPostingDto> Postings);
 
 // --- Nutrition (meals worth keeping, one row per meal) ---
+// HasImage/ImageUpdatedAt describe the photo without carrying it: the bytes are fetched
+// separately from /api/meals/{id}/image, and ImageUpdatedAt doubles as the cache key so a
+// replaced photo shows up immediately.
 public record MealDto(Guid Id, string Slot, string Name, string? Summary,
     List<string> Ingredients, List<string> Steps,
     int? Calories, int? ProteinG, int? CarbsG, int? FatG, int? PrepMinutes,
-    List<string> Tags, bool IsFavorite, int SortOrder, DateTime CreatedAt, DateTime UpdatedAt);
+    List<string> Tags, bool IsFavorite, int SortOrder,
+    bool HasImage, string? ImageContentType, DateTime? ImageUpdatedAt,
+    DateTime CreatedAt, DateTime UpdatedAt);
 
 // Create and update share a shape: the update replaces the whole meal, so a PUT with a
 // missing list clears it. Slot defaults to breakfast when omitted.

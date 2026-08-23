@@ -158,5 +158,7 @@ export interface VocabStatsDto { total: number; dueToday: number; new: number; l
 
 // Nutrition (the meal book — what to eat, kept per part of the day)
 export type MealSlot = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack';
-export interface MealDto { id: string; slot: MealSlot; name: string; summary: string | null; ingredients: string[]; steps: string[]; calories: number | null; proteinG: number | null; carbsG: number | null; fatG: number | null; prepMinutes: number | null; tags: string[]; isFavorite: boolean; sortOrder: number; createdAt: string; updatedAt: string; }
+// hasImage/imageUpdatedAt describe the photo without carrying it — the bytes come from
+// /api/meals/{id}/image, and imageUpdatedAt is the cache key that busts a replaced photo.
+export interface MealDto { id: string; slot: MealSlot; name: string; summary: string | null; ingredients: string[]; steps: string[]; calories: number | null; proteinG: number | null; carbsG: number | null; fatG: number | null; prepMinutes: number | null; tags: string[]; isFavorite: boolean; sortOrder: number; hasImage: boolean; imageContentType: string | null; imageUpdatedAt: string | null; createdAt: string; updatedAt: string; }
 export interface SaveMealRequest { slot: MealSlot; name: string; summary?: string | null; ingredients: string[]; steps: string[]; calories?: number | null; proteinG?: number | null; carbsG?: number | null; fatG?: number | null; prepMinutes?: number | null; tags: string[]; isFavorite?: boolean; }

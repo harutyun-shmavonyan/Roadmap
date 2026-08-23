@@ -35,6 +35,7 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
     public DbSet<Article> Articles => Set<Article>();
     public DbSet<ArticleImage> ArticleImages => Set<ArticleImage>();
     public DbSet<Meal> Meals => Set<Meal>();
+    public DbSet<MealImage> MealImages => Set<MealImage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -464,6 +465,21 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.Property(m => m.Tags).HasColumnType("text[]");
             // The tab always reads one slot at a time, favourites first.
             e.HasIndex(m => new { m.Slot, m.SortOrder });
+        });
+
+        modelBuilder.Entity<MealImage>(e =>
+        {
+            e.ToTable("meal_images");
+            // The meal id is the key: one photo per meal, so a re-upload replaces rather than piles up.
+            e.HasKey(i => i.MealId);
+            e.Property(i => i.MealId).ValueGeneratedNever();
+            e.Property(i => i.FileName).HasMaxLength(256);
+            e.Property(i => i.ContentType).HasMaxLength(128).IsRequired();
+            e.Property(i => i.Data).HasColumnType("bytea");
+            e.HasOne(i => i.Meal!)
+                .WithOne(m => m.Image!)
+                .HasForeignKey<MealImage>(i => i.MealId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<VocabReview>(e =>

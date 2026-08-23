@@ -54,6 +54,9 @@ public class Meal
     /// <summary>Manual ordering within a slot; new meals go to the end.</summary>
     public int SortOrder { get; set; }
 
+    /// <summary>The meal's photo, or null when none was uploaded. Never loaded unless asked for.</summary>
+    public MealImage? Image { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
