@@ -463,7 +463,8 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.Property(m => m.Ingredients).HasColumnType("text[]");
             e.Property(m => m.Steps).HasColumnType("text[]");
             e.Property(m => m.Tags).HasColumnType("text[]");
-            // The tab always reads one slot at a time, favourites first.
+            // The tab always reads one slot at a time; the ordering within it (by protein density)
+            // is done in memory, so the index only has to narrow to the slot.
             e.HasIndex(m => new { m.Slot, m.SortOrder });
         });
 

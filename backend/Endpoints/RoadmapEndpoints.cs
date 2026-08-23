@@ -273,12 +273,8 @@ public static class RoadmapEndpoints
             }
             var q = db.Meals.AsNoTracking();
             if (filter is not null) q = q.Where(m => m.Slot == filter);
-            var list = await q
-                .OrderBy(m => m.Slot)
-                .ThenByDescending(m => m.IsFavorite)
-                .ThenBy(m => m.SortOrder)
-                .ThenBy(m => m.CreatedAt)
-                .ToListAsync();
+            // Ordered by protein per calorie, densest first — see MealLogic.InBookOrder.
+            var list = MealLogic.InBookOrder(await q.ToListAsync());
             // One metadata query for the whole book — the photo bytes never ride along with a list.
             var images = await MealLogic.ImageMetaMapAsync(db);
             return Results.Ok(list.Select(m => MealLogic.ToDto(m, images.Lookup(m.Id))));
@@ -290,7 +286,8 @@ public static class RoadmapEndpoints
             if (name.Length == 0) return Results.BadRequest("Name is required.");
             if (!TryParseSlot(req.Slot, out var slotValue)) return Results.BadRequest($"Unknown slot '{req.Slot}'.");
 
-            // New meals land at the end of their slot.
+            // SortOrder is only the tiebreak between meals of equal protein density; a new meal
+            // takes the last position so equal-density meals keep a stable order.
             var maxOrder = await db.Meals.Where(m => m.Slot == slotValue)
                 .Select(m => (int?)m.SortOrder).MaxAsync() ?? -1;
 
@@ -310,7 +307,7 @@ public static class RoadmapEndpoints
             if (name.Length == 0) return Results.BadRequest("Name is required.");
             if (!TryParseSlot(req.Slot, out var slotValue)) return Results.BadRequest($"Unknown slot '{req.Slot}'.");
 
-            // Moving a meal to another slot puts it at the end of the new one.
+            // Moving a meal to another slot gives it the last tiebreak position there.
             if (slotValue != meal.Slot)
             {
                 meal.SortOrder = (await db.Meals.Where(m => m.Slot == slotValue)

@@ -17,6 +17,29 @@ public static class MealLogic
 
     public const string MaxImageHelp = "20 MB";
 
+    /// <summary>
+    /// Protein per calorie — the density the meal book is ordered by. Null when either number is
+    /// missing (or the calories are zero), which sends the meal to the bottom of its slot rather
+    /// than pretending it scored zero.
+    /// </summary>
+    public static double? ProteinDensity(Meal m) =>
+        m.ProteinG is int protein && m.Calories is int kcal && kcal > 0 ? (double)protein / kcal : null;
+
+    /// <summary>
+    /// The book's order: within a slot, the most protein per calorie first, meals with nothing to
+    /// compare on last, and the stored SortOrder as a stable tiebreak. Sorted in memory because the
+    /// whole book is a handful of rows and the ratio is not a column.
+    /// </summary>
+    public static List<Meal> InBookOrder(IEnumerable<Meal> meals) =>
+    [
+        .. meals
+            .OrderBy(m => m.Slot)
+            .ThenByDescending(m => ProteinDensity(m) is not null)
+            .ThenByDescending(m => ProteinDensity(m) ?? 0)
+            .ThenBy(m => m.SortOrder)
+            .ThenBy(m => m.CreatedAt)
+    ];
+
     /// <summary>What a meal's photo is, without the bytes — cheap enough to ask for on every read.</summary>
     public record ImageMeta(string ContentType, DateTime UpdatedAt);
 

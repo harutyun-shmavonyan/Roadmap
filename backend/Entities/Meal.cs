@@ -48,10 +48,10 @@ public class Meal
     /// <summary>Free-form labels, e.g. "high-protein", "no-cook", "post-workout".</summary>
     public List<string> Tags { get; set; } = [];
 
-    /// <summary>Starred meals sort to the front of their slot.</summary>
+    /// <summary>Marks a meal as a favourite. A marker only — the order is by protein density.</summary>
     public bool IsFavorite { get; set; }
 
-    /// <summary>Manual ordering within a slot; new meals go to the end.</summary>
+    /// <summary>Tiebreak position between meals of equal protein density; new meals go to the end.</summary>
     public int SortOrder { get; set; }
 
     /// <summary>The meal's photo, or null when none was uploaded. Never loaded unless asked for.</summary>

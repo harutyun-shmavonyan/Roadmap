@@ -5,10 +5,10 @@ import { api } from './api';
 const SLOTS: MealSlot[] = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
 
 // One glyph per macro, used everywhere a macro is shown so the numbers are read by shape.
-const KCAL_EMOJI = '🔥';
-const PROTEIN_EMOJI = '💪';
-const CARBS_EMOJI = '🍞';
-const FAT_EMOJI = '🥑';
+const KCAL_EMOJI = '⚡';
+const PROTEIN_EMOJI = '🥩';
+const CARBS_EMOJI = '🍚';
+const FAT_EMOJI = '🧈';
 
 // Photos live behind the same bearer token as the rest of the API, so they are fetched as blobs
 // and rendered from object URLs. One URL per (meal, photo version): cached so a card re-render or
@@ -239,9 +239,10 @@ function MealCard({ meal, onOpen, onStar }: { meal: MealDto; onOpen: () => void;
     <div className="meal-card" onClick={onOpen} title="Open the recipe"
       style={{ display: 'flex', flexDirection: 'column', cursor: 'pointer', overflow: 'hidden',
         background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
-      {/* The photo is optional; while it loads the band holds its place so cards don't jump. */}
+      {/* Photos are square, so the well is too — a square photo lands in it uncropped. While it
+          loads the well holds its place so the cards around it don't jump. */}
       {meal.hasImage && (
-        <div style={{ height: 150, background: 'var(--bg-secondary)', flexShrink: 0 }}>
+        <div style={{ aspectRatio: '1 / 1', background: 'var(--bg-secondary)', flexShrink: 0 }}>
           {photo && <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
         </div>
       )}
@@ -277,9 +278,10 @@ function MealModal({ meal, onClose, onEdit, onDelete, onStar }: {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+        {/* Square again, and capped so the picture does not push the recipe off the screen. */}
         {photo && (
-          <img src={photo} alt="" style={{ width: '100%', maxHeight: 260, objectFit: 'cover', display: 'block',
-            borderRadius: 'var(--radius-md)', marginBottom: 14 }} />
+          <img src={photo} alt="" style={{ width: '100%', maxWidth: 300, aspectRatio: '1 / 1', objectFit: 'cover',
+            display: 'block', borderRadius: 'var(--radius-md)', margin: '0 auto 14px' }} />
         )}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
           <h2 style={{ flex: 1, marginBottom: 0 }}>{meal.name}</h2>

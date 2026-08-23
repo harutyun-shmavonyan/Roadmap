@@ -49,8 +49,9 @@ public sealed class MealMcpTools(RoadmapDbContext db, IHttpClientFactory httpFac
     // ===== Read =====
 
     [McpServerTool(Name = "list_meals"), Description(
-        "List saved meals from the Nutrition tab's meal book, favourites first within each slot. " +
-        "Pass slot to narrow to one part of the day; omit it for the whole book.")]
+        "List saved meals from the Nutrition tab's meal book, ordered within each slot by protein " +
+        "per calorie — the densest first, and meals missing protein or calories last. Pass slot to " +
+        "narrow to one part of the day; omit it for the whole book.")]
     public async Task<string> ListMeals(
         [Description(SlotHelp + " — omit for all slots")] string? slot = null,
         [Description("Only meals tagged with this label, e.g. \"high-protein\" (case-insensitive)")] string? tag = null,
@@ -68,12 +69,7 @@ public sealed class MealMcpTools(RoadmapDbContext db, IHttpClientFactory httpFac
         if (filter is not null) q = q.Where(m => m.Slot == filter);
         if (favorites_only) q = q.Where(m => m.IsFavorite);
 
-        var list = await q
-            .OrderBy(m => m.Slot)
-            .ThenByDescending(m => m.IsFavorite)
-            .ThenBy(m => m.SortOrder)
-            .ThenBy(m => m.CreatedAt)
-            .ToListAsync();
+        var list = MealLogic.InBookOrder(await q.ToListAsync());
 
         // Tag matching is done in memory: the tags are a serialised list, not a queryable column.
         if (!string.IsNullOrWhiteSpace(tag))
@@ -97,7 +93,8 @@ public sealed class MealMcpTools(RoadmapDbContext db, IHttpClientFactory httpFac
     [McpServerTool(Name = "create_meal"), Description(
         "Save a meal worth keeping to the Nutrition tab. This is a cookbook of what to eat, " +
         "not a food log — save a meal when it earns a repeat, not to record that it was eaten. " +
-        "Every macro is optional and can be filled in later. The meal lands at the end of its slot. " +
+        "Every macro is optional and can be filled in later. Meals are shown densest-protein-first, " +
+        "so one saved without protein or calories sits at the bottom of its slot until they are filled in. " +
         "Photos are set separately: call set_meal_image_from_url (or set_meal_image) afterwards with " +
         "the id this returns.")]
     public async Task<string> CreateMeal(
@@ -112,7 +109,7 @@ public sealed class MealMcpTools(RoadmapDbContext db, IHttpClientFactory httpFac
         [Description("Fat grams per serving")] int? fat_g = null,
         [Description("Hands-on minutes")] int? prep_minutes = null,
         [Description("Labels, e.g. \"high-protein\", \"no-cook\", \"post-workout\"")] string[]? tags = null,
-        [Description("Star it so it sorts to the front of its slot")] bool is_favorite = false)
+        [Description("Star it as a favourite — a marker on the card, it does not change the order")] bool is_favorite = false)
     {
         var clean = (name ?? "").Trim();
         if (clean.Length == 0) return J(new { error = "name is required" });
@@ -144,7 +141,7 @@ public sealed class MealMcpTools(RoadmapDbContext db, IHttpClientFactory httpFac
     [McpServerTool(Name = "update_meal"), Description(
         "Update a saved meal in place. Only the arguments you pass change — anything omitted keeps " +
         "its stored value, so a tweak to one macro cannot wipe the recipe. To clear a list, pass an " +
-        "empty array. Moving a meal to another slot puts it at the end of that slot.")]
+        "empty array. Changing protein or calories re-sorts the meal within its slot.")]
     public async Task<string> UpdateMeal(
         [Description("Meal UUID")] Guid meal_id,
         [Description("New name")] string? name = null,
