@@ -2200,10 +2200,12 @@ public static class RoadmapEndpoints
                 // Recount from recent days in window
                 foreach (var w in window) { if (w) current++; else current = 0; }
             }
-            else
+            else if (done)
             {
                 current++;
             }
+            // A graced miss (the 1 allowed per rolling week) keeps the streak alive
+            // but must not grow it — only checked days count.
         }
         best = Math.Max(best, current);
         return (current, best, best >= 21);
