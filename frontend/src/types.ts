@@ -31,13 +31,22 @@ export interface ScheduleBlock {
   isChecklist: boolean;
   blockId: string | null;
   poolItems: ScheduleBlockOption[] | null;
+  /** Weighted sprints only: what one unit (one hour for a pool) is worth today, after the
+   *  day's budget is re-split by commitment progress. Null on Fixed sprints. */
+  effectivePointsPerUnit: number | null;
+  /** Weighted sprints only: this item's weight today, 0–100. */
+  weightPercent: number | null;
 }
 export interface ScheduleBlockOption {
   nodeId: string; title: string; path: string; unit: string | null;
   totalSize: number | null; totalLogged: number;
   unitsPerHour: number | null; pointsPerUnit: number | null; isChecklist: boolean;
 }
-export interface ScheduleResponse { blocks: ScheduleBlock[]; activeSprint: SprintDto | null; isRelaxDay: boolean; }
+export interface ScheduleResponse {
+  blocks: ScheduleBlock[]; activeSprint: SprintDto | null; isRelaxDay: boolean;
+  /** Weighted sprints only: the day's earned points priced server-side. Null on Fixed sprints. */
+  dayEarnedPoints?: number | null;
+}
 
 export interface ActionableItem {
   id: string; title: string; path: string; status: ActionItemStatus;
@@ -45,7 +54,8 @@ export interface ActionableItem {
   pointsPerUnit: number | null; totalLogged: number; scheduleTemplate: string | null;
 }
 
-export interface SprintDto { id: string; name: string; startDate: string; endDate: string; isOpen: boolean; isStarted: boolean; relaxDays: string | null; }
+export type SprintScoringMode = 'Fixed' | 'Weighted';
+export interface SprintDto { id: string; name: string; startDate: string; endDate: string; isOpen: boolean; isStarted: boolean; relaxDays: string | null; scoringMode: SprintScoringMode; }
 export interface WorkLogDto { id: string; nodeId: string; nodeTitle: string; date: string; amount: number; unit: string | null; note: string | null; }
 
 export interface PerformanceSummary {
@@ -57,6 +67,8 @@ export interface PerformanceSummary {
   sprintGoals: SprintGoalDto[];
   /** Total flat bonus earned for sprint goals reached. Earned, never planned. */
   goalBonusPoints: number;
+  /** "Fixed" or "Weighted" — how this sprint's earned figures were priced. */
+  scoringMode: SprintScoringMode;
 }
 export interface CategoryTimeNode { categoryName: string; totalMinutes: number; totalPoints: number; depth: number; children: CategoryTimeNode[]; }
 export interface PerformanceItem {

@@ -85,7 +85,7 @@ export const api = {
   getSchedule: (r: string, date: string) => req<ScheduleResponse>(`${B}/${r}/schedule/${date}`),
 
   getSprints: (r: string) => req<SprintDto[]>(`${B}/${r}/sprints`),
-  createSprint: (r: string, name: string, s: string, e: string) => req<SprintDto>(`${B}/${r}/sprints`, { method: 'POST', body: JSON.stringify({ name, startDate: s, endDate: e }) }),
+  createSprint: (r: string, name: string, s: string, e: string, scoringMode?: string) => req<SprintDto>(`${B}/${r}/sprints`, { method: 'POST', body: JSON.stringify({ name, startDate: s, endDate: e, scoringMode }) }),
   startSprint: (r: string, sid: string) => req<SprintDto>(`${B}/${r}/sprints/${sid}/start`, { method: 'POST' }),
   deleteSprint: (r: string, sid: string) => req<void>(`${B}/${r}/sprints/${sid}`, { method: 'DELETE' }),
   closeSprint: (r: string, sid: string) => req<SprintDto>(`${B}/${r}/sprints/${sid}/close`, { method: 'PATCH' }),

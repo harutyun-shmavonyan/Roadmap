@@ -482,7 +482,32 @@ public static class RoadmapEndpoints
                 }
             }
 
-            return Results.Ok(new { blocks, activeSprint = sprintDto, isRelaxDay });
+            // Weighted sprints: stamp each card with what its unit is worth *today* (the day's
+            // budget re-split by commitment progress) and this key's weight, and compute the
+            // day's earned points server-side — the client can't price logs without the day
+            // prices. Fixed sprints leave all of it null and the client behaves as before.
+            double? dayEarnedPoints = null;
+            var schedPricing = await ComputeWeightedPricingAsync(db, sprint);
+            if (schedPricing is not null)
+            {
+                blocks = blocks.Select(b =>
+                {
+                    if ((b.NodeId ?? b.BlockId) is not Guid key) return b;
+                    return b with
+                    {
+                        EffectivePointsPerUnit = Math.Round(schedPricing.PriceFor(key, pd, b.PointsPerUnit ?? 0), 3),
+                        WeightPercent = schedPricing.WeightPercentFor(key, pd)
+                    };
+                }).ToList();
+
+                var dayLogs = await db.WorkLogs.AsNoTracking()
+                    .Where(w => w.RoadmapId == roadmapId && w.Date == pd).ToListAsync();
+                dayEarnedPoints = Math.Round(dayLogs.Sum(w =>
+                    schedPricing.LogPoints(w.NodeId, pd, w.Amount,
+                        lk.TryGetValue(w.NodeId, out var n) ? n.PointsPerUnit ?? 0 : 0)), 1);
+            }
+
+            return Results.Ok(new { blocks, activeSprint = sprintDto, isRelaxDay, dayEarnedPoints });
         });
 
         group.MapPost("/", async (CreateRoadmapRequest req, RoadmapDbContext db) =>
@@ -657,8 +682,8 @@ public static class RoadmapEndpoints
         var sprints = app.MapGroup("/api/roadmaps/{roadmapId:guid}/sprints").WithTags("Sprints");
 
         sprints.MapGet("/", async (Guid roadmapId, RoadmapDbContext db) =>
-            Results.Ok(await db.Sprints.AsNoTracking().Where(s => s.RoadmapId == roadmapId).OrderByDescending(s => s.StartDate)
-                .Select(s => new SprintDto(s.Id, s.Name, s.StartDate.ToString("yyyy-MM-dd"), s.EndDate.ToString("yyyy-MM-dd"), s.IsOpen, s.IsStarted, s.RelaxDays)).ToListAsync()));
+            Results.Ok((await db.Sprints.AsNoTracking().Where(s => s.RoadmapId == roadmapId).OrderByDescending(s => s.StartDate)
+                .ToListAsync()).Select(ToSprintDto).ToList()));
 
         sprints.MapPost("/", async (Guid roadmapId, CreateSprintRequest req, RoadmapDbContext db) =>
         {
@@ -666,7 +691,10 @@ public static class RoadmapEndpoints
             if (e <= s) return Results.BadRequest("End must be after start");
             var overlap = await db.Sprints.AnyAsync(x => x.RoadmapId == roadmapId && x.StartDate <= e && x.EndDate >= s);
             if (overlap) return Results.BadRequest("Sprint dates overlap with an existing sprint.");
-            var sp = new Sprint { Id = Guid.NewGuid(), RoadmapId = roadmapId, Name = req.Name, StartDate = s, EndDate = e };
+            var mode = ScoringMode.Fixed;
+            if (!string.IsNullOrWhiteSpace(req.ScoringMode) && !Enum.TryParse(req.ScoringMode, ignoreCase: true, out mode))
+                return Results.BadRequest("ScoringMode must be 'Fixed' or 'Weighted'.");
+            var sp = new Sprint { Id = Guid.NewGuid(), RoadmapId = roadmapId, Name = req.Name, StartDate = s, EndDate = e, ScoringMode = mode };
             db.Sprints.Add(sp); await db.SaveChangesAsync();
             return Results.Created("", ToSprintDto(sp));
         });
@@ -930,6 +958,11 @@ public static class RoadmapEndpoints
             foreach (var pb in poolBlocks)
                 foreach (var pi in pb.Items) poolOfNode[pi.Id] = pb.Id;
 
+            // Weighted sprints price each day's work by that day's re-split budget; null for
+            // Fixed sprints and drafts, where nominal rates apply as always. Planned figures
+            // are untouched either way — only the value of *done* work moves.
+            var pricing = await ComputeWeightedPricingAsync(db, sprint);
+
             // Group by node
             var planByNode = planData.Where(p => p.NodeId.HasValue)
                 .GroupBy(p => p.NodeId!.Value).ToDictionary(g => g.Key, g => g.ToList());
@@ -973,20 +1006,22 @@ public static class RoadmapEndpoints
                 var nodePlan = planByNode.GetValueOrDefault(nodeId, []);
                 var nodeLogs = logsByNode.GetValueOrDefault(nodeId, []);
 
+                double LogPts(WorkLog w) => pricing?.LogPoints(w.NodeId, w.Date, w.Amount, ppu) ?? w.Amount * ppu;
+
                 var totalPlannedUnits = nodePlan.Sum(p => p.PlannedUnits);
                 var totalDoneUnits = nodeLogs.Sum(w => w.Amount);
                 var totalPlannedPts = totalPlannedUnits * ppu;
-                var totalDonePts = totalDoneUnits * ppu;
+                var totalDonePts = nodeLogs.Sum(LogPts);
                 var sessions = nodePlan.Select(p => p.Date).Distinct().Count();
                 var totalMins = nodePlan.Sum(p => (double)p.DurationMinutes);
 
                 var dailyPlan = dates.Select(d => (Date: d, PlannedPts: nodePlan.Where(p => p.Date == d).Sum(p => p.PlannedUnits) * ppu)).ToList();
-                var dailyDone = dates.Select(d => (Date: d, DonePts: nodeLogs.Where(w => w.Date == d).Sum(w => w.Amount) * ppu)).ToList();
+                var dailyDone = dates.Select(d => (Date: d, DonePts: nodeLogs.Where(w => w.Date == d).Sum(LogPts))).ToList();
 
                 grandTotalPlannedPts += totalPlannedPts;
                 itemDataList.Add((nodeId, node, totalPlannedPts, totalDonePts, sessions, totalPlannedUnits, totalDoneUnits, totalMins, dailyPlan, dailyDone));
 
-                foreach (var log in nodeLogs) { if (dailyPointsMap.ContainsKey(log.Date)) dailyPointsMap[log.Date] += log.Amount * ppu; }
+                foreach (var log in nodeLogs) { if (dailyPointsMap.ContainsKey(log.Date)) dailyPointsMap[log.Date] += LogPts(log); }
             }
 
             // Second pass: build items with per-item cumulative % (points-based relative to item's own planned points)
@@ -1080,15 +1115,21 @@ public static class RoadmapEndpoints
                 double ToHours(Guid id, double units) =>
                     memberById.TryGetValue(id, out var m) ? UnitsToHours(m, units) : 0;
 
+                // Weighted mode prices a member's hours at the block's day price; Fixed keeps
+                // each member's own nominal rate.
+                double PoolLogPts(WorkLog w) =>
+                    pricing?.LogPoints(w.NodeId, w.Date, w.Amount, MemberPpu(w.NodeId))
+                    ?? w.Amount * MemberPpu(w.NodeId);
+
                 var poolPlannedHours = blockPlan.Sum(p => p.PlannedUnits);
                 var poolPlannedPts = poolPlannedHours * avgPph;
                 var poolDoneHours = memberLogs.Sum(w => ToHours(w.NodeId, w.Amount));
-                var poolDonePts = memberLogs.Sum(w => w.Amount * MemberPpu(w.NodeId));
+                var poolDonePts = memberLogs.Sum(PoolLogPts);
                 grandTotalPlannedPts += poolPlannedPts;
 
                 foreach (var log in memberLogs)
                     if (dailyPointsMap.ContainsKey(log.Date))
-                        dailyPointsMap[log.Date] += log.Amount * MemberPpu(log.NodeId);
+                        dailyPointsMap[log.Date] += PoolLogPts(log);
 
                 // Same curve as an item's: actual against the block's commitment, ideal against
                 // the shape of that commitment. A pool with no commitment is bonus, so it is
@@ -1100,7 +1141,7 @@ public static class RoadmapEndpoints
                 foreach (var d in dates)
                 {
                     runPlanned += blockPlan.Where(p => p.Date == d).Sum(p => p.PlannedUnits) * avgPph;
-                    runDone += memberLogs.Where(w => w.Date == d).Sum(w => w.Amount * MemberPpu(w.NodeId));
+                    runDone += memberLogs.Where(w => w.Date == d).Sum(PoolLogPts);
                     poolCum.Add(new DailyCumulativeDto(d.ToString("yyyy-MM-dd"),
                         poolDenom > 0 ? Math.Round(runDone / poolDenom * 100, 1) : 0,
                         poolPlannedPts > 0 ? Math.Round(runPlanned / poolPlannedPts * 100, 1) : 0));
@@ -1118,11 +1159,11 @@ public static class RoadmapEndpoints
                     var mLogs = memberLogs.Where(w => w.NodeId == mid).ToList();
                     var mPpu = member.PointsPerUnit ?? 0;
                     var mDoneUnits = mLogs.Sum(w => w.Amount);
-                    var mDonePts = mDoneUnits * mPpu;
+                    var mDonePts = mLogs.Sum(PoolLogPts);
                     double mRun = 0;
                     var mCum = dates.Select(d =>
                     {
-                        mRun += mLogs.Where(w => w.Date == d).Sum(w => w.Amount) * mPpu;
+                        mRun += mLogs.Where(w => w.Date == d).Sum(PoolLogPts);
                         return new DailyCumulativeDto(d.ToString("yyyy-MM-dd"),
                             mDonePts > 0 ? Math.Round(mRun / mDonePts * 100, 1) : 0, 0);
                     }).ToList();
@@ -1298,7 +1339,8 @@ public static class RoadmapEndpoints
             return Results.Ok(new PerformanceSummaryDto(items, Math.Round(grandPlanned, 1),
                 Math.Round(grandEarned, 1),
                 dates.Select(d => new DailyPointsDto(d.ToString("yyyy-MM-dd"), Math.Round(dailyPointsMap[d], 1))).ToList(),
-                ctDtos, customLogDtos, catDtos, goalDtos, Math.Round(totalGoalBonusPts, 1)));
+                ctDtos, customLogDtos, catDtos, goalDtos, Math.Round(totalGoalBonusPts, 1),
+                sprint.ScoringMode.ToString()));
         });
 
         // ===== Work Logs (sprint-scoped) =====
@@ -2295,7 +2337,8 @@ public static class RoadmapEndpoints
         m.Tags, m.IsFavorite, m.SortOrder, m.CreatedAt, m.UpdatedAt);
 
     private static SprintDto ToSprintDto(Sprint s) => new(s.Id, s.Name,
-        s.StartDate.ToString("yyyy-MM-dd"), s.EndDate.ToString("yyyy-MM-dd"), s.IsOpen, s.IsStarted, s.RelaxDays);
+        s.StartDate.ToString("yyyy-MM-dd"), s.EndDate.ToString("yyyy-MM-dd"), s.IsOpen, s.IsStarted, s.RelaxDays,
+        s.ScoringMode.ToString());
 
     private static SingleTaskDto ToTaskDto(SingleTask t) => new(t.Id, t.Title, t.Priority.ToString(),
         t.EstimatedHours, t.Weekdays, t.StartDate.ToString("yyyy-MM-dd"),
@@ -2559,7 +2602,7 @@ public static class RoadmapEndpoints
     /// it that way would read as "already done before the sprint opened" and strike its whole
     /// commitment, handing its days to whatever queues behind it.
     /// </summary>
-    private static async Task<PlanSnapshot> BuildPlanSnapshotAsync(RoadmapDbContext db, Sprint sprint)
+    internal static async Task<PlanSnapshot> BuildPlanSnapshotAsync(RoadmapDbContext db, Sprint sprint)
     {
         var nodes = await db.Nodes.AsNoTracking().Where(n => n.RoadmapId == sprint.RoadmapId)
             .OrderBy(n => n.SortOrder).ToListAsync();
@@ -2657,6 +2700,155 @@ public static class RoadmapEndpoints
         // per-item session, the pool's frozen average for a block one — so it comes straight out.
         return computed.Select(c => new BaselineEntry(c.NodeId, c.BlockId, c.Date, c.DurationMinutes,
             c.PlannedUnits, c.PointsPerUnit)).ToList();
+    }
+
+    // ===== Weighted scoring (ScoringMode.Weighted sprints) =====
+
+    /// <summary>
+    /// The day-by-day prices of a Weighted sprint. Every committed key (item id, or pool block
+    /// id) has a price per unit (per hour for a pool) for every sprint day; anything absent —
+    /// bonus work the sprint never committed to — is priced at its nominal rate, exactly as in
+    /// Fixed scoring.
+    /// </summary>
+    internal sealed class WeightedPricing
+    {
+        /// <summary>(committed key, date) → (price per unit that day, weight 0..1 that day).</summary>
+        public required Dictionary<(Guid Key, DateOnly Date), (double Price, double Weight)> Prices { get; init; }
+        /// <summary>Pool-block membership: node id → its Pool block's id.</summary>
+        public required Dictionary<Guid, Guid> PoolOfNode { get; init; }
+        /// <summary>Live UnitsPerHour of pool members, for converting their logs to hours.</summary>
+        public required Dictionary<Guid, double?> MemberUnitsPerHour { get; init; }
+
+        public double PriceFor(Guid key, DateOnly date, double fallbackPpu) =>
+            Prices.TryGetValue((key, date), out var p) ? p.Price : fallbackPpu;
+
+        public double? WeightPercentFor(Guid key, DateOnly date) =>
+            Prices.TryGetValue((key, date), out var p) ? Math.Round(p.Weight * 100, 0) : null;
+
+        /// <summary>
+        /// What one work log is worth in points. A pool member's log is converted to hours at
+        /// the member's own rate and priced at the block's day price; an item's log is priced
+        /// at the item's day price. <paramref name="fallbackPpu"/> is the nominal
+        /// points-per-unit used when the log's key was never committed (bonus — full value).
+        /// </summary>
+        public double LogPoints(Guid nodeId, DateOnly date, double amount, double fallbackPpu)
+        {
+            if (PoolOfNode.TryGetValue(nodeId, out var blockId))
+            {
+                if (!Prices.ContainsKey((blockId, date))) return amount * fallbackPpu;
+                var uph = MemberUnitsPerHour.GetValueOrDefault(nodeId);
+                var hours = uph is > 0 ? amount / uph.Value : 0;
+                return hours * Prices[(blockId, date)].Price;
+            }
+            return amount * PriceFor(nodeId, date, fallbackPpu);
+        }
+    }
+
+    /// <summary>The weight an item carries once <paramref name="progress"/> (0 = untouched,
+    /// 1 = its whole sprint commitment done, 2 = double that) of it is behind it:
+    /// 1.0 → 0.5 → 0, linearly.</summary>
+    private static double WeightAt(double progress) => Math.Clamp(1 - progress / 2, 0, 1);
+
+    /// <summary>
+    /// Price every sprint day of a Weighted sprint.
+    ///
+    /// The invariant is the one the mode is named for: each day's preplanned point total is
+    /// untouched. What moves is how that total is split. At the start of each day every
+    /// committed key gets a weight from how much of its whole-sprint commitment is already
+    /// done (see <see cref="WeightAt"/>), and the day's budget is re-split in proportion to
+    /// weight × the key's nominal planned points that day. Doing exactly the day's plan
+    /// therefore always earns exactly the day's budget; a day spent grinding an already-
+    /// overdone item captures only part of it. Weights are evaluated once per day — before
+    /// that day's logs — so prices are stable while the day is being lived, which is also
+    /// what makes a "best value today" ranking meaningful.
+    ///
+    /// Committed keys keep an off-plan price too (weight × nominal rate) so mid-sprint work
+    /// outside the planned day is discounted the same way rather than escaping the rule.
+    ///
+    /// Returns null for anything but a started Weighted sprint.
+    /// </summary>
+    internal static async Task<WeightedPricing?> ComputeWeightedPricingAsync(RoadmapDbContext db, Sprint sprint)
+    {
+        if (sprint.ScoringMode != ScoringMode.Weighted || !sprint.IsStarted) return null;
+        var snap = await GetOrCapturePlanInputsAsync(db, sprint, persist: false);
+        if (snap is null) return null;
+
+        // The same window-bounded commitment Performance is scored against.
+        var commitment = (await ComputeCommitmentAsync(db, sprint, snap))
+            .Where(c => c.Date >= sprint.StartDate && c.Date <= sprint.EndDate)
+            .ToList();
+
+        var poolBlocks = await db.ScheduleBlocks.AsNoTracking().Include(b => b.Items)
+            .Where(b => b.RoadmapId == sprint.RoadmapId && b.Mode == ScheduleBlockMode.Pool).ToListAsync();
+        var poolOfNode = new Dictionary<Guid, Guid>();
+        var memberUph = new Dictionary<Guid, double?>();
+        foreach (var pb in poolBlocks)
+            foreach (var pi in pb.Items) { poolOfNode[pi.Id] = pb.Id; memberUph[pi.Id] = pi.UnitsPerHour; }
+
+        var logs = await db.WorkLogs.AsNoTracking()
+            .Where(w => w.SprintId == sprint.Id && w.Date >= sprint.StartDate && w.Date <= sprint.EndDate)
+            .ToListAsync();
+
+        // Everything below is in "commitment units": an item's own unit, a pool's hours.
+        var committedTotal = new Dictionary<Guid, double>();
+        var nominalPpu = new Dictionary<Guid, double>();
+        var plannedOnDay = new Dictionary<(Guid, DateOnly), double>();
+        foreach (var c in commitment)
+        {
+            if ((c.NodeId ?? c.BlockId) is not Guid key) continue;
+            committedTotal[key] = committedTotal.GetValueOrDefault(key) + c.PlannedUnits;
+            nominalPpu[key] = c.PointsPerUnit;
+            plannedOnDay[(key, c.Date)] = plannedOnDay.GetValueOrDefault((key, c.Date)) + c.PlannedUnits;
+        }
+
+        // A log's units in commitment terms, keyed by what the commitment knows it as.
+        var logUnitsOnDay = new Dictionary<(Guid, DateOnly), double>();
+        foreach (var w in logs)
+        {
+            Guid key; double units;
+            if (poolOfNode.TryGetValue(w.NodeId, out var blockId))
+            {
+                key = blockId;
+                var uph = memberUph.GetValueOrDefault(w.NodeId);
+                units = uph is > 0 ? w.Amount / uph.Value : 0;
+            }
+            else { key = w.NodeId; units = w.Amount; }
+            logUnitsOnDay[(key, w.Date)] = logUnitsOnDay.GetValueOrDefault((key, w.Date)) + units;
+        }
+
+        var prices = new Dictionary<(Guid, DateOnly), (double Price, double Weight)>();
+        var doneSoFar = committedTotal.Keys.ToDictionary(k => k, _ => 0.0);
+
+        for (var d = sprint.StartDate; d <= sprint.EndDate; d = d.AddDays(1))
+        {
+            var weight = new Dictionary<Guid, double>();
+            foreach (var key in committedTotal.Keys)
+            {
+                var total = committedTotal[key];
+                weight[key] = total > 0 ? WeightAt(doneSoFar[key] / total) : 1;
+            }
+
+            // Re-split the day's budget among the keys planned today.
+            var dayKeys = committedTotal.Keys.Where(k => plannedOnDay.GetValueOrDefault((k, d)) > 0).ToList();
+            var budget = dayKeys.Sum(k => plannedOnDay[(k, d)] * nominalPpu[k]);
+            var denom = dayKeys.Sum(k => weight[k] * plannedOnDay[(k, d)] * nominalPpu[k]);
+
+            foreach (var key in committedTotal.Keys)
+            {
+                var planned = plannedOnDay.GetValueOrDefault((key, d));
+                var price = planned > 0
+                    ? (denom > 0 ? budget * weight[key] * nominalPpu[key] / denom : 0)
+                    // Committed but not planned today: no share to draw from, so plain
+                    // weight-discounted nominal.
+                    : weight[key] * nominalPpu[key];
+                prices[(key, d)] = (price, weight[key]);
+            }
+
+            foreach (var key in committedTotal.Keys)
+                doneSoFar[key] += logUnitsOnDay.GetValueOrDefault((key, d));
+        }
+
+        return new WeightedPricing { Prices = prices, PoolOfNode = poolOfNode, MemberUnitsPerHour = memberUph };
     }
 
     /// <summary>

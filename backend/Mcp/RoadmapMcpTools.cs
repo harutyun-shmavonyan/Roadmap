@@ -181,29 +181,33 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
     [McpServerTool(Name = "list_sprints"), Description("List all sprints for a roadmap, newest first.")]
     public async Task<string> ListSprints([Description("Roadmap UUID")] Guid roadmap_id)
     {
-        var result = await db.Sprints.AsNoTracking().Where(s => s.RoadmapId == roadmap_id)
-            .OrderByDescending(s => s.StartDate)
-            .Select(s => new SprintDto(s.Id, s.Name, s.StartDate.ToString("yyyy-MM-dd"), s.EndDate.ToString("yyyy-MM-dd"), s.IsOpen, s.IsStarted, s.RelaxDays))
-            .ToListAsync();
+        var result = (await db.Sprints.AsNoTracking().Where(s => s.RoadmapId == roadmap_id)
+            .OrderByDescending(s => s.StartDate).ToListAsync())
+            .Select(s => new SprintDto(s.Id, s.Name, s.StartDate.ToString("yyyy-MM-dd"), s.EndDate.ToString("yyyy-MM-dd"), s.IsOpen, s.IsStarted, s.RelaxDays, s.ScoringMode.ToString()))
+            .ToList();
         return J(result);
     }
 
-    [McpServerTool(Name = "create_sprint"), Description("Create a new sprint. Dates must not overlap with existing sprints.")]
+    [McpServerTool(Name = "create_sprint"), Description("Create a new sprint. Dates must not overlap with existing sprints. scoring_mode 'Weighted' re-splits each day's preplanned points by commitment progress (overdone items earn less, neglected ones full value); default 'Fixed' keeps flat per-unit pricing.")]
     public async Task<string> CreateSprint(
         [Description("Roadmap UUID")] Guid roadmap_id,
         [Description("Sprint name, e.g. 'Sprint 1 — May 2026'")] string name,
         [Description("Start date (YYYY-MM-DD)")] string start_date,
-        [Description("End date (YYYY-MM-DD)")] string end_date)
+        [Description("End date (YYYY-MM-DD)")] string end_date,
+        [Description("Scoring mode: 'Fixed' (default) or 'Weighted'")] string? scoring_mode = null)
     {
         if (!DateOnly.TryParse(start_date, out var s) || !DateOnly.TryParse(end_date, out var e))
             return J(new { error = "Invalid dates. Use YYYY-MM-DD format." });
         if (e <= s) return J(new { error = "End date must be after start date." });
         var overlap = await db.Sprints.AnyAsync(x => x.RoadmapId == roadmap_id && x.StartDate <= e && x.EndDate >= s);
         if (overlap) return J(new { error = "Sprint dates overlap with an existing sprint." });
-        var sp = new Sprint { Id = Guid.NewGuid(), RoadmapId = roadmap_id, Name = name, StartDate = s, EndDate = e };
+        var mode = ScoringMode.Fixed;
+        if (!string.IsNullOrWhiteSpace(scoring_mode) && !Enum.TryParse(scoring_mode, ignoreCase: true, out mode))
+            return J(new { error = "scoring_mode must be 'Fixed' or 'Weighted'." });
+        var sp = new Sprint { Id = Guid.NewGuid(), RoadmapId = roadmap_id, Name = name, StartDate = s, EndDate = e, ScoringMode = mode };
         db.Sprints.Add(sp);
         await db.SaveChangesAsync();
-        return J(new SprintDto(sp.Id, sp.Name, sp.StartDate.ToString("yyyy-MM-dd"), sp.EndDate.ToString("yyyy-MM-dd"), sp.IsOpen, sp.IsStarted, sp.RelaxDays));
+        return J(new SprintDto(sp.Id, sp.Name, sp.StartDate.ToString("yyyy-MM-dd"), sp.EndDate.ToString("yyyy-MM-dd"), sp.IsOpen, sp.IsStarted, sp.RelaxDays, sp.ScoringMode.ToString()));
     }
 
     [McpServerTool(Name = "start_sprint"), Description("Start a sprint — snapshots the planned schedule for all active/scheduled nodes. Required before logging work.")]
@@ -237,9 +241,13 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
 
         sprint.IsStarted = true;
         sprint.StartedAt = DateTime.UtcNow;
+        // Freeze the planning inputs, same as the HTTP Start Sprint — the commitment (and
+        // Weighted scoring, which is priced off it) must stay recomputable from what was
+        // true right now.
+        sprint.PlanInputs = JsonSerializer.Serialize(await RoadmapEndpoints.BuildPlanSnapshotAsync(db, sprint));
         db.SprintPlanEntries.AddRange(entries);
         await db.SaveChangesAsync();
-        return J(new SprintDto(sprint.Id, sprint.Name, sprint.StartDate.ToString("yyyy-MM-dd"), sprint.EndDate.ToString("yyyy-MM-dd"), sprint.IsOpen, sprint.IsStarted, sprint.RelaxDays));
+        return J(new SprintDto(sprint.Id, sprint.Name, sprint.StartDate.ToString("yyyy-MM-dd"), sprint.EndDate.ToString("yyyy-MM-dd"), sprint.IsOpen, sprint.IsStarted, sprint.RelaxDays, sprint.ScoringMode.ToString()));
     }
 
     [McpServerTool(Name = "get_sprint_performance"), Description("Get performance summary for a sprint: planned vs earned points per item and daily point totals.")]
@@ -255,6 +263,12 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         var sprintLogs = await db.WorkLogs.AsNoTracking().Include(w => w.Node)
             .Where(w => w.SprintId == sprint_id).ToListAsync();
 
+        // Weighted sprints price done work by the day's re-split budget; null for Fixed.
+        var pricing = await RoadmapEndpoints.ComputeWeightedPricingAsync(db, sprint);
+        double LogPts(WorkLog w) =>
+            pricing?.LogPoints(w.NodeId, w.Date, w.Amount, w.Node.PointsPerUnit ?? 0)
+            ?? w.Amount * (w.Node.PointsPerUnit ?? 0);
+
         var nodeIds = planEntries.Where(p => p.NodeId.HasValue).Select(p => p.NodeId!.Value).Distinct().ToList();
         var items = nodeIds.Select(nid =>
         {
@@ -263,7 +277,7 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
             var plannedUnits = nodePlan.Sum(p => p.PlannedUnits);
             var doneUnits = sprintLogs.Where(w => w.NodeId == nid).Sum(w => w.Amount);
             var plannedPts = Math.Round(plannedUnits * (node.PointsPerUnit ?? 0), 1);
-            var earnedPts = Math.Round(doneUnits * (node.PointsPerUnit ?? 0), 1);
+            var earnedPts = Math.Round(sprintLogs.Where(w => w.NodeId == nid).Sum(LogPts), 1);
             return new { nodeId = nid, title = node.Title, unit = node.Unit, plannedUnits = Math.Round(plannedUnits, 1), doneUnits = Math.Round(doneUnits, 1), plannedPoints = plannedPts, earnedPoints = earnedPts };
         }).ToList();
 
@@ -292,7 +306,7 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
                 plannedHours = Math.Round(plannedHours, 1),
                 doneHours = Math.Round(logs.Sum(w => Hours(w.NodeId, w.Amount)), 1),
                 plannedPoints = Math.Round(plannedHours * avgPph, 1),
-                earnedPoints = Math.Round(logs.Sum(w => w.Amount * (w.Node.PointsPerUnit ?? 0)), 1),
+                earnedPoints = Math.Round(logs.Sum(LogPts), 1),
                 items = logs.GroupBy(w => w.NodeId).Select(lg => new
                 {
                     nodeId = lg.Key,
@@ -300,7 +314,7 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
                     unit = lg.First().Node.Unit,
                     doneUnits = Math.Round(lg.Sum(w => w.Amount), 1),
                     doneHours = Math.Round(lg.Sum(w => Hours(w.NodeId, w.Amount)), 1),
-                    earnedPoints = Math.Round(lg.Sum(w => w.Amount * (w.Node.PointsPerUnit ?? 0)), 1)
+                    earnedPoints = Math.Round(lg.Sum(LogPts), 1)
                 }).OrderByDescending(x => x.earnedPoints).ToList()
             };
         }).ToList();
@@ -311,12 +325,12 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         foreach (var log in sprintLogs)
         {
             if (dailyMap.ContainsKey(log.Date))
-                dailyMap[log.Date] += log.Amount * (log.Node.PointsPerUnit ?? 0);
+                dailyMap[log.Date] += LogPts(log);
         }
 
         return J(new
         {
-            sprint = new { sprint.Id, sprint.Name, startDate = sprint.StartDate.ToString("yyyy-MM-dd"), endDate = sprint.EndDate.ToString("yyyy-MM-dd") },
+            sprint = new { sprint.Id, sprint.Name, startDate = sprint.StartDate.ToString("yyyy-MM-dd"), endDate = sprint.EndDate.ToString("yyyy-MM-dd"), scoringMode = sprint.ScoringMode.ToString() },
             totalPlannedPoints = Math.Round(items.Sum(i => i.plannedPoints) + pools.Sum(p => p.plannedPoints), 1),
             totalEarnedPoints = Math.Round(items.Sum(i => i.earnedPoints) + pools.Sum(p => p.earnedPoints), 1),
             items,
