@@ -36,9 +36,11 @@ function withHeightReporter(html: string): string {
 }
 
 // Open the self-contained article HTML in a new tab via a blob URL. Stays private (the HTML was
-// fetched with the bearer token) — no server route is publicly reachable.
+// fetched with the bearer token) — no server route is publicly reachable. Carries the same
+// reader style the iframe injects, so the tab reads identically (justified paragraphs).
 function openHtmlInNewTab(html: string) {
-  const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  const styled = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, READER_TWEAKS + '</body>') : html + READER_TWEAKS;
+  const url = URL.createObjectURL(new Blob([styled], { type: 'text/html' }));
   window.open(url, '_blank', 'noopener');
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
