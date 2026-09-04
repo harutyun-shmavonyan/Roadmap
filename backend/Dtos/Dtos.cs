@@ -53,7 +53,15 @@ public record ScheduleBlockDto(
     double? PointsPerUnit,
     bool IsChecklist = false,
     Guid? BlockId = null,
-    List<ScheduleBlockOptionDto>? PoolItems = null
+    List<ScheduleBlockOptionDto>? PoolItems = null,
+    /// <summary>
+    /// Weighted sprints only: what one unit (one hour for a pool) is worth *today* after the
+    /// day's budget is re-split by commitment progress. Null on Fixed sprints — use
+    /// <see cref="PointsPerUnit"/> as always.
+    /// </summary>
+    double? EffectivePointsPerUnit = null,
+    /// <summary>Weighted sprints only: this item's weight today, 0–100.</summary>
+    double? WeightPercent = null
 );
 
 /// <summary>One candidate inside a pool block's session — what the log picker offers.</summary>
@@ -63,7 +71,9 @@ public record ScheduleBlockOptionDto(
     bool IsChecklist
 );
 
-public record SprintDto(Guid Id, string Name, string StartDate, string EndDate, bool IsOpen, bool IsStarted, string? RelaxDays);
+public record SprintDto(Guid Id, string Name, string StartDate, string EndDate, bool IsOpen, bool IsStarted, string? RelaxDays,
+    /// <summary>"Fixed" or "Weighted" — how this sprint prices earned points.</summary>
+    string ScoringMode = "Fixed");
 
 public record SprintPlanEntryDto(Guid? NodeId, Guid? BlockId, string NodeTitle, string Date, int StartMinute, int DurationMinutes, double PlannedUnits);
 
@@ -87,7 +97,9 @@ public record PerformanceSummaryDto(
     List<CategoryTimeDto> CategoryBreakdown,
     List<SprintGoalDto> SprintGoals,
     /// <summary>Total flat bonus earned for sprint goals reached. Earned, never planned.</summary>
-    double GoalBonusPoints = 0
+    double GoalBonusPoints = 0,
+    /// <summary>"Fixed" or "Weighted" — how this sprint's earned figures were priced.</summary>
+    string ScoringMode = "Fixed"
 );
 
 /// <summary>
@@ -147,7 +159,9 @@ public record AddCategoryLinkRequest(Guid CategoryId);
 public record CreateDayPlanEntryRequest(Guid NodeId, int StartMinute, int DurationMinutes = 60, string? Note = null);
 public record UpdateDayPlanEntryRequest(int StartMinute, int DurationMinutes, string? Note, int? ActualMinutes);
 public record UpdateDayPlanNotesRequest(string? Notes);
-public record CreateSprintRequest(string Name, string StartDate, string EndDate);
+public record CreateSprintRequest(string Name, string StartDate, string EndDate,
+    /// <summary>"Fixed" (default) or "Weighted". Decided at creation and not editable after.</summary>
+    string? ScoringMode = null);
 public record UpdateSprintRequest(string Name, string StartDate, string EndDate);
 public record LogWorkRequest(Guid NodeId, string Date, double Amount, string? Note = null);
 public record UpdateWorkLogRequest(double Amount, string? Note);

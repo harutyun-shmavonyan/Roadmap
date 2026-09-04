@@ -22,9 +22,12 @@ const COLORS = [
 ];
 const getC = (id: string) => { let h = 0; for (let i = 0; i < id.length; i++) h = ((h << 5) - h + id.charCodeAt(i)) | 0; return COLORS[Math.abs(h) % COLORS.length]; };
 
+// On a Weighted sprint the server reprices each card for the day; otherwise nominal.
+const effPpu = (b: ScheduleBlock) => b.effectivePointsPerUnit ?? b.pointsPerUnit ?? 0;
+
 // Point-based color: gradient from muted to vivid for 0-5pts, gold for 5+
 function getPointColor(block: ScheduleBlock): { bg: string; border: string; text: string } {
-  const pts = (block.plannedUnits ?? 0) * (block.pointsPerUnit ?? 0);
+  const pts = (block.plannedUnits ?? 0) * effPpu(block);
   const dark = document.documentElement.getAttribute('data-theme') === 'dark';
 
   // Gold tier: 5+ points
@@ -114,6 +117,8 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
   const [customLogs, setCustomLogs] = useState<CustomLogDto[]>([]);
   const [showCustomLogForm, setShowCustomLogForm] = useState(false);
   const [isRelaxDay, setIsRelaxDay] = useState(false);
+  // Weighted sprints: the day's earned points, priced server-side. Null on Fixed sprints.
+  const [dayEarnedServer, setDayEarnedServer] = useState<number | null>(null);
   const [showQuickLog, setShowQuickLog] = useState(false);
   const [quickLogSearch, setQuickLogSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -137,6 +142,7 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
     ]);
     setBlocks(sched.blocks); setSprint(sched.activeSprint); setAllItems(all); setWorkLogs(wl); setHabits(hb); setTasks(tk); setCustomLogs(cl);
     setIsRelaxDay(sched.isRelaxDay ?? false);
+    setDayEarnedServer(sched.dayEarnedPoints ?? null);
   }, [roadmapId, date]);
 
   useEffect(() => { setLoading(true); refresh().finally(() => setLoading(false)); }, [refresh]);
@@ -207,10 +213,21 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
   const noSprint = !sprint;
   const laid = layoutBlocks(blocks);
 
-  const dayPoints = workLogs.reduce((s, w) => {
+  // Weighted sprints can't be priced client-side (the day's prices live on the server), so
+  // prefer the server figure when it's there; Fixed sprints price as always.
+  const dayPoints = (dayEarnedServer ?? workLogs.reduce((s, w) => {
     const it = allItems.find(a => a.id === w.nodeId);
     return s + (it?.pointsPerUnit ? w.amount * it.pointsPerUnit : 0);
-  }, 0) + customLogs.reduce((s, c) => s + c.points, 0);
+  }, 0)) + customLogs.reduce((s, c) => s + c.points, 0);
+
+  const isWeighted = sprint?.scoringMode === 'Weighted';
+  // Best value today: what an hour on each scheduled thing earns at today's prices.
+  const bestValue = isWeighted
+    ? [...blocks]
+        .map(b => ({ b, ptsPerHour: effPpu(b) * (b.unitsPerHour ?? 0) }))
+        .sort((a, x) => x.ptsPerHour - a.ptsPerHour)
+    : [];
+  const bestMax = bestValue.length > 0 ? Math.max(...bestValue.map(v => v.ptsPerHour), 0.001) : 1;
 
   const dayPlannedPoints = blocks.reduce((s, b) => {
     return s + (b.plannedUnits ?? 0) * (b.pointsPerUnit ?? 0);
@@ -313,6 +330,31 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
               <div className="today-stat"><span className="today-label">Planned</span><span className="today-value">{Math.round(dayPlannedPoints * 10) / 10} pts</span></div>
               <div className="today-stat"><span className="today-label">Done</span><span className="today-value" style={dayPct >= 100 ? {color: 'var(--success)'} : dayPct >= 75 ? {color: '#e37400'} : {}}>{dayPct}%</span></div>
             </div>
+            {isWeighted && bestValue.length > 0 && (
+              <div style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                  ⚖ Best value today
+                </div>
+                {bestValue.map(({ b, ptsPerHour }, i) => (
+                  <div key={`${b.nodeId ?? b.blockId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 13 }}>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: i === 0 ? 600 : 400 }}>
+                      {i === 0 ? '★ ' : ''}{b.poolItems ? '◇ ' : ''}{b.nodeTitle}
+                    </span>
+                    {b.weightPercent != null && (
+                      <span style={{ fontSize: 11, color: b.weightPercent >= 99 ? 'var(--success)' : b.weightPercent >= 50 ? '#e37400' : 'var(--text-muted)' }}>
+                        ⚖{Math.round(b.weightPercent)}%
+                      </span>
+                    )}
+                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: i === 0 ? 'var(--accent)' : 'var(--text-primary)', minWidth: 66, textAlign: 'right' }}>
+                      {Math.round(ptsPerHour * 10) / 10} pts/h
+                    </span>
+                    <div style={{ width: 42, height: 5, background: 'var(--border-subtle)', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ width: `${Math.max(4, ptsPerHour / bestMax * 100)}%`, height: '100%', background: i === 0 ? 'var(--accent)' : 'var(--text-muted)', borderRadius: 3 }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="sched-sidebar-header"><h2>Log — {fmtDateShort(date)}</h2></div>
             <div className="sched-sidebar-list">
               {workLogs.length === 0 && customLogs.length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: 14, padding: 8 }}>Click a block to log work.</p>}
@@ -382,7 +424,7 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
                 const lp = b.col * wp;
                 const dayLog = amountOf(b, poolLogsFor(b));
                 const dayDone = b.plannedUnits > 0 && dayLog >= b.plannedUnits;
-                const blockPts = Math.round((b.plannedUnits ?? 0) * (b.pointsPerUnit ?? 0) * 10) / 10;
+                const blockPts = Math.round((b.plannedUnits ?? 0) * effPpu(b) * 10) / 10;
                 const durLabel = b.durationMinutes >= 60
                   ? `${Math.floor(b.durationMinutes/60)}h${b.durationMinutes%60 ? b.durationMinutes%60+'m' : ''}`
                   : `${b.durationMinutes}m`;
@@ -394,7 +436,7 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
                     onClick={e => openLogPopup(e, b)}>
                     <div className="entry-row-top">
                       {dayDone && <span className="entry-done-check">✓</span>}
-                      <span className="entry-title">{b.poolItems ? '◇ ' : ''}{b.nodeTitle} <span className="entry-inline-meta">{blockPts > 0 ? `${blockPts}pt` : ''} {durLabel}</span></span>
+                      <span className="entry-title">{b.poolItems ? '◇ ' : ''}{b.nodeTitle} <span className="entry-inline-meta">{blockPts > 0 ? `${blockPts}pt` : ''}{b.weightPercent != null && b.weightPercent < 100 ? ` ⚖${Math.round(b.weightPercent)}%` : ''} {durLabel}</span></span>
                     </div>
                     {!isCompact && rawH >= 52 && (
                       <div className="entry-row-mid">
@@ -429,7 +471,15 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
         // What the amount being typed is worth, in the session's terms.
         const typed = parseFloat(logAmount);
         const typedHours = pool && picked?.unitsPerHour && typed > 0 ? typed / picked.unitsPerHour : null;
-        const typedPts = picked?.pointsPerUnit && typed > 0 ? typed * picked.pointsPerUnit : null;
+        // On a Weighted sprint the preview prices at today's rate (per hour for a pool,
+        // per unit otherwise); Fixed prices at the picked item's own nominal rate.
+        const typedPts = typed > 0
+          ? (pool
+              ? (b.effectivePointsPerUnit != null
+                  ? (typedHours !== null ? typedHours * b.effectivePointsPerUnit : null)
+                  : (picked?.pointsPerUnit != null ? typed * picked.pointsPerUnit : null))
+              : ((b.effectivePointsPerUnit ?? b.pointsPerUnit) != null ? typed * (b.effectivePointsPerUnit ?? b.pointsPerUnit ?? 0) : null))
+          : null;
         const isChecklist = pool ? !!picked?.isChecklist : b.isChecklist;
         const targetId = pool ? logTarget : b.nodeId;
         return (

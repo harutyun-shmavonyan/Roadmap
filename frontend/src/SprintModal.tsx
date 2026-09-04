@@ -9,6 +9,7 @@ export function SprintModal({ roadmapId, onClose }: Props) {
   const [name, setName] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [scoringMode, setScoringMode] = useState<'Fixed' | 'Weighted'>('Fixed');
   const [loading, setLoading] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
@@ -26,8 +27,8 @@ export function SprintModal({ roadmapId, onClose }: Props) {
     if (!name.trim() || !startDate || !endDate) return;
     setError(''); setBusy(true);
     try {
-      await api.createSprint(roadmapId, name.trim(), startDate, endDate);
-      setName(''); setStartDate(''); setEndDate(''); await load();
+      await api.createSprint(roadmapId, name.trim(), startDate, endDate, scoringMode);
+      setName(''); setStartDate(''); setEndDate(''); setScoringMode('Fixed'); await load();
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };
@@ -96,7 +97,10 @@ export function SprintModal({ roadmapId, onClose }: Props) {
                     </>
                   ) : (
                     <>
-                      <span style={{ flex: 1, fontSize: 15, fontWeight: 500, minWidth: 80 }}>{s.name}</span>
+                      <span style={{ flex: 1, fontSize: 15, fontWeight: 500, minWidth: 80 }}>
+                        {s.name}
+                        {s.scoringMode === 'Weighted' && <span title="Weighted scoring: each day's budget is re-split by commitment progress" style={{ marginLeft: 6, fontSize: 11, color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 4, padding: '1px 5px' }}>⚖ weighted</span>}
+                      </span>
                       <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{s.startDate} → {s.endDate}</span>
                       <div style={{ display: 'flex', gap: 6 }}>
                         {!s.isStarted && s.isOpen && (
@@ -132,6 +136,19 @@ export function SprintModal({ roadmapId, onClose }: Props) {
             <div className="form-row">
               <div><label>Start Date</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></div>
               <div><label>End Date</label><input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} /></div>
+            </div>
+            <div>
+              <label>Scoring</label>
+              <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', textTransform: 'none', letterSpacing: 'normal' }}>
+                  <input type="radio" checked={scoringMode === 'Fixed'} onChange={() => setScoringMode('Fixed')} />
+                  Fixed — a unit is always worth its points
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', textTransform: 'none', letterSpacing: 'normal' }}>
+                  <input type="radio" checked={scoringMode === 'Weighted'} onChange={() => setScoringMode('Weighted')} />
+                  ⚖ Weighted — overdone items earn less, neglected ones full value
+                </label>
+              </div>
             </div>
             <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>
               Sprint dates must not overlap with existing sprints. Close or delete old sprints first.

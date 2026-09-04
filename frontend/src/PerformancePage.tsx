@@ -111,6 +111,14 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
               </div>
             ) : null; })()}
 
+            {/* Weighted-scoring indicator */}
+            {perf.scoringMode === 'Weighted' && (
+              <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-sm)', padding: '10px 16px', marginBottom: 16, fontSize: 13 }}>
+                ⚖ <strong>Weighted scoring</strong> — each day keeps its preplanned points, but the budget is re-split
+                by commitment progress: overdone items earn less per unit, neglected ones full value.
+              </div>
+            )}
+
             {/* Summary cards */}
             <div className="perf-cards">
               <div className="perf-card"><div className="perf-card-label">Planned Pts</div><div className="perf-card-value">{perf.totalPlannedPoints}</div></div>

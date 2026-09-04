@@ -18,6 +18,13 @@ public class Sprint
     public bool IsStarted { get; set; }
     
     public DateTime? StartedAt { get; set; }
+
+    /// <summary>
+    /// How earned points are priced — see <see cref="Entities.ScoringMode"/>. Chosen at
+    /// creation; existing sprints keep <see cref="ScoringMode.Fixed"/>, whose behavior is
+    /// unchanged.
+    /// </summary>
+    public ScoringMode ScoringMode { get; set; } = ScoringMode.Fixed;
     
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     

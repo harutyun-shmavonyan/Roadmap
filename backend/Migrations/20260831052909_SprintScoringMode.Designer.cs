@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Roadmap.Api.Data;
@@ -12,9 +13,11 @@ using Roadmap.Api.Data;
 namespace Roadmap.Api.Migrations
 {
     [DbContext(typeof(RoadmapDbContext))]
-    partial class RoadmapDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260831052909_SprintScoringMode")]
+    partial class SprintScoringMode
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -441,32 +444,6 @@ namespace Roadmap.Api.Migrations
                     b.HasIndex("Slot", "SortOrder");
 
                     b.ToTable("meals", (string)null);
-                });
-
-            modelBuilder.Entity("Roadmap.Api.Entities.MealImage", b =>
-                {
-                    b.Property<Guid>("MealId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<byte[]>("Data")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.Property<string>("FileName")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("MealId");
-
-                    b.ToTable("meal_images", (string)null);
                 });
 
             modelBuilder.Entity("Roadmap.Api.Entities.NodeCategoryLink", b =>
@@ -1351,17 +1328,6 @@ namespace Roadmap.Api.Migrations
                     b.Navigation("Run");
                 });
 
-            modelBuilder.Entity("Roadmap.Api.Entities.MealImage", b =>
-                {
-                    b.HasOne("Roadmap.Api.Entities.Meal", "Meal")
-                        .WithOne("Image")
-                        .HasForeignKey("Roadmap.Api.Entities.MealImage", "MealId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Meal");
-                });
-
             modelBuilder.Entity("Roadmap.Api.Entities.NodeCategoryLink", b =>
                 {
                     b.HasOne("Roadmap.Api.Entities.RoadmapNode", "Category")
@@ -1642,11 +1608,6 @@ namespace Roadmap.Api.Migrations
             modelBuilder.Entity("Roadmap.Api.Entities.JobRun", b =>
                 {
                     b.Navigation("Postings");
-                });
-
-            modelBuilder.Entity("Roadmap.Api.Entities.Meal", b =>
-                {
-                    b.Navigation("Image");
                 });
 
             modelBuilder.Entity("Roadmap.Api.Entities.NodeSubPoint", b =>

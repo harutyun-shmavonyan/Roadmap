@@ -154,6 +154,10 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.HasKey(s => s.Id);
             e.Property(s => s.Name).HasMaxLength(256).IsRequired();
             e.Property(s => s.RelaxDays).HasMaxLength(2048);
+            e.Property(s => s.ScoringMode)
+                .HasConversion<string>()
+                .HasMaxLength(16)
+                .HasDefaultValue(ScoringMode.Fixed);
             e.Ignore(s => s.IsOpen);
 
             e.HasOne(s => s.Roadmap)
