@@ -330,8 +330,11 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
               <div className="today-stat"><span className="today-label">Planned</span><span className="today-value">{Math.round(dayPlannedPoints * 10) / 10} pts</span></div>
               <div className="today-stat"><span className="today-label">Done</span><span className="today-value" style={dayPct >= 100 ? {color: 'var(--success)'} : dayPct >= 75 ? {color: '#e37400'} : {}}>{dayPct}%</span></div>
             </div>
+            <div className="sched-sidebar-list">
+            {/* Inside the scroll region so a long ranking scrolls away with the logs
+                instead of pinning above them and squeezing the list. */}
             {isWeighted && bestValue.length > 0 && (
-              <div style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
+              <div style={{ padding: '8px 4px 10px', borderBottom: '1px solid var(--border-subtle)', marginBottom: 8 }}>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
                   ⚖ Best value today
                 </div>
@@ -355,8 +358,7 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
                 ))}
               </div>
             )}
-            <div className="sched-sidebar-header"><h2>Log — {fmtDateShort(date)}</h2></div>
-            <div className="sched-sidebar-list">
+              <div className="sched-sidebar-header" style={{ padding: '4px 6px 8px' }}><h2>Log — {fmtDateShort(date)}</h2></div>
               {workLogs.length === 0 && customLogs.length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: 14, padding: 8 }}>Click a block to log work.</p>}
               {workLogs.map(w => <WorkLogRow key={w.id} log={w} roadmapId={roadmapId} onChanged={refresh} />)}
 
