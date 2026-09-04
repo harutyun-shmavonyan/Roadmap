@@ -6,3 +6,6 @@ node_modules/
 
 # macOS
 .DS_Store
+
+# Temporary proxy CA copied into the docker build context by remote Claude sessions
+.ccr-ca.crt
