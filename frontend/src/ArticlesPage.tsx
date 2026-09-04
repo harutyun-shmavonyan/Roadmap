@@ -11,6 +11,17 @@ function fmtDate(iso: string): string {
   return d && m && y ? `${d}.${m}.${y}` : iso;
 }
 
+// Injected into the article iframe alongside the height reporter. The height rules kill
+// viewport-stretched layouts (html/body at 100%/100vh): with those in place the document's
+// scrollHeight tracks the iframe's own height, and the auto-sizer ratchets the frame taller
+// forever — the "endless empty space after the article" bug. The paragraph rule is the
+// reader's house style: justified body text, browser-hyphenated so the column doesn't get
+// rivers. It's appended last so it wins over an article's plain `p` rules but still loses
+// to anything the article styles more specifically (classes, inline styles).
+const READER_TWEAKS =
+  `<style>html,body{height:auto !important;min-height:0 !important}` +
+  `p{text-align:justify;hyphens:auto;-webkit-hyphens:auto;overflow-wrap:break-word}</style>`;
+
 // A tiny script injected into the article iframe so it reports its content height back to the
 // parent (the iframe is sandboxed to an opaque origin, so this is how we auto-size it).
 const HEIGHT_REPORTER =
@@ -20,7 +31,8 @@ const HEIGHT_REPORTER =
   `p();setTimeout(p,60);setTimeout(p,300);setTimeout(p,1200);})();<\/script>`;
 
 function withHeightReporter(html: string): string {
-  return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, HEIGHT_REPORTER + '</body>') : html + HEIGHT_REPORTER;
+  const inject = READER_TWEAKS + HEIGHT_REPORTER;
+  return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, inject + '</body>') : html + inject;
 }
 
 // Open the self-contained article HTML in a new tab via a blob URL. Stays private (the HTML was
@@ -39,7 +51,12 @@ function HtmlArticleFrame({ html }: { html: string }) {
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const h = e.data && typeof e.data === 'object' ? (e.data as { __articleHeight?: unknown }).__articleHeight : undefined;
-      if (typeof h === 'number' && isFinite(h) && h > 0) setHeight(Math.ceil(h) + 4);
+      if (typeof h === 'number' && isFinite(h) && h > 0) {
+        // Ignore jitter under the slack we add, so the reported height and the height we
+        // set can't chase each other upward.
+        const nh = Math.ceil(h) + 4;
+        setHeight(prev => Math.abs(nh - prev) > 4 ? nh : prev);
+      }
     };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);

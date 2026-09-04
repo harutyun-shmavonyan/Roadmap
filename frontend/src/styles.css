@@ -624,7 +624,7 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 .article-body > figure.full { grid-column: full; }
 
 .article-body > :first-child { margin-top: 0; }
-.article-body p { margin: 0 0 1.45em; }
+.article-body p { margin: 0 0 1.45em; text-align: justify; hyphens: auto; -webkit-hyphens: auto; overflow-wrap: break-word; }
 .article-body h1, .article-body h2, .article-body h3, .article-body h4 {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-weight: 700; color: var(--text-primary); line-height: 1.25; letter-spacing: -0.01em;
