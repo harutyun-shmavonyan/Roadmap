@@ -340,12 +340,12 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
                 </div>
                 {bestValue.map(({ b, ptsPerHour }, i) => (
                   <div key={`${b.nodeId ?? b.blockId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 13 }}>
-                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: i === 0 ? 600 : 400 }}>
+                    <span title={b.nodeTitle} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: i === 0 ? 600 : 400 }}>
                       {i === 0 ? '★ ' : ''}{b.poolItems ? '◇ ' : ''}{b.nodeTitle}
                     </span>
-                    {b.weightPercent != null && (
-                      <span style={{ fontSize: 11, color: b.weightPercent >= 99 ? 'var(--success)' : b.weightPercent >= 50 ? '#e37400' : 'var(--text-muted)' }}>
-                        ⚖{Math.round(b.weightPercent)}%
+                    {b.weightDeltaPercent != null && (
+                      <span style={{ fontSize: 11, color: b.weightDeltaPercent > 0 ? 'var(--success)' : b.weightDeltaPercent < 0 ? '#e37400' : 'var(--text-muted)' }}>
+                        ⚖{b.weightDeltaPercent > 0 ? '+' : ''}{Math.round(b.weightDeltaPercent)}%
                       </span>
                     )}
                     <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: i === 0 ? 'var(--accent)' : 'var(--text-primary)', minWidth: 66, textAlign: 'right' }}>
@@ -438,7 +438,7 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
                     onClick={e => openLogPopup(e, b)}>
                     <div className="entry-row-top">
                       {dayDone && <span className="entry-done-check">✓</span>}
-                      <span className="entry-title">{b.poolItems ? '◇ ' : ''}{b.nodeTitle} <span className="entry-inline-meta">{blockPts > 0 ? `${blockPts}pt` : ''}{b.weightPercent != null && b.weightPercent < 100 ? ` ⚖${Math.round(b.weightPercent)}%` : ''} {durLabel}</span></span>
+                      <span className="entry-title">{b.poolItems ? '◇ ' : ''}{b.nodeTitle} <span className="entry-inline-meta">{blockPts > 0 ? `${blockPts}pt` : ''}{b.weightDeltaPercent != null && b.weightDeltaPercent !== 0 ? ` ⚖${b.weightDeltaPercent > 0 ? '+' : ''}${Math.round(b.weightDeltaPercent)}%` : ''} {durLabel}</span></span>
                     </div>
                     {!isCompact && rawH >= 52 && (
                       <div className="entry-row-mid">

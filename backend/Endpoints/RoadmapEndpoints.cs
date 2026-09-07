@@ -542,7 +542,7 @@ public static class RoadmapEndpoints
                     return b with
                     {
                         EffectivePointsPerUnit = Math.Round(schedPricing.PriceFor(key, pd, b.PointsPerUnit ?? 0), 3),
-                        WeightPercent = schedPricing.WeightPercentFor(key, pd)
+                        WeightDeltaPercent = schedPricing.WeightDeltaPercentFor(key, pd)
                     };
                 }).ToList();
 
@@ -2766,8 +2766,19 @@ public static class RoadmapEndpoints
         public double PriceFor(Guid key, DateOnly date, double fallbackPpu) =>
             Prices.TryGetValue((key, date), out var p) ? p.Price : fallbackPpu;
 
-        public double? WeightPercentFor(Guid key, DateOnly date) =>
-            Prices.TryGetValue((key, date), out var p) ? Math.Round(p.Weight * 100, 0) : null;
+        /// <summary>Nominal points-per-unit of each committed key, the baseline the badge
+        /// compares against.</summary>
+        public required Dictionary<Guid, double> NominalPpu { get; init; }
+
+        /// <summary>How far today's price sits from the key's nominal rate, in percent:
+        /// +12 = a unit is worth 12% more than usual today, −8 = 8% less. Null for keys the
+        /// sprint never committed to (bonus work — always nominal).</summary>
+        public double? WeightDeltaPercentFor(Guid key, DateOnly date)
+        {
+            if (!Prices.TryGetValue((key, date), out var p)) return null;
+            var nominal = NominalPpu.GetValueOrDefault(key);
+            return nominal > 0 ? Math.Round((p.Price / nominal - 1) * 100, 0) : null;
+        }
 
         /// <summary>
         /// What one work log is worth in points. A pool member's log is converted to hours at
@@ -2892,7 +2903,7 @@ public static class RoadmapEndpoints
                 doneSoFar[key] += logUnitsOnDay.GetValueOrDefault((key, d));
         }
 
-        return new WeightedPricing { Prices = prices, PoolOfNode = poolOfNode, MemberUnitsPerHour = memberUph };
+        return new WeightedPricing { Prices = prices, PoolOfNode = poolOfNode, MemberUnitsPerHour = memberUph, NominalPpu = nominalPpu };
     }
 
     /// <summary>
