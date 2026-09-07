@@ -542,7 +542,7 @@ public static class RoadmapEndpoints
                     return b with
                     {
                         EffectivePointsPerUnit = Math.Round(schedPricing.PriceFor(key, pd, b.PointsPerUnit ?? 0), 3),
-                        WeightDeltaPercent = schedPricing.WeightDeltaPercentFor(key, pd)
+                        PricePercent = schedPricing.PricePercentFor(key, pd)
                     };
                 }).ToList();
 
@@ -2770,14 +2770,14 @@ public static class RoadmapEndpoints
         /// compares against.</summary>
         public required Dictionary<Guid, double> NominalPpu { get; init; }
 
-        /// <summary>How far today's price sits from the key's nominal rate, in percent:
-        /// +12 = a unit is worth 12% more than usual today, −8 = 8% less. Null for keys the
+        /// <summary>Today's price as a percent of the key's nominal rate: 112 = a unit is
+        /// worth 12% more than usual today, 92 = 8% less, 100 = neutral. Null for keys the
         /// sprint never committed to (bonus work — always nominal).</summary>
-        public double? WeightDeltaPercentFor(Guid key, DateOnly date)
+        public double? PricePercentFor(Guid key, DateOnly date)
         {
             if (!Prices.TryGetValue((key, date), out var p)) return null;
             var nominal = NominalPpu.GetValueOrDefault(key);
-            return nominal > 0 ? Math.Round((p.Price / nominal - 1) * 100, 0) : null;
+            return nominal > 0 ? Math.Round(p.Price / nominal * 100, 0) : null;
         }
 
         /// <summary>

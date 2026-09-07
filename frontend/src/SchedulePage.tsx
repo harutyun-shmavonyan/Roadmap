@@ -343,9 +343,9 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
                     <span title={b.nodeTitle} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: i === 0 ? 600 : 400 }}>
                       {i === 0 ? '★ ' : ''}{b.poolItems ? '◇ ' : ''}{b.nodeTitle}
                     </span>
-                    {b.weightDeltaPercent != null && (
-                      <span style={{ fontSize: 11, color: b.weightDeltaPercent > 0 ? 'var(--success)' : b.weightDeltaPercent < 0 ? '#e37400' : 'var(--text-muted)' }}>
-                        ⚖{b.weightDeltaPercent > 0 ? '+' : ''}{Math.round(b.weightDeltaPercent)}%
+                    {b.pricePercent != null && (
+                      <span style={{ fontSize: 11, color: b.pricePercent > 100 ? 'var(--success)' : b.pricePercent < 100 ? '#e37400' : 'var(--text-muted)' }}>
+                        ⚖{Math.round(b.pricePercent)}%
                       </span>
                     )}
                     <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: i === 0 ? 'var(--accent)' : 'var(--text-primary)', minWidth: 66, textAlign: 'right' }}>
@@ -438,7 +438,7 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
                     onClick={e => openLogPopup(e, b)}>
                     <div className="entry-row-top">
                       {dayDone && <span className="entry-done-check">✓</span>}
-                      <span className="entry-title">{b.poolItems ? '◇ ' : ''}{b.nodeTitle} <span className="entry-inline-meta">{blockPts > 0 ? `${blockPts}pt` : ''}{b.weightDeltaPercent != null && b.weightDeltaPercent !== 0 ? ` ⚖${b.weightDeltaPercent > 0 ? '+' : ''}${Math.round(b.weightDeltaPercent)}%` : ''} {durLabel}</span></span>
+                      <span className="entry-title">{b.poolItems ? '◇ ' : ''}{b.nodeTitle} <span className="entry-inline-meta">{blockPts > 0 ? `${blockPts}pt` : ''}{b.pricePercent != null && b.pricePercent !== 100 ? ` ⚖${Math.round(b.pricePercent)}%` : ''} {durLabel}</span></span>
                     </div>
                     {!isCompact && rawH >= 52 && (
                       <div className="entry-row-mid">

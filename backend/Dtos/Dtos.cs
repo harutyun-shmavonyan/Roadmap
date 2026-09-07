@@ -60,9 +60,9 @@ public record ScheduleBlockDto(
     /// <see cref="PointsPerUnit"/> as always.
     /// </summary>
     double? EffectivePointsPerUnit = null,
-    /// <summary>Weighted sprints only: how far today's price sits from the item's nominal
-    /// rate, in percent — +12 means a unit is worth 12% more than usual today, −8 less.</summary>
-    double? WeightDeltaPercent = null
+    /// <summary>Weighted sprints only: today's price as a percent of the item's nominal
+    /// rate — 112 means a unit is worth 12% more than usual today, 92 less, 100 neutral.</summary>
+    double? PricePercent = null
 );
 
 /// <summary>One candidate inside a pool block's session — what the log picker offers.</summary>
