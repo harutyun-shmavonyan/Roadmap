@@ -254,6 +254,15 @@ export const api = {
   getLatestJobRun: () => req<JobRunDto>('/api/job-runs/latest'),
   getJobRun: (date: string) => req<JobRunDto>(`/api/job-runs/${date}`),
 
+  // Record what happened to an application. PATCH semantics: only the fields
+  // passed are written, so updating the status leaves the notes alone. Pass an
+  // empty string to clear a field.
+  updatePostingApplication: (id: string, patch: {
+    applicationStatus?: string; appliedAt?: string; respondedAt?: string; applicationNotes?: string;
+  }) => req<void>(`/api/job-runs/postings/${id}/application`, {
+    method: 'PATCH', body: JSON.stringify(patch),
+  }),
+
   // Tailored CV is binary (bytea), so fetch with the bearer token and trigger a
   // blob download rather than a plain <a href> (which wouldn't carry auth).
   downloadPostingCv: async (id: string, filename: string) => {

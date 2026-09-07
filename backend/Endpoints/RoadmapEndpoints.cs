@@ -2243,6 +2243,67 @@ public static class RoadmapEndpoints
                 gapCount = CvFitGapsJson.Parse(posting.CvFitGaps).Count
             });
         }).DisableAntiforgery();
+
+        // Record what happened to an application. This is the pipeline's only
+        // feedback loop: without it a run that produced nothing anyone replied
+        // to is indistinguishable on disk from one that landed interviews, so
+        // "is this a supply problem, a staleness problem or a CV problem?" has
+        // no answer. Later analysis reads these back to ask which sources,
+        // scores and buckets actually convert.
+        //
+        // PATCH semantics: only the fields present in the body are written, so
+        // updating a status leaves the notes alone. An explicitly empty string
+        // clears a field — that is how you undo a wrong date.
+        jobs.MapPatch("/postings/{postingId:guid}/application",
+            async (Guid postingId, UpdateApplicationRequest body, RoadmapDbContext db) =>
+        {
+            var posting = await db.JobPostings.FirstOrDefaultAsync(x => x.Id == postingId);
+            if (posting is null) return Results.NotFound();
+
+            if (body.ApplicationStatus is not null)
+                posting.ApplicationStatus = string.IsNullOrWhiteSpace(body.ApplicationStatus)
+                    ? null
+                    : body.ApplicationStatus.Trim().ToLowerInvariant();
+
+            if (body.AppliedAt is not null)
+            {
+                if (!TryParseNullableDate(body.AppliedAt, out var applied))
+                    return Results.BadRequest("Invalid applied_at. Use YYYY-MM-DD or an empty string to clear.");
+                posting.AppliedAt = applied;
+            }
+
+            if (body.RespondedAt is not null)
+            {
+                if (!TryParseNullableDate(body.RespondedAt, out var responded))
+                    return Results.BadRequest("Invalid responded_at. Use YYYY-MM-DD or an empty string to clear.");
+                posting.RespondedAt = responded;
+            }
+
+            if (body.ApplicationNotes is not null)
+                posting.ApplicationNotes = string.IsNullOrWhiteSpace(body.ApplicationNotes)
+                    ? null
+                    : body.ApplicationNotes;
+
+            await db.SaveChangesAsync();
+            return Results.Ok(new
+            {
+                postingId = posting.Id,
+                company = posting.Company,
+                applicationStatus = posting.ApplicationStatus,
+                appliedAt = posting.AppliedAt?.ToString("yyyy-MM-dd"),
+                respondedAt = posting.RespondedAt?.ToString("yyyy-MM-dd"),
+                hasNotes = posting.ApplicationNotes != null,
+            });
+        });
+    }
+
+    // An empty string clears the date; anything else must be a real YYYY-MM-DD.
+    private static bool TryParseNullableDate(string raw, out DateOnly? value)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) { value = null; return true; }
+        if (DateOnly.TryParse(raw, out var d)) { value = d; return true; }
+        value = null;
+        return false;
     }
 
     private static JobRunDto ToJobRunDto(JobRun r) => new(
@@ -2253,7 +2314,9 @@ public static class RoadmapEndpoints
             p.SeniorityClass, p.AiKeywordHits, p.GeoHints, p.Queries,
             p.Score, p.Reasoning, p.SortOrder,
             p.TailoredCvPdf != null && p.TailoredCvPdf.Length > 0, p.CvChangeList,
-            p.CvFitScore, CvFitGapsJson.Parse(p.CvFitGaps))).ToList());
+            p.CvFitScore, CvFitGapsJson.Parse(p.CvFitGaps),
+            p.ApplicationStatus, p.AppliedAt?.ToString("yyyy-MM-dd"),
+            p.RespondedAt?.ToString("yyyy-MM-dd"), p.ApplicationNotes)).ToList());
 
     // ===== Habit streak computation =====
     /// <summary>

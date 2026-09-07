@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { JobRunDto, JobRunSummaryDto, JobPostingDto } from './types';
+import { APPLICATION_STATUSES } from './types';
 import { api } from './api';
 
 // "2026-07-14" -> "14.07.2026"
@@ -44,6 +45,12 @@ export function JobsPage() {
       }
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  // Merge one posting's saved application fields back into the loaded run, so
+  // the card reflects the change without refetching the whole day.
+  const patchPosting = useCallback((id: string, patch: Partial<JobPostingDto>) => {
+    setRun(r => r && ({ ...r, postings: r.postings.map(p => p.id === id ? { ...p, ...patch } : p) }));
   }, []);
 
   const selectDay = useCallback(async (date: string) => {
@@ -123,7 +130,8 @@ export function JobsPage() {
           <ArrowButton dir="left" onClick={prev} disabled={idx === 0} />
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '20px 8px', minWidth: 0 }}>
-            {current && <PostingCard key={current.id} posting={current} onOpen={setModal} />}
+            {current && <PostingCard key={current.id} posting={current} onOpen={setModal}
+              onApplicationSaved={patchPosting} />}
           </div>
 
           <ArrowButton dir="right" onClick={next} disabled={idx >= total - 1} />
@@ -162,7 +170,154 @@ function ArrowButton({ dir, onClick, disabled }: { dir: 'left' | 'right'; onClic
   );
 }
 
-function PostingCard({ posting: p, onOpen }: { posting: JobPostingDto; onOpen: (k: ModalKind) => void }) {
+// Fields the application PATCH accepts. An empty string clears one.
+type ApplicationPatch = {
+  applicationStatus?: string; appliedAt?: string; respondedAt?: string; applicationNotes?: string;
+};
+
+// Records what happened after applying. Kept deliberately small — a status, two
+// dates and a note — because the value is in it actually being filled in, not in
+// modelling an ATS. Saves are optimistic: the row updates immediately and rolls
+// back with an alert if the PATCH fails.
+function ApplicationTracker({ posting: p, onSaved }: {
+  posting: JobPostingDto;
+  onSaved: (id: string, patch: Partial<JobPostingDto>) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notesDraft, setNotesDraft] = useState(p.applicationNotes ?? '');
+
+  const status = p.applicationStatus ?? 'none';
+  const applied = status !== 'none';
+
+  // The wire format sends "" to clear a field; the local model uses null for
+  // the same thing, so the optimistic patch is derived rather than reused.
+  const save = async (patch: ApplicationPatch) => {
+    const before: Partial<JobPostingDto> = {
+      applicationStatus: p.applicationStatus,
+      appliedAt: p.appliedAt,
+      respondedAt: p.respondedAt,
+      applicationNotes: p.applicationNotes,
+    };
+    const optimistic: Partial<JobPostingDto> = Object.fromEntries(
+      Object.entries(patch).map(([k, v]) => [k, v === '' ? null : v]),
+    );
+
+    onSaved(p.id, optimistic);
+    setSaving(true);
+    try {
+      await api.updatePostingApplication(p.id, patch);
+    } catch (err) {
+      onSaved(p.id, before); // roll back the optimistic update
+      alert(`Could not save: ${String(err)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Moving off "none" stamps today's date if one isn't set already, so the
+  // common case is one click.
+  const changeStatus = (next: string) => {
+    const patch: ApplicationPatch = { applicationStatus: next === 'none' ? '' : next };
+    if (next !== 'none' && !p.appliedAt) patch.appliedAt = new Date().toISOString().slice(0, 10);
+    if (next === 'none') { patch.appliedAt = ''; patch.respondedAt = ''; }
+    save(patch);
+  };
+
+  const statusColor = (s: string) =>
+    s === 'offer' ? 'var(--success)'
+      : s === 'interviewing' || s === 'screening' ? 'var(--warning)'
+      : s === 'rejected' || s === 'ghosted' ? 'var(--text-muted)'
+      : s === 'applied' ? 'var(--accent)'
+      : 'var(--text-muted)';
+
+  const labelStyle = {
+    fontSize: 11, fontWeight: 700, letterSpacing: '0.06em',
+    textTransform: 'uppercase' as const, color: 'var(--text-muted)',
+  };
+
+  return (
+    <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>
+      <div style={{ ...labelStyle, marginBottom: 10 }}>Application</div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+        <select
+          value={status}
+          disabled={saving}
+          onChange={e => changeStatus(e.target.value)}
+          aria-label="Application status"
+          style={{
+            fontSize: 13, fontWeight: 600, padding: '5px 8px',
+            borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)',
+            background: 'var(--bg-primary)', color: statusColor(status),
+          }}>
+          {APPLICATION_STATUSES.map(s => (
+            <option key={s} value={s}>{s === 'none' ? 'Not applied' : s[0].toUpperCase() + s.slice(1)}</option>
+          ))}
+        </select>
+
+        {applied && (
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
+            Applied
+            <input type="date" value={p.appliedAt ?? ''} disabled={saving}
+              onChange={e => save({ appliedAt: e.target.value })}
+              style={{ fontSize: 13, padding: '4px 6px', borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
+          </label>
+        )}
+
+        {applied && (
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
+            Replied
+            <input type="date" value={p.respondedAt ?? ''} disabled={saving}
+              onChange={e => save({ respondedAt: e.target.value })}
+              style={{ fontSize: 13, padding: '4px 6px', borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
+          </label>
+        )}
+
+        <button type="button" className="btn btn-sm" disabled={saving}
+          onClick={() => { setNotesDraft(p.applicationNotes ?? ''); setNotesOpen(o => !o); }}>
+          {p.applicationNotes ? 'Notes ✓' : 'Add notes'}
+        </button>
+      </div>
+
+      {/* Days-to-reply is the number that tells you whether a source converts. */}
+      {p.appliedAt && p.respondedAt && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+          Replied in {Math.max(0, Math.round(
+            (Date.parse(p.respondedAt) - Date.parse(p.appliedAt)) / 86400000))} day(s)
+        </div>
+      )}
+
+      {notesOpen && (
+        <div style={{ marginTop: 10 }}>
+          <textarea
+            value={notesDraft}
+            onChange={e => setNotesDraft(e.target.value)}
+            rows={3}
+            placeholder="Recruiter, stage, why it died…"
+            style={{ width: '100%', fontSize: 13, padding: 8, borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border)', background: 'var(--bg-primary)',
+              color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'vertical' }} />
+          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+            <button type="button" className="btn btn-accent btn-sm" disabled={saving}
+              onClick={async () => { await save({ applicationNotes: notesDraft }); setNotesOpen(false); }}>
+              Save notes
+            </button>
+            <button type="button" className="btn btn-sm" onClick={() => setNotesOpen(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PostingCard({ posting: p, onOpen, onApplicationSaved }: {
+  posting: JobPostingDto;
+  onOpen: (k: ModalKind) => void;
+  onApplicationSaved: (id: string, patch: Partial<JobPostingDto>) => void;
+}) {
   const isEu = p.bucket === 'eu-allowed';
   const fit = p.cvFitScore;
   const eligColor = isEu ? 'var(--warning)' : 'var(--success)';
@@ -246,6 +401,12 @@ function PostingCard({ posting: p, onOpen }: { posting: JobPostingDto; onOpen: (
             <button type="button" className="btn btn-sm" onClick={() => onOpen('changes')}>CV changes</button>
           )}
         </div>
+
+        {/* Application tracker — the pipeline's only feedback loop. Without a
+            record of what was applied to and what came back, a day that
+            produced nothing anyone replied to looks exactly like a day that
+            landed interviews. */}
+        <ApplicationTracker posting={p} onSaved={onApplicationSaved} />
 
         {/* Description */}
         <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--border-subtle)' }}>

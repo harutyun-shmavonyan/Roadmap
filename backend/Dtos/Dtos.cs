@@ -304,7 +304,16 @@ public record JobPostingDto(Guid Id, string Title, string Company, string Url, s
     // (GET /api/job-runs/postings/{id}/cv) so they never bloat the list JSON.
     bool HasCv, string? CvChangeList,
     // CV-vs-JD fit score (0–100) and the gap breakdown (highest-impact first).
-    int? CvFitScore, List<CvFitGapDto> CvFitGaps);
+    int? CvFitScore, List<CvFitGapDto> CvFitGaps,
+    // Application outcome, so the tab can show what happened and later analysis
+    // can ask which sources and scores actually convert.
+    string? ApplicationStatus, string? AppliedAt, string? RespondedAt, string? ApplicationNotes);
+
+// PATCH body for a posting's application outcome. Every field is optional; only
+// the ones present are written, so the UI can update just the status without
+// clearing the notes. Send an empty string to clear a field.
+public record UpdateApplicationRequest(
+    string? ApplicationStatus, string? AppliedAt, string? RespondedAt, string? ApplicationNotes);
 
 public record JobRunSummaryDto(Guid Id, string RunDate, List<string> Queries, int MaxAgeDays,
     int RawCount, int PostingCount, DateTime CreatedAt);

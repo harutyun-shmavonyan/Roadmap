@@ -159,7 +159,12 @@ export interface SprintGoalDto { id: string; title: string; unit: string | null;
 
 // Job scouting (postings imported from the Finder pipeline, one run per day)
 export interface CvFitGapDto { label: string; points: number; note: string | null; }
-export interface JobPostingDto { id: string; title: string; company: string; url: string; source: string; location: string | null; postedAt: string | null; description: string; bucket: string; seniorityClass: string | null; aiKeywordHits: number; geoHints: string[]; queries: string[]; score: number | null; reasoning: string | null; sortOrder: number; hasCv: boolean; cvChangeList: string | null; cvFitScore: number | null; cvFitGaps: CvFitGapDto[]; }
+export interface JobPostingDto { id: string; title: string; company: string; url: string; source: string; location: string | null; postedAt: string | null; description: string; bucket: string; seniorityClass: string | null; aiKeywordHits: number; geoHints: string[]; queries: string[]; score: number | null; reasoning: string | null; sortOrder: number; hasCv: boolean; cvChangeList: string | null; cvFitScore: number | null; cvFitGaps: CvFitGapDto[]; applicationStatus: string | null; appliedAt: string | null; respondedAt: string | null; applicationNotes: string | null; }
+
+// The statuses the Jobs tab offers for an application. The column is free text
+// server-side, so this list can grow without a migration.
+export const APPLICATION_STATUSES = ['none', 'applied', 'screening', 'interviewing', 'offer', 'rejected', 'ghosted'] as const;
+export type ApplicationStatus = typeof APPLICATION_STATUSES[number];
 export interface JobRunSummaryDto { id: string; runDate: string; queries: string[]; maxAgeDays: number; rawCount: number; postingCount: number; createdAt: string; }
 export interface JobRunDto { id: string; runDate: string; queries: string[]; maxAgeDays: number; rawCount: number; createdAt: string; postings: JobPostingDto[]; }
 
