@@ -221,11 +221,12 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
   }, 0)) + customLogs.reduce((s, c) => s + c.points, 0);
 
   const isWeighted = sprint?.scoringMode === 'Weighted';
-  // Best value today: what an hour on each scheduled thing earns at today's prices.
+  // Best value today: ranked by how far above nominal each thing is priced right now
+  // (unbadged bonus items sink to the bottom); pts/h breaks ties.
   const bestValue = isWeighted
     ? [...blocks]
         .map(b => ({ b, ptsPerHour: effPpu(b) * (b.unitsPerHour ?? 0) }))
-        .sort((a, x) => x.ptsPerHour - a.ptsPerHour)
+        .sort((a, x) => (x.b.pricePercent ?? -1) - (a.b.pricePercent ?? -1) || x.ptsPerHour - a.ptsPerHour)
     : [];
   const bestMax = bestValue.length > 0 ? Math.max(...bestValue.map(v => v.ptsPerHour), 0.001) : 1;
 
