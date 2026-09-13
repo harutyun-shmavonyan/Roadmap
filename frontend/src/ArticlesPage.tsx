@@ -83,10 +83,12 @@ function paneOrigin(pane: HTMLElement): number {
 }
 
 // The anchor for wherever the pane is scrolled to: the last block element starting at or above the
-// top edge, plus how far past its start we are. '' when we're above the first one — near the top
-// there is nothing to anchor to and nothing worth anchoring.
-function anchorInPane(pane: HTMLElement): string {
-  const origin = paneOrigin(pane), top = pane.scrollTop;
+// reading edge, plus how far past its start we are. The edge is `inset` below the pane's top — the
+// height of the sticky bar — so the anchor names the first line you can actually read, which is
+// also what the new tab (no bar, inset 0) names. '' when we're above the first element: near the
+// top there is nothing to anchor to and nothing worth anchoring.
+function anchorInPane(pane: HTMLElement, inset: number): string {
+  const origin = paneOrigin(pane), top = pane.scrollTop + inset;
   const els = pane.querySelectorAll<HTMLElement>(ANCHOR_SEL);
   let best = -1, bestTop = 0;
   for (let i = 0; i < els.length; i++) {
@@ -97,13 +99,13 @@ function anchorInPane(pane: HTMLElement): string {
   return best < 0 ? '' : `${best}:${Math.round(top - bestTop)}`;
 }
 
-// Where an anchor points in the pane's scroll coordinates, or -1 when it doesn't resolve (the
+// The scrollTop that puts an anchor back at the reading edge, or -1 when it doesn't resolve (the
 // article was edited since, or the anchor belongs to a document this pane isn't showing).
-function offsetInPane(pane: HTMLElement, anchor: string): number {
+function offsetInPane(pane: HTMLElement, anchor: string, inset: number): number {
   const [i, d] = anchor.split(':').map(Number);
   const els = pane.querySelectorAll<HTMLElement>(ANCHOR_SEL);
   if (!Number.isInteger(i) || i < 0 || i >= els.length) return -1;
-  return els[i].getBoundingClientRect().top - paneOrigin(pane) + (Number.isFinite(d) ? d : 0);
+  return els[i].getBoundingClientRect().top - paneOrigin(pane) + (Number.isFinite(d) ? d : 0) - inset;
 }
 
 // The same anchor arithmetic, as source injected into article documents (the reader iframe and the
@@ -188,6 +190,8 @@ function useReadingPosition(
   // The element, not a ref: on phones the reader pane mounts only when you tap into an article,
   // long after it was selected, and the restore has to wait for it rather than miss it.
   pane: HTMLDivElement | null,
+  // The sticky bar covering the top of the pane, if any — positions are measured from below it.
+  head: HTMLElement | null,
   frameRef: React.RefObject<HTMLIFrameElement | null>,
   articleId: string | null,
   saved: Bookmark,
@@ -198,6 +202,8 @@ function useReadingPosition(
 ) {
   // Mirror of `pane` for the callbacks and listeners below, which run outside render.
   const paneRef = useRef<HTMLDivElement | null>(null); paneRef.current = pane;
+  const headRef = useRef<HTMLElement | null>(null); headRef.current = head;
+  const inset = () => headRef.current?.offsetHeight ?? 0;
   const pending = useRef<{ id: string; pos: number; anchor: string | null } | null>(null);
   const timer = useRef<number | undefined>(undefined);
   const restoring = useRef(false);
@@ -228,10 +234,10 @@ function useReadingPosition(
       // Only the sandboxed document can name the paragraph at its top edge; the answer arrives by
       // message well before this save's debounce is up.
       const frame = frameRef.current;
-      frame?.contentWindow?.postMessage({ __anchorAsk: pane.scrollTop - frameTop(pane, frame) }, '*');
+      frame?.contentWindow?.postMessage({ __anchorAsk: pane.scrollTop + inset() - frameTop(pane, frame) }, '*');
       pending.current = { id: articleId, pos, anchor: null };
     } else {
-      pending.current = { id: articleId, pos, anchor: anchorInPane(pane) || null };
+      pending.current = { id: articleId, pos, anchor: anchorInPane(pane, inset()) || null };
     }
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(flush, POS_SAVE_MS);
@@ -245,7 +251,7 @@ function useReadingPosition(
       if (typeof d.__articleAnchor === 'string') frameAnchor.current = d.__articleAnchor || null;
       if (typeof d.__articleOffset === 'number' && restoring.current && d.__articleOffset >= 0) {
         const pane = paneRef.current, frame = frameRef.current;
-        if (pane && frame) { pane.scrollTop = frameTop(pane, frame) + d.__articleOffset; exact.current = true; }
+        if (pane && frame) { pane.scrollTop = frameTop(pane, frame) + d.__articleOffset - inset(); exact.current = true; }
       }
     };
     window.addEventListener('message', onMsg);
@@ -289,7 +295,7 @@ function useReadingPosition(
             const frame = frameRef.current;
             frame?.contentWindow?.postMessage({ __offsetAsk: anchor }, '*');
           } else {
-            const y = offsetInPane(pane, anchor);
+            const y = offsetInPane(pane, anchor, inset());
             if (y >= 0) { pane.scrollTop = y; exact.current = true; }
           }
         }
@@ -377,6 +383,8 @@ export function ArticlesPage() {
   // The scrolling reader pane (state, not a ref: on phones it mounts only once you tap into an
   // article) and the position we resumed it to, shown as a brief hint.
   const [paneEl, setPaneEl] = useState<HTMLDivElement | null>(null);
+  // The sticky bar at the top of the pane: the reading position is measured from below it.
+  const [headEl, setHeadEl] = useState<HTMLDivElement | null>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [resumedAt, setResumedAt] = useState<number | null>(null);
 
@@ -428,7 +436,7 @@ export function ArticlesPage() {
     livePos?.id === d.id ? livePos.bm : { pos: d.readProgress, anchor: d.readAnchor };
 
   const onReaderScroll = useReadingPosition(
-    paneEl, frameRef, detail?.id ?? null,
+    paneEl, headEl, frameRef, detail?.id ?? null,
     detail ? { pos: detail.readProgress, anchor: detail.readAnchor } : { pos: 0, anchor: null },
     detail?.format === 'html', readerReady, onListProgress, setResumedAt);
 
@@ -578,13 +586,37 @@ export function ArticlesPage() {
   );
 
   // ---- Reader panel ----
-  const readerPanel = (mobile: boolean) => (
-    <div ref={setPaneEl} onScroll={onReaderScroll}
-      style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', position: 'relative' }}>
+  // Everything that has to stay put while the article scrolls lives in one sticky stack: the
+  // phone's back bar and, for HTML articles, the toolbar carrying "Open in new tab". Stacking them
+  // in a single sticky box is what keeps the rows from landing on top of each other, and the
+  // reading position is measured from the bar's lower edge (see headEl) so the paragraph you
+  // resume on sits just below it instead of behind it.
+  const stickyHeader = (mobile: boolean) => (
+    <div ref={setHeadEl} style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--bg-primary)' }}>
+      {mobile && (
+        <div style={{ display: 'flex', padding: '8px 10px', borderBottom: '1px solid var(--border-subtle)' }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => setMobileReaderOpen(false)}>← All articles</button>
+        </div>
+      )}
+      {detail && detail.format === 'html' && (
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8,
+          padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail.title}</div>
+            <div className="article-meta" style={{ border: 'none', padding: 0, marginTop: 2, fontSize: 12.5 }}>{metaLine(detail)}</div>
+          </div>
+          {detail.chatUrl && <button className="btn btn-sm" onClick={() => openChat(detail.chatUrl!)}
+            title="Open the chat this article came from">💬 Chat about this ↗</button>}
+          <button className="btn btn-sm" disabled={!shownHtml}
+            onClick={() => shownHtml && openHtmlInNewTab(shownHtml, detail.id, bookmarkOf(detail))}
+            title="Open this article's full HTML in a new browser tab">Open in new tab ↗</button>
+          <button className="btn btn-sm" onClick={() => startEdit(detail)}>Edit</button>
+          <button className="btn btn-sm btn-danger" onClick={() => del(detail)}>Delete</button>
+        </div>
+      )}
       {resumedAt !== null && (
-        // Height 0 so the hint floats over the article instead of nudging it — it vanishes on a timer.
-        <div style={{ position: 'sticky', top: mobile ? 44 : 0, height: 0, overflow: 'visible', zIndex: 6,
-          display: 'flex', alignItems: 'flex-start', justifyContent: 'center', pointerEvents: 'none' }}>
+        // Height 0 so the hint floats over the article instead of nudging it — it goes on a timer.
+        <div style={{ height: 0, overflow: 'visible', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', pointerEvents: 'none' }}>
           <span style={{ marginTop: 8, padding: '4px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600,
             background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)',
             boxShadow: '0 2px 8px rgba(0,0,0,0.18)' }}>
@@ -592,34 +624,18 @@ export function ArticlesPage() {
           </span>
         </div>
       )}
-      {mobile && (
-        <div style={{ position: 'sticky', top: 0, zIndex: 5, display: 'flex', padding: '8px 10px',
-          background: 'var(--bg-primary)', borderBottom: '1px solid var(--border-subtle)' }}>
-          <button className="btn btn-ghost btn-sm" onClick={() => setMobileReaderOpen(false)}>← All articles</button>
-        </div>
-      )}
+    </div>
+  );
+
+  const readerPanel = (mobile: boolean) => (
+    <div ref={setPaneEl} onScroll={onReaderScroll}
+      style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', position: 'relative' }}>
+      {stickyHeader(mobile)}
       {!detail ? (
         <div style={{ padding: 24, color: 'var(--text-muted)', fontSize: 14 }}>{mobile ? 'Loading…' : 'Select an article to read.'}</div>
       ) : detail.format === 'html' ? (
-        // ---- HTML article: compact toolbar + sandboxed iframe + read footer ----
+        // ---- HTML article: sandboxed iframe under the sticky toolbar + read footer ----
         <article className="article-reader">
-          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8,
-            padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)',
-            // Sticky on desktop so scrolling back up for "Open in new tab" (which would record the
-            // top as your reading position) is never needed. Mobile already has its own top bar.
-            ...(mobile ? {} : { position: 'sticky' as const, top: 0, zIndex: 4, background: 'var(--bg-primary)' }) }}>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail.title}</div>
-              <div className="article-meta" style={{ border: 'none', padding: 0, marginTop: 2, fontSize: 12.5 }}>{metaLine(detail)}</div>
-            </div>
-            {detail.chatUrl && <button className="btn btn-sm" onClick={() => openChat(detail.chatUrl!)}
-              title="Open the chat this article came from">💬 Chat about this ↗</button>}
-            <button className="btn btn-sm" disabled={!shownHtml}
-              onClick={() => shownHtml && openHtmlInNewTab(shownHtml, detail.id, bookmarkOf(detail))}
-              title="Open this article's full HTML in a new browser tab">Open in new tab ↗</button>
-            <button className="btn btn-sm" onClick={() => startEdit(detail)}>Edit</button>
-            <button className="btn btn-sm btn-danger" onClick={() => del(detail)}>Delete</button>
-          </div>
           {htmlLoading && !shownHtml ? (
             <div style={{ padding: 24, color: 'var(--text-muted)', fontSize: 14 }}>Rendering…</div>
           ) : shownHtml ? (
