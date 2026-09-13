@@ -31,6 +31,17 @@ public class Article
 
     public bool IsRead { get; set; }
 
+    /// <summary>
+    /// How far the reader got, as a fraction (0..1) of the article's scrollable length. Stored as a
+    /// fraction rather than pixels so the spot survives a different window size, font size or device.
+    /// The reader posts it as you scroll and jumps back to it the next time the article is opened —
+    /// in the app, in the "open in new tab" view, or on another device.
+    /// </summary>
+    public double ReadProgress { get; set; }
+
+    /// <summary>When <see cref="ReadProgress"/> was last recorded (UTC); null while never opened.</summary>
+    public DateTime? ProgressAt { get; set; }
+
     /// <summary>Date the article was marked read (Asia/Yerevan), null while pending.</summary>
     public DateOnly? ReadOn { get; set; }
 

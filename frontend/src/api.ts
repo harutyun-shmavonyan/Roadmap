@@ -227,6 +227,19 @@ export const api = {
   deleteArticleImage: (id: string, name: string) =>
     req<void>(`/api/articles/${id}/images/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 
+  // Reading position (0..1 of the article's scrollable length). Fire-and-forget: failures are
+  // ignored (losing a bookmark is not worth an error toast) and `keepalive` lets the last save
+  // survive the tab being closed mid-article.
+  saveArticleProgress: (id: string, progress: number): void => {
+    const token = getToken();
+    void fetch(`/api/articles/${id}/progress`, {
+      method: 'PUT',
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ progress }),
+    }).catch(() => {});
+  },
+
   // English vocabulary (global — entries are added and reviewed over MCP; the tab reads and prunes)
   getVocab: () => req<VocabEntryDto[]>('/api/vocab'),
   getVocabStats: () => req<VocabStatsDto>('/api/vocab/stats'),

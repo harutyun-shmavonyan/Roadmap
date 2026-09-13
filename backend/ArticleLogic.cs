@@ -60,12 +60,12 @@ public static class ArticleLogic
 
     public static ArticleSummaryDto ToSummary(Article a, int imageCount) => new(
         a.Id, a.Title, a.Format, a.ReadMinutes,
-        a.IsRead, a.ReadOn?.ToString("yyyy-MM-dd"), a.SortOrder, imageCount, a.CreatedAt, a.UpdatedAt);
+        a.IsRead, a.ReadOn?.ToString("yyyy-MM-dd"), a.SortOrder, imageCount, a.ReadProgress, a.CreatedAt, a.UpdatedAt);
 
     public static ArticleDto ToDetail(Article a, IReadOnlyList<ArticleImageDto>? images = null) => new(
         a.Id, a.Title, a.Format, a.Content, a.ReadMinutes,
         a.IsRead, a.ReadOn?.ToString("yyyy-MM-dd"), a.SortOrder,
-        images ?? Array.Empty<ArticleImageDto>(), a.ChatUrl, a.CreatedAt, a.UpdatedAt);
+        images ?? Array.Empty<ArticleImageDto>(), a.ChatUrl, a.ReadProgress, a.CreatedAt, a.UpdatedAt);
 
     /// <summary>Normalise an optional chat URL: trim, keep only http(s), else null.</summary>
     public static string? NormChatUrl(string? url)

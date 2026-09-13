@@ -35,14 +35,163 @@ function withHeightReporter(html: string): string {
   return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, inject + '</body>') : html + inject;
 }
 
+// ---- Reading position ----------------------------------------------------------------------
+// Where you stopped is stored on the article as a fraction (0 = top, 1 = bottom) of the reader's
+// scrollable length, not as pixels, so it survives a resized window, a different font size and a
+// different device. The in-app reader and the "open in new tab" view both post to the same
+// endpoint and both restore from it, so the two stay in step.
+
+// Scroll settles for this long before the position is sent.
+const POS_SAVE_MS = 700;
+// A position this close to either end isn't worth jumping to — just start at the top.
+const POS_EPS = 0.02;
+// Restoring re-applies the position on a tick until the content stops growing (an HTML article
+// lives in an auto-sizing iframe whose height only arrives after the document loads and settles),
+// then stops — or gives up after POS_RETRIES ticks, whichever comes first.
+const POS_RETRY_MS = 120;
+const POS_RETRIES = 40;
+// Ticks with an unchanged scrollable length that mean the layout has settled.
+const POS_STABLE_TICKS = 5;
+// Input that means "I'm driving now" — it cancels an in-flight restore.
+const TAKEOVER_EVENTS = ['wheel', 'touchstart', 'keydown', 'mousedown'] as const;
+
+// How far through a scrollable element we are, 0..1 (0 when there's nothing to scroll).
+function scrollFraction(el: HTMLElement): number {
+  const max = el.scrollHeight - el.clientHeight;
+  return max <= 0 ? 0 : Math.min(1, Math.max(0, el.scrollTop / max));
+}
+
+function worthRestoring(pos: number): boolean {
+  return Number.isFinite(pos) && pos > POS_EPS && pos < 1 - POS_EPS;
+}
+
+// The same save/restore behaviour as the hook below, but as a self-contained script injected into
+// the standalone document opened in a new tab. That document is a blob: URL created by this page,
+// so it inherits the app's origin and can read the stored token and call the API itself.
+function positionScript(id: string, start: number): string {
+  const cfg = JSON.stringify({ id, start, origin: window.location.origin, save: POS_SAVE_MS,
+    step: POS_RETRY_MS, tries: POS_RETRIES, stable: POS_STABLE_TICKS });
+  return `<script>(function(){var C=${cfg},live=true,t;` +
+    `function frac(){var m=document.documentElement.scrollHeight-window.innerHeight;` +
+    `return m<=0?0:Math.min(1,Math.max(0,window.scrollY/m));}` +
+    `function save(){try{var k=localStorage.getItem('roadmap_token');if(!k)return;` +
+    `fetch(C.origin+'/api/articles/'+C.id+'/progress',{method:'PUT',keepalive:true,` +
+    `headers:{'Content-Type':'application/json',Authorization:'Bearer '+k},` +
+    `body:JSON.stringify({progress:frac()})}).catch(function(){});}catch(e){}}` +
+    `addEventListener('scroll',function(){clearTimeout(t);t=setTimeout(save,C.save)},{passive:true});` +
+    `addEventListener('pagehide',save);` +
+    `document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')save()});` +
+    `if(C.start>0&&C.start<1){var n=0,same=0,last=-1,iv=setInterval(function(){if(!live||++n>C.tries){clearInterval(iv);return;}` +
+    `var m=document.documentElement.scrollHeight-window.innerHeight;if(m<=0)return;scrollTo(0,C.start*m);` +
+    `same=m===last?same+1:0;last=m;if(same>=C.stable)clearInterval(iv);},C.step);` +
+    `${JSON.stringify(TAKEOVER_EVENTS)}.forEach(function(e){addEventListener(e,function(){live=false},{passive:true,once:true})});}` +
+    `})();<\/script>`;
+}
+
 // Open the self-contained article HTML in a new tab via a blob URL. Stays private (the HTML was
 // fetched with the bearer token) — no server route is publicly reachable. Carries the same
-// reader style the iframe injects, so the tab reads identically (justified paragraphs).
-function openHtmlInNewTab(html: string) {
-  const styled = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, READER_TWEAKS + '</body>') : html + READER_TWEAKS;
+// reader style the iframe injects, so the tab reads identically (justified paragraphs), plus the
+// position script so the tab resumes — and records — the same reading position as the app.
+function openHtmlInNewTab(html: string, id: string, startAt: number) {
+  const inject = READER_TWEAKS + positionScript(id, worthRestoring(startAt) ? startAt : 0);
+  const styled = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, inject + '</body>') : html + inject;
   const url = URL.createObjectURL(new Blob([styled], { type: 'text/html' }));
   window.open(url, '_blank', 'noopener');
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/**
+ * Keeps the reader pane's scroll position and the article's stored reading position in sync.
+ *
+ * Saving: scrolling is debounced into a PUT, and anything still pending is flushed when the
+ * article changes, the tab is hidden or the reader unmounts — so closing the tab mid-article
+ * still records the spot. Nothing is saved while the article isn't fully rendered, otherwise the
+ * browser clamping scrollTop during a content swap would overwrite the bookmark with 0.
+ *
+ * Restoring: the stored position is applied once per article as soon as the pane is scrollable,
+ * and re-applied for a few seconds while an HTML article's iframe grows into its real height.
+ * Any scroll input from the reader cancels the restore on the spot.
+ */
+function useReadingPosition(
+  paneRef: React.RefObject<HTMLDivElement | null>,
+  articleId: string | null,
+  savedPosition: number,
+  ready: boolean,
+  onSaved: (id: string, pos: number) => void,
+  onRestored: (pos: number | null) => void,
+) {
+  const pending = useRef<{ id: string; pos: number } | null>(null);
+  const timer = useRef<number | undefined>(undefined);
+  const restoring = useRef(false);
+  // Read inside effects that must not re-run when these change (a re-fetched article, a new
+  // render of the parent) — only a new article or newly rendered content starts a restore.
+  const saved = useRef(savedPosition); saved.current = savedPosition;
+  const cbs = useRef({ onSaved, onRestored }); cbs.current = { onSaved, onRestored };
+
+  const flush = useCallback(() => {
+    window.clearTimeout(timer.current);
+    const p = pending.current;
+    pending.current = null;
+    if (!p) return;
+    api.saveArticleProgress(p.id, p.pos);
+    cbs.current.onSaved(p.id, p.pos);
+  }, []);
+
+  const onScroll = useCallback(() => {
+    const el = paneRef.current;
+    if (!el || !articleId || !ready || restoring.current) return;
+    pending.current = { id: articleId, pos: scrollFraction(el) };
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(flush, POS_SAVE_MS);
+  }, [articleId, ready, flush, paneRef]);
+
+  // Flush on article switch and on unmount.
+  useEffect(() => flush, [articleId, flush]);
+
+  // Flush when the tab goes away — 'visibilitychange' covers mobile backgrounding, 'pagehide' a
+  // real close/navigation (the save uses keepalive so it survives both).
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === 'hidden') flush(); };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', flush);
+    };
+  }, [flush]);
+
+  useEffect(() => {
+    const el = paneRef.current;
+    cbs.current.onRestored(null);
+    if (!el || !articleId || !ready) return;
+    const target = saved.current;
+    if (!worthRestoring(target)) { el.scrollTop = 0; return; }
+
+    restoring.current = true;
+    let tries = 0, stable = 0, lastMax = -1, iv = 0;
+    const stop = () => { window.clearInterval(iv); restoring.current = false; };
+    const apply = () => {
+      const max = el.scrollHeight - el.clientHeight;
+      if (max > 0) {
+        el.scrollTop = target * max;
+        stable = max === lastMax ? stable + 1 : 0;
+        lastMax = max;
+      }
+      // Done once the content has stopped growing under us — or once we've waited long enough.
+      if (stable >= POS_STABLE_TICKS || ++tries >= POS_RETRIES) stop();
+    };
+    apply();
+    iv = window.setInterval(apply, POS_RETRY_MS);
+    const opts: AddEventListenerOptions = { passive: true, once: true };
+    TAKEOVER_EVENTS.forEach(e => el.addEventListener(e, stop, opts));
+    cbs.current.onRestored(target);
+    return () => {
+      stop();
+      TAKEOVER_EVENTS.forEach(e => el.removeEventListener(e, stop));
+    };
+  }, [articleId, ready, paneRef]);
+
+  return onScroll;
 }
 
 // Renders a self-contained HTML article inside a sandboxed iframe that auto-sizes to its content,
@@ -99,11 +248,15 @@ export function ArticlesPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
-  // Fetched self-contained HTML document for the selected article (HTML format only).
-  const [htmlDoc, setHtmlDoc] = useState<string | null>(null);
+  // Fetched self-contained HTML document for the selected article (HTML format only). Kept with
+  // the id it belongs to so a stale document is never treated as the new article's content.
+  const [htmlDoc, setHtmlDoc] = useState<{ id: string; html: string } | null>(null);
   const [htmlLoading, setHtmlLoading] = useState(false);
   // On mobile we show either the list OR the reader; this flag says the reader is open.
   const [mobileReaderOpen, setMobileReaderOpen] = useState(false);
+  // The scrolling reader pane, and the position we resumed it to (shown as a brief hint).
+  const paneRef = useRef<HTMLDivElement>(null);
+  const [resumedAt, setResumedAt] = useState<number | null>(null);
 
   const loadList = useCallback(async (selectId?: string | null) => {
     const d = await api.getArticles();
@@ -129,11 +282,37 @@ export function ArticlesPage() {
     if (!detail || detail.format !== 'html') { setHtmlDoc(null); setHtmlLoading(false); return; }
     let alive = true;
     setHtmlLoading(true);
-    api.getArticleHtml(detail.id)
-      .then(h => { if (alive) setHtmlDoc(h); })
+    const id = detail.id;
+    api.getArticleHtml(id)
+      .then(h => { if (alive) setHtmlDoc({ id, html: h }); })
       .finally(() => { if (alive) setHtmlLoading(false); });
     return () => { alive = false; };
   }, [detail?.id, detail?.format, detail?.updatedAt]);
+
+  // The HTML of the article currently on screen (null while it's still being fetched).
+  const shownHtml = detail && htmlDoc?.id === detail.id ? htmlDoc.html : null;
+  // The article is fully on screen — and so safe to scroll and to record a position for — once
+  // its detail matches the selection and, for HTML articles, its document has arrived.
+  const readerReady = !!detail && detail.id === selId && (detail.format !== 'html' || !!shownHtml);
+
+  // Every recorded position updates the list row and the article's live bookmark, so the list,
+  // the reader's "% in" and the position handed to a new tab all track the current read.
+  const [livePos, setLivePos] = useState<{ id: string; pos: number } | null>(null);
+  const onListProgress = useCallback((id: string, pos: number) => {
+    setList(prev => prev.map(a => (a.id === id ? { ...a, readProgress: pos } : a)));
+    setLivePos({ id, pos });
+  }, []);
+  const bookmarkOf = (d: ArticleDto) => (livePos?.id === d.id ? livePos.pos : d.readProgress);
+
+  const onReaderScroll = useReadingPosition(
+    paneRef, detail?.id ?? null, detail?.readProgress ?? 0, readerReady, onListProgress, setResumedAt);
+
+  // The "picked up where you left off" hint is a nudge, not a status line — let it go after a bit.
+  useEffect(() => {
+    if (resumedAt === null) return;
+    const t = window.setTimeout(() => setResumedAt(null), 5000);
+    return () => window.clearTimeout(t);
+  }, [resumedAt]);
 
   const refresh = async (selectId?: string | null) => {
     await loadList(selectId);
@@ -225,6 +404,14 @@ export function ArticlesPage() {
                 {a.format === 'html' && <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--accent)', border: '1px solid var(--border)', borderRadius: 4, padding: '0 4px' }}>HTML</span>}
                 {a.imageCount > 0 && <span>🖼 {a.imageCount}</span>}
                 {a.isRead && a.readOn && <span style={{ color: 'var(--accent)' }}>✓ {fmtDate(a.readOn)}</span>}
+                {!a.isRead && worthRestoring(a.readProgress) && (
+                  <span title="Where you stopped reading" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--accent)' }}>
+                    <span style={{ display: 'inline-block', width: 30, height: 4, borderRadius: 2, background: 'var(--border)', overflow: 'hidden' }}>
+                      <span style={{ display: 'block', height: '100%', width: `${Math.round(a.readProgress * 100)}%`, background: 'var(--accent)' }} />
+                    </span>
+                    {Math.round(a.readProgress * 100)}%
+                  </span>
+                )}
               </div>
             </div>
             {mobile && <span style={{ color: 'var(--text-muted)', fontSize: 18, alignSelf: 'center' }}>›</span>}
@@ -238,6 +425,10 @@ export function ArticlesPage() {
   const metaLine = (d: ArticleDto) => (
     <>
       <span>⏱ {d.readMinutes} min read</span>
+      {!d.isRead && worthRestoring(bookmarkOf(d)) && <>
+        <span>·</span>
+        <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{Math.round(bookmarkOf(d) * 100)}% in</span>
+      </>}
       {d.isRead && d.readOn && <>
         <span>·</span>
         <span style={{ color: 'var(--accent)', fontWeight: 600 }}>✓ Read on {fmtDate(d.readOn)}</span>
@@ -263,7 +454,19 @@ export function ArticlesPage() {
 
   // ---- Reader panel ----
   const readerPanel = (mobile: boolean) => (
-    <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+    <div ref={paneRef} onScroll={onReaderScroll}
+      style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', position: 'relative' }}>
+      {resumedAt !== null && (
+        // Height 0 so the hint floats over the article instead of nudging it — it vanishes on a timer.
+        <div style={{ position: 'sticky', top: mobile ? 44 : 0, height: 0, overflow: 'visible', zIndex: 6,
+          display: 'flex', alignItems: 'flex-start', justifyContent: 'center', pointerEvents: 'none' }}>
+          <span style={{ marginTop: 8, padding: '4px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600,
+            background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.18)' }}>
+            ↩ Picked up at {Math.round(resumedAt * 100)}%
+          </span>
+        </div>
+      )}
       {mobile && (
         <div style={{ position: 'sticky', top: 0, zIndex: 5, display: 'flex', padding: '8px 10px',
           background: 'var(--bg-primary)', borderBottom: '1px solid var(--border-subtle)' }}>
@@ -276,23 +479,26 @@ export function ArticlesPage() {
         // ---- HTML article: compact toolbar + sandboxed iframe + read footer ----
         <article className="article-reader">
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8,
-            padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
+            padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)',
+            // Sticky on desktop so scrolling back up for "Open in new tab" (which would record the
+            // top as your reading position) is never needed. Mobile already has its own top bar.
+            ...(mobile ? {} : { position: 'sticky' as const, top: 0, zIndex: 4, background: 'var(--bg-primary)' }) }}>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail.title}</div>
               <div className="article-meta" style={{ border: 'none', padding: 0, marginTop: 2, fontSize: 12.5 }}>{metaLine(detail)}</div>
             </div>
             {detail.chatUrl && <button className="btn btn-sm" onClick={() => openChat(detail.chatUrl!)}
               title="Open the chat this article came from">💬 Chat about this ↗</button>}
-            <button className="btn btn-sm" disabled={!htmlDoc}
-              onClick={() => htmlDoc && openHtmlInNewTab(htmlDoc)}
+            <button className="btn btn-sm" disabled={!shownHtml}
+              onClick={() => shownHtml && openHtmlInNewTab(shownHtml, detail.id, bookmarkOf(detail))}
               title="Open this article's full HTML in a new browser tab">Open in new tab ↗</button>
             <button className="btn btn-sm" onClick={() => startEdit(detail)}>Edit</button>
             <button className="btn btn-sm btn-danger" onClick={() => del(detail)}>Delete</button>
           </div>
-          {htmlLoading && !htmlDoc ? (
+          {htmlLoading && !shownHtml ? (
             <div style={{ padding: 24, color: 'var(--text-muted)', fontSize: 14 }}>Rendering…</div>
-          ) : htmlDoc ? (
-            <HtmlArticleFrame html={htmlDoc} />
+          ) : shownHtml ? (
+            <HtmlArticleFrame html={shownHtml} />
           ) : (
             <div style={{ padding: 24, color: 'var(--text-muted)', fontSize: 14 }}>Could not load the article HTML.</div>
           )}

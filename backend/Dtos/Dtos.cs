@@ -240,9 +240,10 @@ public record UpdateNoteRequest(string? Content, string? EntryDate);
 // --- Articles (global reading library; Markdown or HTML body; reading earns no points) ---
 public record ArticleImageDto(string Name, string ContentType, int SortOrder);
 public record ArticleSummaryDto(Guid Id, string Title, string Format, int ReadMinutes,
-    bool IsRead, string? ReadOn, int SortOrder, int ImageCount, DateTime CreatedAt, DateTime UpdatedAt);
+    bool IsRead, string? ReadOn, int SortOrder, int ImageCount, double ReadProgress, DateTime CreatedAt, DateTime UpdatedAt);
 public record ArticleDto(Guid Id, string Title, string Format, string Content, int ReadMinutes,
-    bool IsRead, string? ReadOn, int SortOrder, IReadOnlyList<ArticleImageDto> Images, string? ChatUrl, DateTime CreatedAt, DateTime UpdatedAt);
+    bool IsRead, string? ReadOn, int SortOrder, IReadOnlyList<ArticleImageDto> Images, string? ChatUrl,
+    double ReadProgress, DateTime CreatedAt, DateTime UpdatedAt);
 // readMinutes optional on create — auto-estimated from word count (~200 wpm) when omitted.
 // format is "markdown" (default) or "html"; HTML bodies reference uploaded images via {{img:NAME}}.
 // chatUrl is an optional link back to the conversation that produced the article.
@@ -250,6 +251,8 @@ public record CreateArticleRequest(string Title, string? Content, int? ReadMinut
 public record UpdateArticleRequest(string? Title, string? Content, int? ReadMinutes, string? Format, string? ChatUrl);
 // date defaults to today (Asia/Yerevan). Reading records a date only — nothing is credited.
 public record MarkArticleReadRequest(string? Date);
+// Reading position: fraction (0..1) of the article scrolled through, clamped server-side.
+public record UpdateArticleProgressRequest(double Progress);
 
 // --- Sprint Goals ---
 public record SprintGoalDto(Guid Id, string Title, string? Unit, double TargetAmount, string? Description, int SortOrder, double LoggedAmount);
