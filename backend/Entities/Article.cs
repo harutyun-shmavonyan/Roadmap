@@ -31,6 +31,27 @@ public class Article
 
     public bool IsRead { get; set; }
 
+    /// <summary>
+    /// How far the reader got, as a fraction (0..1) of the article's scrollable length. Stored as a
+    /// fraction rather than pixels so the spot survives a different window size, font size or device.
+    /// The reader posts it as you scroll and jumps back to it the next time the article is opened —
+    /// in the app, in the "open in new tab" view, or on another device.
+    /// </summary>
+    public double ReadProgress { get; set; }
+
+    /// <summary>
+    /// The exact spot, as "<c>index:offset</c>": the index of the block element (paragraph, heading,
+    /// list item, image…) that sat at the top of the reader, and how many pixels into it you were.
+    /// Unlike <see cref="ReadProgress"/> this survives a reflow — a narrower window, a bigger font,
+    /// a phone instead of a laptop — so reopening lands on the same sentence rather than nearby.
+    /// Null when the position is too near the top to be worth anchoring, or when the reader could
+    /// not resolve one; the fraction is then used instead.
+    /// </summary>
+    public string? ReadAnchor { get; set; }
+
+    /// <summary>When the reading position was last recorded (UTC); null while never opened.</summary>
+    public DateTime? ProgressAt { get; set; }
+
     /// <summary>Date the article was marked read (Asia/Yerevan), null while pending.</summary>
     public DateOnly? ReadOn { get; set; }
 

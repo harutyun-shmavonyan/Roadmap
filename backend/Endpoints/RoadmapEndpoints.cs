@@ -204,6 +204,24 @@ public static class RoadmapEndpoints
             return Results.Ok(ArticleLogic.ToDetail(a));
         });
 
+        // Reading position — the reader posts how far down the article it is (0..1 of the scrollable
+        // length) as you scroll, and jumps back to it next time the article opens, wherever it is
+        // opened from. Deliberately does NOT touch UpdatedAt: a bookmark is not an edit (the reader
+        // re-fetches an article's HTML whenever UpdatedAt moves, which would reload it mid-read).
+        articles.MapPut("/{id:guid}/progress", async (Guid id, UpdateArticleProgressRequest req, RoadmapDbContext db) =>
+        {
+            var a = await db.Articles.FirstOrDefaultAsync(x => x.Id == id);
+            if (a is null) return Results.NotFound();
+            a.ReadProgress = double.IsFinite(req.Progress) ? Math.Clamp(req.Progress, 0, 1) : 0;
+            // The anchor always travels with the fraction it was measured at — a stale anchor beside
+            // a fresh fraction would resume somewhere the reader never was — so an absent one clears it.
+            var anchor = req.Anchor?.Trim();
+            a.ReadAnchor = string.IsNullOrEmpty(anchor) || anchor.Length > 64 ? null : anchor;
+            a.ProgressAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        });
+
         // ===== Article images (uploaded assets referenced from HTML bodies as {{img:NAME}}) =====
 
         // Upload one or more images to an article via multipart/form-data. Every file field is
