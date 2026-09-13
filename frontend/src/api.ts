@@ -227,16 +227,17 @@ export const api = {
   deleteArticleImage: (id: string, name: string) =>
     req<void>(`/api/articles/${id}/images/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 
-  // Reading position (0..1 of the article's scrollable length). Fire-and-forget: failures are
-  // ignored (losing a bookmark is not worth an error toast) and `keepalive` lets the last save
-  // survive the tab being closed mid-article.
-  saveArticleProgress: (id: string, progress: number): void => {
+  // Reading position: the fraction (0..1) of the article scrolled through plus the anchor naming
+  // the exact spot ("index:offset" into the article's block elements, null when there is none).
+  // Fire-and-forget: failures are ignored (losing a bookmark is not worth an error toast) and
+  // `keepalive` lets the last save survive the tab being closed mid-article.
+  saveArticleProgress: (id: string, progress: number, anchor: string | null): void => {
     const token = getToken();
     void fetch(`/api/articles/${id}/progress`, {
       method: 'PUT',
       keepalive: true,
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify({ progress }),
+      body: JSON.stringify({ progress, anchor }),
     }).catch(() => {});
   },
 

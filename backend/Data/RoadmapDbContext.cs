@@ -416,6 +416,7 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.Property(a => a.Content).HasColumnType("text");
             e.Property(a => a.Format).HasMaxLength(16).HasDefaultValue("markdown");
             e.Property(a => a.ChatUrl).HasMaxLength(2048);
+            e.Property(a => a.ReadAnchor).HasMaxLength(64);
             e.HasIndex(a => a.SortOrder);
             e.HasMany(a => a.Images)
                 .WithOne(i => i.Article!)

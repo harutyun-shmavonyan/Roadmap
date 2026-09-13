@@ -31,15 +31,19 @@ const HEIGHT_REPORTER =
   `p();setTimeout(p,60);setTimeout(p,300);setTimeout(p,1200);})();<\/script>`;
 
 function withHeightReporter(html: string): string {
-  const inject = READER_TWEAKS + HEIGHT_REPORTER;
+  const inject = READER_TWEAKS + HEIGHT_REPORTER + ANCHOR_RESPONDER;
   return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, inject + '</body>') : html + inject;
 }
 
 // ---- Reading position ----------------------------------------------------------------------
-// Where you stopped is stored on the article as a fraction (0 = top, 1 = bottom) of the reader's
-// scrollable length, not as pixels, so it survives a resized window, a different font size and a
-// different device. The in-app reader and the "open in new tab" view both post to the same
-// endpoint and both restore from it, so the two stay in step.
+// Where you stopped is kept on the article itself, in two forms. The anchor — "index:offset": the
+// block element that sat at the reader's top edge and how far into it you were — is the exact
+// spot, and it survives a reflow, so reopening in a narrower window, at a bigger font size or on
+// the phone lands on the same sentence rather than merely the same percentage. The fraction of the
+// scrollable length is the fallback: it places the reader roughly before the anchor resolves (an
+// HTML article's iframe has to render first), covers an anchor that no longer resolves at all, and
+// draws the progress bar in the list. The in-app reader and the "open in new tab" view record and
+// restore both, so the two always agree on where you are.
 
 // Scroll settles for this long before the position is sent.
 const POS_SAVE_MS = 700;
@@ -55,6 +59,13 @@ const POS_STABLE_TICKS = 5;
 // Input that means "I'm driving now" — it cancels an in-flight restore.
 const TAKEOVER_EVENTS = ['wheel', 'touchstart', 'keydown', 'mousedown'] as const;
 
+// The block elements a position can be anchored to. An anchor names an index into this list, so
+// the list has to come out identical everywhere one article is rendered — it does: the reader
+// iframe and the new tab are handed the very same document.
+const ANCHOR_SEL = 'p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,figure,img,table,hr';
+
+type Bookmark = { pos: number; anchor: string | null };
+
 // How far through a scrollable element we are, 0..1 (0 when there's nothing to scroll).
 function scrollFraction(el: HTMLElement): number {
   const max = el.scrollHeight - el.clientHeight;
@@ -65,24 +76,84 @@ function worthRestoring(pos: number): boolean {
   return Number.isFinite(pos) && pos > POS_EPS && pos < 1 - POS_EPS;
 }
 
-// The same save/restore behaviour as the hook below, but as a self-contained script injected into
-// the standalone document opened in a new tab. That document is a blob: URL created by this page,
-// so it inherits the app's origin and can read the stored token and call the API itself.
-function positionScript(id: string, start: number): string {
-  const cfg = JSON.stringify({ id, start, origin: window.location.origin, save: POS_SAVE_MS,
-    step: POS_RETRY_MS, tries: POS_RETRIES, stable: POS_STABLE_TICKS });
-  return `<script>(function(){var C=${cfg},live=true,t;` +
-    `function frac(){var m=document.documentElement.scrollHeight-window.innerHeight;` +
-    `return m<=0?0:Math.min(1,Math.max(0,window.scrollY/m));}` +
+// Viewport y of the pane's scroll origin, i.e. what to subtract from an element's rect to get its
+// top in the pane's own scroll coordinates.
+function paneOrigin(pane: HTMLElement): number {
+  return pane.getBoundingClientRect().top - pane.scrollTop;
+}
+
+// The anchor for wherever the pane is scrolled to: the last block element starting at or above the
+// top edge, plus how far past its start we are. '' when we're above the first one — near the top
+// there is nothing to anchor to and nothing worth anchoring.
+function anchorInPane(pane: HTMLElement): string {
+  const origin = paneOrigin(pane), top = pane.scrollTop;
+  const els = pane.querySelectorAll<HTMLElement>(ANCHOR_SEL);
+  let best = -1, bestTop = 0;
+  for (let i = 0; i < els.length; i++) {
+    const t = els[i].getBoundingClientRect().top - origin;
+    if (t > top + 1) break;
+    best = i; bestTop = t;
+  }
+  return best < 0 ? '' : `${best}:${Math.round(top - bestTop)}`;
+}
+
+// Where an anchor points in the pane's scroll coordinates, or -1 when it doesn't resolve (the
+// article was edited since, or the anchor belongs to a document this pane isn't showing).
+function offsetInPane(pane: HTMLElement, anchor: string): number {
+  const [i, d] = anchor.split(':').map(Number);
+  const els = pane.querySelectorAll<HTMLElement>(ANCHOR_SEL);
+  if (!Number.isInteger(i) || i < 0 || i >= els.length) return -1;
+  return els[i].getBoundingClientRect().top - paneOrigin(pane) + (Number.isFinite(d) ? d : 0);
+}
+
+// The same anchor arithmetic, as source injected into article documents (the reader iframe and the
+// new tab), where positions are measured against the document rather than a pane.
+const ANCHOR_JS =
+  `var AS=${JSON.stringify(ANCHOR_SEL)};function AE(){return document.querySelectorAll(AS)}` +
+  `function AT(e){return e.getBoundingClientRect().top+(window.pageYOffset||0)}` +
+  `function AA(top){var l=AE(),b=-1,bt=0;for(var i=0;i<l.length;i++){var t=AT(l[i]);if(t>top+1)break;b=i;bt=t}` +
+  `return b<0?'':b+':'+Math.round(top-bt)}` +
+  `function AO(a){var p=String(a||'').split(':'),i=parseInt(p[0],10),d=parseInt(p[1],10)||0,l=AE();` +
+  `return (i>=0&&i<l.length)?AT(l[i])+d:-1}`;
+
+// The reader's iframe is sandboxed to an opaque origin, so the parent can neither read its DOM nor
+// measure a paragraph inside it. This answers the parent's two questions over postMessage: which
+// anchor sits at a given offset (asked while you read), and where an anchor lands (while restoring).
+const ANCHOR_RESPONDER =
+  `<script>(function(){${ANCHOR_JS}` +
+  `addEventListener('message',function(ev){var d=ev.data;if(!d||typeof d!=='object')return;` +
+  `if(typeof d.__anchorAsk==='number')parent.postMessage({__articleAnchor:AA(d.__anchorAsk)},'*');` +
+  `else if(typeof d.__offsetAsk==='string')parent.postMessage({__articleOffset:AO(d.__offsetAsk)},'*');});` +
+  `})();<\/script>`;
+
+// The article's top edge in the pane's scroll coordinates — the iframe sits below the toolbar, so
+// an offset inside the document is this much further down the pane.
+function frameTop(pane: HTMLElement, frame: HTMLIFrameElement): number {
+  return frame.getBoundingClientRect().top - paneOrigin(pane);
+}
+
+// Saving and restoring for the standalone document opened in a new tab, as a self-contained
+// script. That document is a blob: URL created by this page, so it inherits the app's origin and
+// can read the stored token and call the API itself.
+function positionScript(id: string, bm: Bookmark): string {
+  const cfg = JSON.stringify({
+    id, start: worthRestoring(bm.pos) ? bm.pos : 0, anchor: bm.anchor || '',
+    origin: window.location.origin, save: POS_SAVE_MS, step: POS_RETRY_MS, tries: POS_RETRIES, stable: POS_STABLE_TICKS,
+  });
+  return `<script>(function(){var C=${cfg},live=true,t;${ANCHOR_JS}` +
+    `function frac(){var m=document.documentElement.scrollHeight-innerHeight;` +
+    `return m<=0?0:Math.min(1,Math.max(0,pageYOffset/m));}` +
     `function save(){try{var k=localStorage.getItem('roadmap_token');if(!k)return;` +
     `fetch(C.origin+'/api/articles/'+C.id+'/progress',{method:'PUT',keepalive:true,` +
     `headers:{'Content-Type':'application/json',Authorization:'Bearer '+k},` +
-    `body:JSON.stringify({progress:frac()})}).catch(function(){});}catch(e){}}` +
+    `body:JSON.stringify({progress:frac(),anchor:AA(pageYOffset)})}).catch(function(){});}catch(e){}}` +
     `addEventListener('scroll',function(){clearTimeout(t);t=setTimeout(save,C.save)},{passive:true});` +
     `addEventListener('pagehide',save);` +
     `document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')save()});` +
-    `if(C.start>0&&C.start<1){var n=0,same=0,last=-1,iv=setInterval(function(){if(!live||++n>C.tries){clearInterval(iv);return;}` +
-    `var m=document.documentElement.scrollHeight-window.innerHeight;if(m<=0)return;scrollTo(0,C.start*m);` +
+    `if(C.start>0||C.anchor){var n=0,same=0,last=-1,exact=false,iv=setInterval(function(){` +
+    `if(!live||++n>C.tries){clearInterval(iv);return;}` +
+    `var m=document.documentElement.scrollHeight-innerHeight;if(m<=0)return;` +
+    `var y=C.anchor?AO(C.anchor):-1;if(y>=0){exact=true;scrollTo(0,y)}else if(!exact&&C.start>0)scrollTo(0,C.start*m);` +
     `same=m===last?same+1:0;last=m;if(same>=C.stable)clearInterval(iv);},C.step);` +
     `${JSON.stringify(TAKEOVER_EVENTS)}.forEach(function(e){addEventListener(e,function(){live=false},{passive:true,once:true})});}` +
     `})();<\/script>`;
@@ -92,8 +163,8 @@ function positionScript(id: string, start: number): string {
 // fetched with the bearer token) — no server route is publicly reachable. Carries the same
 // reader style the iframe injects, so the tab reads identically (justified paragraphs), plus the
 // position script so the tab resumes — and records — the same reading position as the app.
-function openHtmlInNewTab(html: string, id: string, startAt: number) {
-  const inject = READER_TWEAKS + positionScript(id, worthRestoring(startAt) ? startAt : 0);
+function openHtmlInNewTab(html: string, id: string, bm: Bookmark) {
+  const inject = READER_TWEAKS + positionScript(id, bm);
   const styled = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, inject + '</body>') : html + inject;
   const url = URL.createObjectURL(new Blob([styled], { type: 'text/html' }));
   window.open(url, '_blank', 'noopener');
@@ -103,29 +174,40 @@ function openHtmlInNewTab(html: string, id: string, startAt: number) {
 /**
  * Keeps the reader pane's scroll position and the article's stored reading position in sync.
  *
- * Saving: scrolling is debounced into a PUT, and anything still pending is flushed when the
- * article changes, the tab is hidden or the reader unmounts — so closing the tab mid-article
- * still records the spot. Nothing is saved while the article isn't fully rendered, otherwise the
- * browser clamping scrollTop during a content swap would overwrite the bookmark with 0.
+ * Saving: scrolling is debounced into a PUT carrying both the fraction and the anchor, and
+ * anything still pending is flushed when the article changes, the tab is hidden or the reader
+ * unmounts — so closing the tab mid-article still records the spot. Nothing is saved while the
+ * article isn't fully rendered, otherwise the browser clamping scrollTop during a content swap
+ * would overwrite the bookmark with 0.
  *
- * Restoring: the stored position is applied once per article as soon as the pane is scrollable,
- * and re-applied for a few seconds while an HTML article's iframe grows into its real height.
- * Any scroll input from the reader cancels the restore on the spot.
+ * Restoring: the fraction places the reader roughly, the anchor then puts it exactly on the spot,
+ * and both are re-applied for a few seconds while an HTML article's iframe grows into its real
+ * height. Any scroll input from the reader cancels the restore on the spot.
  */
 function useReadingPosition(
-  paneRef: React.RefObject<HTMLDivElement | null>,
+  // The element, not a ref: on phones the reader pane mounts only when you tap into an article,
+  // long after it was selected, and the restore has to wait for it rather than miss it.
+  pane: HTMLDivElement | null,
+  frameRef: React.RefObject<HTMLIFrameElement | null>,
   articleId: string | null,
-  savedPosition: number,
+  saved: Bookmark,
+  isHtml: boolean,
   ready: boolean,
-  onSaved: (id: string, pos: number) => void,
+  onSaved: (id: string, bm: Bookmark) => void,
   onRestored: (pos: number | null) => void,
 ) {
-  const pending = useRef<{ id: string; pos: number } | null>(null);
+  // Mirror of `pane` for the callbacks and listeners below, which run outside render.
+  const paneRef = useRef<HTMLDivElement | null>(null); paneRef.current = pane;
+  const pending = useRef<{ id: string; pos: number; anchor: string | null } | null>(null);
   const timer = useRef<number | undefined>(undefined);
   const restoring = useRef(false);
+  // Set once an anchor has actually placed the reader, so the coarse fraction stops fighting it.
+  const exact = useRef(false);
+  // The iframe's last answer to "which anchor is at the top edge?", used by the next save.
+  const frameAnchor = useRef<string | null>(null);
   // Read inside effects that must not re-run when these change (a re-fetched article, a new
   // render of the parent) — only a new article or newly rendered content starts a restore.
-  const saved = useRef(savedPosition); saved.current = savedPosition;
+  const savedRef = useRef(saved); savedRef.current = saved;
   const cbs = useRef({ onSaved, onRestored }); cbs.current = { onSaved, onRestored };
 
   const flush = useCallback(() => {
@@ -133,20 +215,47 @@ function useReadingPosition(
     const p = pending.current;
     pending.current = null;
     if (!p) return;
-    api.saveArticleProgress(p.id, p.pos);
-    cbs.current.onSaved(p.id, p.pos);
+    const bm: Bookmark = { pos: p.pos, anchor: p.anchor ?? frameAnchor.current };
+    api.saveArticleProgress(p.id, bm.pos, bm.anchor);
+    cbs.current.onSaved(p.id, bm);
   }, []);
 
   const onScroll = useCallback(() => {
-    const el = paneRef.current;
-    if (!el || !articleId || !ready || restoring.current) return;
-    pending.current = { id: articleId, pos: scrollFraction(el) };
+    const pane = paneRef.current;
+    if (!pane || !articleId || !ready || restoring.current) return;
+    const pos = scrollFraction(pane);
+    if (isHtml) {
+      // Only the sandboxed document can name the paragraph at its top edge; the answer arrives by
+      // message well before this save's debounce is up.
+      const frame = frameRef.current;
+      frame?.contentWindow?.postMessage({ __anchorAsk: pane.scrollTop - frameTop(pane, frame) }, '*');
+      pending.current = { id: articleId, pos, anchor: null };
+    } else {
+      pending.current = { id: articleId, pos, anchor: anchorInPane(pane) || null };
+    }
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(flush, POS_SAVE_MS);
-  }, [articleId, ready, flush, paneRef]);
+  }, [articleId, ready, isHtml, flush, frameRef]);
+
+  // Replies from the article's document: an anchor to save, or the offset to restore to.
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      const d = e.data as { __articleAnchor?: unknown; __articleOffset?: unknown } | null;
+      if (!d || typeof d !== 'object') return;
+      if (typeof d.__articleAnchor === 'string') frameAnchor.current = d.__articleAnchor || null;
+      if (typeof d.__articleOffset === 'number' && restoring.current && d.__articleOffset >= 0) {
+        const pane = paneRef.current, frame = frameRef.current;
+        if (pane && frame) { pane.scrollTop = frameTop(pane, frame) + d.__articleOffset; exact.current = true; }
+      }
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, [frameRef]);
 
   // Flush on article switch and on unmount.
   useEffect(() => flush, [articleId, flush]);
+  // A new article starts with no anchor of its own — never carry the previous one over.
+  useEffect(() => { frameAnchor.current = null; }, [articleId]);
 
   // Flush when the tab goes away — 'visibilitychange' covers mobile backgrounding, 'pagehide' a
   // real close/navigation (the save uses keepalive so it survives both).
@@ -161,19 +270,29 @@ function useReadingPosition(
   }, [flush]);
 
   useEffect(() => {
-    const el = paneRef.current;
     cbs.current.onRestored(null);
-    if (!el || !articleId || !ready) return;
-    const target = saved.current;
-    if (!worthRestoring(target)) { el.scrollTop = 0; return; }
+    exact.current = false;
+    if (!pane || !articleId || !ready) return;
+    const { pos: target, anchor } = savedRef.current;
+    if (!worthRestoring(target) && !anchor) { pane.scrollTop = 0; return; }
 
     restoring.current = true;
     let tries = 0, stable = 0, lastMax = -1, iv = 0;
     const stop = () => { window.clearInterval(iv); restoring.current = false; };
     const apply = () => {
-      const max = el.scrollHeight - el.clientHeight;
+      const max = pane.scrollHeight - pane.clientHeight;
       if (max > 0) {
-        el.scrollTop = target * max;
+        // Rough placement from the fraction until the anchor has landed the exact spot.
+        if (!exact.current && target > 0) pane.scrollTop = target * max;
+        if (anchor) {
+          if (isHtml) {
+            const frame = frameRef.current;
+            frame?.contentWindow?.postMessage({ __offsetAsk: anchor }, '*');
+          } else {
+            const y = offsetInPane(pane, anchor);
+            if (y >= 0) { pane.scrollTop = y; exact.current = true; }
+          }
+        }
         stable = max === lastMax ? stable + 1 : 0;
         lastMax = max;
       }
@@ -183,20 +302,20 @@ function useReadingPosition(
     apply();
     iv = window.setInterval(apply, POS_RETRY_MS);
     const opts: AddEventListenerOptions = { passive: true, once: true };
-    TAKEOVER_EVENTS.forEach(e => el.addEventListener(e, stop, opts));
-    cbs.current.onRestored(target);
+    TAKEOVER_EVENTS.forEach(e => pane.addEventListener(e, stop, opts));
+    if (worthRestoring(target)) cbs.current.onRestored(target);
     return () => {
       stop();
-      TAKEOVER_EVENTS.forEach(e => el.removeEventListener(e, stop));
+      TAKEOVER_EVENTS.forEach(e => pane.removeEventListener(e, stop));
     };
-  }, [articleId, ready, paneRef]);
+  }, [pane, articleId, ready, isHtml, frameRef]);
 
   return onScroll;
 }
 
 // Renders a self-contained HTML article inside a sandboxed iframe that auto-sizes to its content,
 // so the surrounding reader pane (not the iframe) scrolls.
-function HtmlArticleFrame({ html }: { html: string }) {
+function HtmlArticleFrame({ html, frameRef }: { html: string; frameRef: React.RefObject<HTMLIFrameElement> }) {
   const [height, setHeight] = useState(480);
   const srcDoc = useMemo(() => withHeightReporter(html), [html]);
   useEffect(() => {
@@ -214,6 +333,7 @@ function HtmlArticleFrame({ html }: { html: string }) {
   }, []);
   return (
     <iframe
+      ref={frameRef}
       title="Article"
       srcDoc={srcDoc}
       sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms"
@@ -254,8 +374,10 @@ export function ArticlesPage() {
   const [htmlLoading, setHtmlLoading] = useState(false);
   // On mobile we show either the list OR the reader; this flag says the reader is open.
   const [mobileReaderOpen, setMobileReaderOpen] = useState(false);
-  // The scrolling reader pane, and the position we resumed it to (shown as a brief hint).
-  const paneRef = useRef<HTMLDivElement>(null);
+  // The scrolling reader pane (state, not a ref: on phones it mounts only once you tap into an
+  // article) and the position we resumed it to, shown as a brief hint.
+  const [paneEl, setPaneEl] = useState<HTMLDivElement | null>(null);
+  const frameRef = useRef<HTMLIFrameElement>(null);
   const [resumedAt, setResumedAt] = useState<number | null>(null);
 
   const loadList = useCallback(async (selectId?: string | null) => {
@@ -296,16 +418,19 @@ export function ArticlesPage() {
   const readerReady = !!detail && detail.id === selId && (detail.format !== 'html' || !!shownHtml);
 
   // Every recorded position updates the list row and the article's live bookmark, so the list,
-  // the reader's "% in" and the position handed to a new tab all track the current read.
-  const [livePos, setLivePos] = useState<{ id: string; pos: number } | null>(null);
-  const onListProgress = useCallback((id: string, pos: number) => {
-    setList(prev => prev.map(a => (a.id === id ? { ...a, readProgress: pos } : a)));
-    setLivePos({ id, pos });
+  // the reader's "% in" and the bookmark handed to a new tab all track the current read.
+  const [livePos, setLivePos] = useState<{ id: string; bm: Bookmark } | null>(null);
+  const onListProgress = useCallback((id: string, bm: Bookmark) => {
+    setList(prev => prev.map(a => (a.id === id ? { ...a, readProgress: bm.pos } : a)));
+    setLivePos({ id, bm });
   }, []);
-  const bookmarkOf = (d: ArticleDto) => (livePos?.id === d.id ? livePos.pos : d.readProgress);
+  const bookmarkOf = (d: ArticleDto): Bookmark =>
+    livePos?.id === d.id ? livePos.bm : { pos: d.readProgress, anchor: d.readAnchor };
 
   const onReaderScroll = useReadingPosition(
-    paneRef, detail?.id ?? null, detail?.readProgress ?? 0, readerReady, onListProgress, setResumedAt);
+    paneEl, frameRef, detail?.id ?? null,
+    detail ? { pos: detail.readProgress, anchor: detail.readAnchor } : { pos: 0, anchor: null },
+    detail?.format === 'html', readerReady, onListProgress, setResumedAt);
 
   // The "picked up where you left off" hint is a nudge, not a status line — let it go after a bit.
   useEffect(() => {
@@ -425,9 +550,9 @@ export function ArticlesPage() {
   const metaLine = (d: ArticleDto) => (
     <>
       <span>⏱ {d.readMinutes} min read</span>
-      {!d.isRead && worthRestoring(bookmarkOf(d)) && <>
+      {!d.isRead && worthRestoring(bookmarkOf(d).pos) && <>
         <span>·</span>
-        <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{Math.round(bookmarkOf(d) * 100)}% in</span>
+        <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{Math.round(bookmarkOf(d).pos * 100)}% in</span>
       </>}
       {d.isRead && d.readOn && <>
         <span>·</span>
@@ -454,7 +579,7 @@ export function ArticlesPage() {
 
   // ---- Reader panel ----
   const readerPanel = (mobile: boolean) => (
-    <div ref={paneRef} onScroll={onReaderScroll}
+    <div ref={setPaneEl} onScroll={onReaderScroll}
       style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', position: 'relative' }}>
       {resumedAt !== null && (
         // Height 0 so the hint floats over the article instead of nudging it — it vanishes on a timer.
@@ -498,7 +623,7 @@ export function ArticlesPage() {
           {htmlLoading && !shownHtml ? (
             <div style={{ padding: 24, color: 'var(--text-muted)', fontSize: 14 }}>Rendering…</div>
           ) : shownHtml ? (
-            <HtmlArticleFrame html={shownHtml} />
+            <HtmlArticleFrame html={shownHtml} frameRef={frameRef} />
           ) : (
             <div style={{ padding: 24, color: 'var(--text-muted)', fontSize: 14 }}>Could not load the article HTML.</div>
           )}

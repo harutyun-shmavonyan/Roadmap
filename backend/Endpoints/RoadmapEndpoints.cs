@@ -212,8 +212,11 @@ public static class RoadmapEndpoints
         {
             var a = await db.Articles.FirstOrDefaultAsync(x => x.Id == id);
             if (a is null) return Results.NotFound();
-            var p = double.IsFinite(req.Progress) ? Math.Clamp(req.Progress, 0, 1) : 0;
-            a.ReadProgress = p;
+            a.ReadProgress = double.IsFinite(req.Progress) ? Math.Clamp(req.Progress, 0, 1) : 0;
+            // The anchor always travels with the fraction it was measured at — a stale anchor beside
+            // a fresh fraction would resume somewhere the reader never was — so an absent one clears it.
+            var anchor = req.Anchor?.Trim();
+            a.ReadAnchor = string.IsNullOrEmpty(anchor) || anchor.Length > 64 ? null : anchor;
             a.ProgressAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             return Results.NoContent();
