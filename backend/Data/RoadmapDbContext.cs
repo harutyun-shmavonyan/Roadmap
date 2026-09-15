@@ -33,6 +33,7 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
     public DbSet<JobRun> JobRuns => Set<JobRun>();
     public DbSet<JobPosting> JobPostings => Set<JobPosting>();
     public DbSet<Article> Articles => Set<Article>();
+    public DbSet<NewsletterIssue> NewsletterIssues => Set<NewsletterIssue>();
     public DbSet<ArticleImage> ArticleImages => Set<ArticleImage>();
     public DbSet<Meal> Meals => Set<Meal>();
     public DbSet<MealImage> MealImages => Set<MealImage>();
@@ -427,6 +428,16 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
                 .WithOne(i => i.Article!)
                 .HasForeignKey(i => i.ArticleId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<NewsletterIssue>(e =>
+        {
+            e.ToTable("newsletter_issues");
+            e.HasKey(n => n.Id);
+            e.Property(n => n.Title).HasMaxLength(256).IsRequired();
+            e.Property(n => n.Html).HasColumnType("text");
+            // One edition per day — the publish path upserts on this rather than inserting.
+            e.HasIndex(n => n.IssueDate).IsUnique();
         });
 
         modelBuilder.Entity<ArticleImage>(e =>

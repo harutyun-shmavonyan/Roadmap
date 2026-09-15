@@ -9,11 +9,12 @@ import { HabitsPage } from './HabitsPage';
 import { TasksPage } from './TasksPage';
 import { NotesPage } from './NotesPage';
 import { ArticlesPage } from './ArticlesPage';
+import { NewsletterPage } from './NewsletterPage';
 import { JobsPage } from './JobsPage';
 import { EnglishPage } from './EnglishPage';
 import { NutritionPage } from './NutritionPage';
 
-type Page = 'picker' | 'schedule' | 'roadmap' | 'weekplan' | 'performance' | 'habits' | 'tasks' | 'notes' | 'articles' | 'jobs' | 'english' | 'nutrition';
+type Page = 'picker' | 'schedule' | 'roadmap' | 'weekplan' | 'performance' | 'habits' | 'tasks' | 'notes' | 'articles' | 'newsletter' | 'jobs' | 'english' | 'nutrition';
 
 function useTheme() {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -126,6 +127,7 @@ function AuthedApp({ theme, toggleTheme, onLogout }: { theme: string; toggleThem
         <button className={`nav-tab ${page === 'tasks' ? 'active' : ''}`} onClick={() => setPage('tasks')}>Tasks</button>
         <button className={`nav-tab ${page === 'notes' ? 'active' : ''}`} onClick={() => setPage('notes')}>Notes</button>
         <button className={`nav-tab ${page === 'articles' ? 'active' : ''}`} onClick={() => setPage('articles')}>Articles</button>
+        <button className={`nav-tab ${page === 'newsletter' ? 'active' : ''}`} onClick={() => setPage('newsletter')}>Professional Newsletter</button>
         <button className={`nav-tab ${page === 'jobs' ? 'active' : ''}`} onClick={() => setPage('jobs')}>Jobs</button>
         <button className={`nav-tab ${page === 'english' ? 'active' : ''}`} onClick={() => setPage('english')}>English</button>
         <button className={`nav-tab ${page === 'nutrition' ? 'active' : ''}`} onClick={() => setPage('nutrition')}>Nutrition</button>
@@ -142,6 +144,7 @@ function AuthedApp({ theme, toggleTheme, onLogout }: { theme: string; toggleThem
         case 'tasks': return <TasksPage roadmapId={selId} onBack={back} />;
         case 'notes': return <NotesPage />;
         case 'articles': return <ArticlesPage />;
+        case 'newsletter': return <NewsletterPage />;
         case 'jobs': return <JobsPage />;
         case 'english': return <EnglishPage />;
         case 'nutrition': return <NutritionPage />;

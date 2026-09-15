@@ -4,6 +4,7 @@ import type { RoadmapSummary, RoadmapTree, NodeDto, CreateNodeRequest, Actionabl
   SingleTaskDto, ScheduleTaskDto, CustomLogDto, ScheduleBlockDef, ScheduleBlockMode, SprintGoalDto,
   NodeSubPointDto, ScheduleSubPointDto, NoteDto,
   ArticleSummaryDto, ArticleDto, ArticleImageDto, ArticleFormat,
+  NewsletterSummaryDto, NewsletterCursorDto,
   JobRunDto, JobRunSummaryDto,
   VocabEntryDto, VocabStatsDto,
   MealDto, MealSlot, SaveMealRequest } from './types';
@@ -239,6 +240,20 @@ export const api = {
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify({ progress, anchor }),
     }).catch(() => {});
+  },
+
+  // Professional Newsletter (agent-published editions; the tab reads them and ticks them read)
+  getNewsletters: () => req<NewsletterSummaryDto[]>('/api/newsletters'),
+  getNewsletterCursor: () => req<NewsletterCursorDto>('/api/newsletters/cursor'),
+  markNewsletterRead: (id: string) => req<NewsletterSummaryDto>(`/api/newsletters/${id}/read`, { method: 'POST' }),
+  markNewsletterUnread: (id: string) => req<NewsletterSummaryDto>(`/api/newsletters/${id}/unread`, { method: 'POST' }),
+
+  // The edition as a document, fetched with the bearer token so it can be framed or opened in a tab.
+  getNewsletterHtml: async (id: string): Promise<string> => {
+    const token = getToken();
+    const r = await fetch(`/api/newsletters/${id}/html`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!r.ok) throw new Error(`Newsletter fetch failed: ${r.status}`);
+    return r.text();
   },
 
   // English vocabulary (global — entries are added and reviewed over MCP; the tab reads and prunes)

@@ -40,3 +40,25 @@ carry-over has to change with it.
 This is the pipeline's only feedback loop. Finder can measure how many postings
 it produced but not whether any of them converted, so a supply problem, a
 staleness problem and a CV problem are otherwise indistinguishable.
+
+## Professional Newsletter tab
+
+Agent-published HTML editions of professional news, read in the app. The newsletter agent
+(`ai-engineering-daily` skill) drives it over MCP in three steps:
+
+1. `get_newsletter_cursor` — where to resume. `since` is the moment the newest edition the user
+   ticked **read** stopped scanning, so consecutive editions abut exactly instead of overlapping or
+   leaving a gap. No read edition yet → the newest edition's end; empty tab → 7 days. Clamped to 14
+   days (`cappedToMaxWindow` says when that bit).
+2. the agent's own scan/score/render.
+3. `publish_newsletter` — stores the edition as one self-contained HTML document.
+
+**One edition per calendar date** (unique index on `IssueDate`): republishing a date replaces it and
+marks it unread again, because the tick is what the cursor reads and ticking a shorter edition was
+never a statement about the longer one. Editions older than 14 days are pruned on every publish —
+this is a rolling window, not an archive, and `NewsletterLogic` owns both rules so the REST
+endpoints and the MCP tools cannot drift.
+
+The edition is rendered in a sandboxed iframe that auto-sizes to its content (same reason as the
+Articles reader: the pane scrolls, not the frame), and "Open in new tab" hands it over as a blob so
+it stays behind the app's auth.
