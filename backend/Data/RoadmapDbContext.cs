@@ -399,6 +399,11 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             // CV-vs-JD fit: an int score and the gap breakdown as raw JSON text. Both nullable.
             e.Property(p => p.CvFitScore);
             e.Property(p => p.CvFitGaps).HasColumnType("text");
+            // Application outcome. Status is bounded but free text — the UI
+            // offers a fixed set and the column tolerates new values without a
+            // migration. Notes are unbounded.
+            e.Property(p => p.ApplicationStatus).HasMaxLength(32);
+            e.Property(p => p.ApplicationNotes).HasColumnType("text");
 
             e.HasOne(p => p.Run)
                 .WithMany(r => r.Postings)

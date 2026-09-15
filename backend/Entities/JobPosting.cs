@@ -59,6 +59,35 @@ public class JobPosting
     /// </summary>
     public string? CvFitGaps { get; set; }
 
+    // --- Application outcome (set by the user from the Jobs tab) ---
+    //
+    // Without this the pipeline is blind to its own results: a run that produces
+    // 27 postings and a run that produces 27 postings nobody hears back from
+    // look identical on disk, so a supply problem, a staleness problem and a CV
+    // problem are indistinguishable. These fields are what makes "which sources
+    // actually convert" answerable.
+
+    /// <summary>
+    /// Where this application stands: "none" (default, not applied),
+    /// "applied", "screening", "interviewing", "offer", "rejected",
+    /// or "ghosted" (applied, no reply, written off). Free text is accepted so
+    /// the vocabulary can grow without a migration; the UI offers the set above.
+    /// </summary>
+    public string? ApplicationStatus { get; set; }
+
+    /// <summary>When the application was sent. Null while status is "none".</summary>
+    public DateOnly? AppliedAt { get; set; }
+
+    /// <summary>
+    /// When the employer first replied with anything other than an auto-ack.
+    /// The gap between this and AppliedAt is the response-time signal; a null
+    /// here with an old AppliedAt is what "ghosted" means in practice.
+    /// </summary>
+    public DateOnly? RespondedAt { get; set; }
+
+    /// <summary>Free-text notes — recruiter name, interview stage, why it died.</summary>
+    public string? ApplicationNotes { get; set; }
+
     /// <summary>Presentation order within the run; the UI pages through postings in this order.</summary>
     public int SortOrder { get; set; }
 }

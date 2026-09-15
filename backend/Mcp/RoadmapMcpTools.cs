@@ -802,6 +802,21 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         var action = existing is null ? "created" : "replaced";
 
         JobRun run;
+        // Application outcomes are the USER'S data, not the pipeline's, and this
+        // tool replaces the whole day — so re-running the scout or re-scoring a
+        // day would otherwise silently erase every "applied"/"interviewing" the
+        // user had recorded. Carry them across the replace, keyed by URL, which
+        // is the only identity stable between two imports of the same posting.
+        var carriedApplications = existing is null
+            ? new Dictionary<string, JobPosting>(StringComparer.OrdinalIgnoreCase)
+            : existing.Postings
+                .Where(p => p.ApplicationStatus is not null
+                    || p.AppliedAt is not null
+                    || p.RespondedAt is not null
+                    || p.ApplicationNotes is not null)
+                .GroupBy(p => p.Url, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
         if (existing is not null)
         {
             db.JobPostings.RemoveRange(existing.Postings); // cascade would too, but be explicit
@@ -821,11 +836,18 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         }
 
         var order = 0;
+        var applicationsCarried = 0;
         foreach (var p in postings)
         {
             DateOnly? posted = DateOnly.TryParse(p.posted_at, out var pd) ? pd : null;
+            carriedApplications.TryGetValue(p.url!, out var prior);
+            if (prior is not null) applicationsCarried++;
             db.JobPostings.Add(new JobPosting
             {
+                ApplicationStatus = prior?.ApplicationStatus,
+                AppliedAt = prior?.AppliedAt,
+                RespondedAt = prior?.RespondedAt,
+                ApplicationNotes = prior?.ApplicationNotes,
                 Id = Guid.NewGuid(),
                 JobRunId = run.Id,
                 Title = Trunc(p.title!, 512),
@@ -851,7 +873,16 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         }
 
         await db.SaveChangesAsync();
-        return J(new { run_id = run.Id, run_date = date.ToString("yyyy-MM-dd"), imported = postings.Length, action });
+        return J(new
+        {
+            run_id = run.Id,
+            run_date = date.ToString("yyyy-MM-dd"),
+            imported = postings.Length,
+            action,
+            // Says how many recorded applications survived the replace, so a
+            // re-import that silently dropped them is visible instead of quiet.
+            applications_carried = applicationsCarried,
+        });
     }
 
     [McpServerTool(Name = "list_job_runs"), Description("List job-scouting runs, most recent day first, with posting counts. Use this to see which days have results.")]
@@ -891,7 +922,9 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
                 p.SeniorityClass, p.AiKeywordHits, p.GeoHints, p.Queries,
                 p.Score, p.Reasoning, p.SortOrder,
                 p.TailoredCvPdf != null && p.TailoredCvPdf.Length > 0, p.CvChangeList,
-                p.CvFitScore, CvFitGapsJson.Parse(p.CvFitGaps))).ToList()));
+                p.CvFitScore, CvFitGapsJson.Parse(p.CvFitGaps),
+                p.ApplicationStatus, p.AppliedAt?.ToString("yyyy-MM-dd"),
+                p.RespondedAt?.ToString("yyyy-MM-dd"), p.ApplicationNotes)).ToList()));
     }
 
     private static readonly HashSet<string> ValidBuckets = ["armenia-compatible", "eu-allowed"];

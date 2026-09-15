@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Roadmap.Api.Data;
@@ -12,9 +13,11 @@ using Roadmap.Api.Data;
 namespace Roadmap.Api.Migrations
 {
     [DbContext(typeof(RoadmapDbContext))]
-    partial class RoadmapDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260907171919_JobApplicationTracking")]
+    partial class JobApplicationTracking
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -50,13 +53,6 @@ namespace Roadmap.Api.Migrations
                     b.Property<bool>("IsRead")
                         .HasColumnType("boolean");
 
-                    b.Property<DateTime?>("ProgressAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ReadAnchor")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
                     b.Property<Guid?>("ReadLogId")
                         .HasColumnType("uuid");
 
@@ -65,9 +61,6 @@ namespace Roadmap.Api.Migrations
 
                     b.Property<DateOnly?>("ReadOn")
                         .HasColumnType("date");
-
-                    b.Property<double>("ReadProgress")
-                        .HasColumnType("double precision");
 
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
