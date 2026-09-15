@@ -221,11 +221,12 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
   }, 0)) + customLogs.reduce((s, c) => s + c.points, 0);
 
   const isWeighted = sprint?.scoringMode === 'Weighted';
-  // Best value today: what an hour on each scheduled thing earns at today's prices.
+  // Best value today: ranked by how far above nominal each thing is priced right now
+  // (unbadged bonus items sink to the bottom); pts/h breaks ties.
   const bestValue = isWeighted
     ? [...blocks]
         .map(b => ({ b, ptsPerHour: effPpu(b) * (b.unitsPerHour ?? 0) }))
-        .sort((a, x) => x.ptsPerHour - a.ptsPerHour)
+        .sort((a, x) => (x.b.pricePercent ?? -1) - (a.b.pricePercent ?? -1) || x.ptsPerHour - a.ptsPerHour)
     : [];
   const bestMax = bestValue.length > 0 ? Math.max(...bestValue.map(v => v.ptsPerHour), 0.001) : 1;
 
@@ -340,12 +341,12 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
                 </div>
                 {bestValue.map(({ b, ptsPerHour }, i) => (
                   <div key={`${b.nodeId ?? b.blockId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 13 }}>
-                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: i === 0 ? 600 : 400 }}>
+                    <span title={b.nodeTitle} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: i === 0 ? 600 : 400 }}>
                       {i === 0 ? '★ ' : ''}{b.poolItems ? '◇ ' : ''}{b.nodeTitle}
                     </span>
-                    {b.weightPercent != null && (
-                      <span style={{ fontSize: 11, color: b.weightPercent >= 99 ? 'var(--success)' : b.weightPercent >= 50 ? '#e37400' : 'var(--text-muted)' }}>
-                        ⚖{Math.round(b.weightPercent)}%
+                    {b.pricePercent != null && (
+                      <span style={{ fontSize: 11, color: b.pricePercent > 100 ? 'var(--success)' : b.pricePercent < 100 ? '#e37400' : 'var(--text-muted)' }}>
+                        ⚖{Math.round(b.pricePercent)}%
                       </span>
                     )}
                     <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: i === 0 ? 'var(--accent)' : 'var(--text-primary)', minWidth: 66, textAlign: 'right' }}>
@@ -438,7 +439,7 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
                     onClick={e => openLogPopup(e, b)}>
                     <div className="entry-row-top">
                       {dayDone && <span className="entry-done-check">✓</span>}
-                      <span className="entry-title">{b.poolItems ? '◇ ' : ''}{b.nodeTitle} <span className="entry-inline-meta">{blockPts > 0 ? `${blockPts}pt` : ''}{b.weightPercent != null && b.weightPercent < 100 ? ` ⚖${Math.round(b.weightPercent)}%` : ''} {durLabel}</span></span>
+                      <span className="entry-title">{b.poolItems ? '◇ ' : ''}{b.nodeTitle} <span className="entry-inline-meta">{blockPts > 0 ? `${blockPts}pt` : ''}{b.pricePercent != null && b.pricePercent !== 100 ? ` ⚖${Math.round(b.pricePercent)}%` : ''} {durLabel}</span></span>
                     </div>
                     {!isCompact && rawH >= 52 && (
                       <div className="entry-row-mid">

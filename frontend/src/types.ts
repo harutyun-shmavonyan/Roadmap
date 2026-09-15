@@ -34,8 +34,9 @@ export interface ScheduleBlock {
   /** Weighted sprints only: what one unit (one hour for a pool) is worth today, after the
    *  day's budget is re-split by commitment progress. Null on Fixed sprints. */
   effectivePointsPerUnit: number | null;
-  /** Weighted sprints only: this item's weight today, 0–100. */
-  weightPercent: number | null;
+  /** Weighted sprints only: today's price as a percent of the item's nominal rate —
+   *  112 means a unit is worth 12% more than usual today, 92 less, 100 neutral. */
+  pricePercent: number | null;
 }
 export interface ScheduleBlockOption {
   nodeId: string; title: string; path: string; unit: string | null;
