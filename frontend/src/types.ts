@@ -137,6 +137,18 @@ export interface ArticleImageDto { name: string; contentType: string; sortOrder:
 export interface ArticleSummaryDto { id: string; title: string; format: ArticleFormat; readMinutes: number; isRead: boolean; readOn: string | null; sortOrder: number; imageCount: number; readProgress: number; createdAt: string; updatedAt: string; }
 export interface ArticleDto { id: string; title: string; format: ArticleFormat; content: string; readMinutes: number; isRead: boolean; readOn: string | null; sortOrder: number; images: ArticleImageDto[]; chatUrl: string | null; readProgress: number; readAnchor: string | null; createdAt: string; updatedAt: string; }
 
+// Professional Newsletter — agent-published HTML editions, one per day, rolling 14-day window.
+export interface NewsletterSummaryDto {
+  id: string; issueDate: string; title: string; coveredFrom: string; coveredUntil: string;
+  itemCount: number; isRead: boolean; readOn: string | null; createdAt: string; updatedAt: string;
+}
+/** Where the next run picks up, and how wide a window it should cover. */
+export interface NewsletterCursorDto {
+  lastReadDate: string | null; latestIssueDate: string | null; since: string; sinceDate: string;
+  windowDays: number; cappedToMaxWindow: boolean; maxWindowDays: number; retentionDays: number;
+  unreadCount: number; issueCount: number; anchor: string;
+}
+
 // Habits
 export interface HabitDto { id: string; name: string; createdAt: string; }
 export interface SprintHabitDto { sprintHabitId: string; habitId: string; name: string; isPaused: boolean; currentStreak: number; bestStreak: number; isFormed: boolean; checks: { date: string; isChecked: boolean }[]; }

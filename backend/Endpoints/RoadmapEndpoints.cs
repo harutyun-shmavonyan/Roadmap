@@ -276,6 +276,71 @@ public static class RoadmapEndpoints
             return Results.NoContent();
         });
 
+        // ===== Professional Newsletter (agent-published HTML editions; a rolling 14-day window) =====
+        var newsletters = app.MapGroup("/api/newsletters").WithTags("Newsletter").RequireAuthorization();
+
+        // List without the HTML — the editions are large, and the list only needs their headings.
+        newsletters.MapGet("/", async (RoadmapDbContext db) =>
+        {
+            var rows = await db.NewsletterIssues.AsNoTracking()
+                .OrderByDescending(n => n.IssueDate).ToListAsync();
+            return Results.Ok(rows.Select(NewsletterLogic.ToSummary));
+        });
+
+        // Where the next run should pick up. The agent asks this before it scans anything.
+        newsletters.MapGet("/cursor", async (RoadmapDbContext db) =>
+        {
+            var all = await db.NewsletterIssues.AsNoTracking().ToListAsync();
+            return Results.Ok(NewsletterLogic.BuildCursor(all, DateTime.UtcNow));
+        });
+
+        // The edition itself. Served as a document (not JSON) so the reader can hand it straight
+        // to an iframe or a new tab; it stays behind auth like everything in this group.
+        newsletters.MapGet("/{id:guid}/html", async (Guid id, RoadmapDbContext db) =>
+        {
+            var n = await db.NewsletterIssues.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
+            return n is null ? Results.NotFound() : Results.Content(n.Html, "text/html; charset=utf-8");
+        });
+
+        newsletters.MapPost("/", async (PublishNewsletterRequest req, RoadmapDbContext db) =>
+        {
+            if (string.IsNullOrWhiteSpace(req.Html)) return Results.BadRequest("Html is required.");
+            var issueDate = ArticleLogic.YerevanToday();
+            if (!string.IsNullOrWhiteSpace(req.IssueDate) && !DateOnly.TryParse(req.IssueDate, out issueDate))
+                return Results.BadRequest("Invalid issueDate.");
+            DateOnly? coveredFrom = null;
+            if (!string.IsNullOrWhiteSpace(req.CoveredFrom))
+            {
+                if (!DateOnly.TryParse(req.CoveredFrom, out var cf)) return Results.BadRequest("Invalid coveredFrom.");
+                coveredFrom = cf;
+            }
+            var (issue, replaced, pruned) = await NewsletterLogic.PublishAsync(
+                db, req.Html!, issueDate, req.Title, coveredFrom, req.CoveredUntil, req.ItemCount);
+            return Results.Ok(new { issue = NewsletterLogic.ToSummary(issue), replaced, pruned });
+        });
+
+        newsletters.MapPost("/{id:guid}/read", async (Guid id, RoadmapDbContext db) =>
+        {
+            var n = await db.NewsletterIssues.FirstOrDefaultAsync(x => x.Id == id);
+            if (n is null) return Results.NotFound();
+            n.IsRead = true;
+            n.ReadOn = ArticleLogic.YerevanToday();
+            n.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            return Results.Ok(NewsletterLogic.ToSummary(n));
+        });
+
+        newsletters.MapPost("/{id:guid}/unread", async (Guid id, RoadmapDbContext db) =>
+        {
+            var n = await db.NewsletterIssues.FirstOrDefaultAsync(x => x.Id == id);
+            if (n is null) return Results.NotFound();
+            n.IsRead = false;
+            n.ReadOn = null;
+            n.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            return Results.Ok(NewsletterLogic.ToSummary(n));
+        });
+
         // ===== Nutrition (global — the meal book behind the Nutrition tab) =====
         // Full CRUD: unlike vocab/jobs these are written straight from the UI.
         var meals = app.MapGroup("/api/meals").WithTags("Meals").RequireAuthorization();

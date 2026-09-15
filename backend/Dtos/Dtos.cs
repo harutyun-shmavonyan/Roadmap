@@ -257,6 +257,19 @@ public record MarkArticleReadRequest(string? Date);
 // reader has none — the fraction is then the only bookmark).
 public record UpdateArticleProgressRequest(double Progress, string? Anchor);
 
+// --- Professional Newsletter (agent-published HTML editions, one per day, 14-day window) ---
+public record NewsletterSummaryDto(Guid Id, string IssueDate, string Title, string CoveredFrom,
+    DateTime CoveredUntil, int ItemCount, bool IsRead, string? ReadOn, DateTime CreatedAt, DateTime UpdatedAt);
+/// <summary>Where the next run picks up, and the shape of the window it should cover.</summary>
+public record NewsletterCursorDto(string? LastReadDate, string? LatestIssueDate, DateTime Since,
+    string SinceDate, int WindowDays, bool CappedToMaxWindow, int MaxWindowDays, int RetentionDays,
+    int UnreadCount, int IssueCount, string Anchor);
+// html is the whole edition as one self-contained document. issueDate defaults to today
+// (Asia/Yerevan) and replaces that day's edition; coveredFrom/coveredUntil default to the cursor
+// window and now, so a well-behaved agent only has to send the HTML.
+public record PublishNewsletterRequest(string? Html, string? IssueDate, string? Title,
+    string? CoveredFrom, DateTime? CoveredUntil, int? ItemCount);
+
 // --- Sprint Goals ---
 public record SprintGoalDto(Guid Id, string Title, string? Unit, double TargetAmount, string? Description, int SortOrder, double LoggedAmount);
 public record CreateSprintGoalRequest(string Title, string? Unit, double TargetAmount, string? Description);
