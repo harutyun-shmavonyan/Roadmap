@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { RoadmapSummary } from './types';
 import { api, isLoggedIn, login, checkAuth, clearToken } from './api';
 import { RoadmapPage } from './RoadmapPage';
@@ -14,7 +14,102 @@ import { JobsPage } from './JobsPage';
 import { EnglishPage } from './EnglishPage';
 import { NutritionPage } from './NutritionPage';
 
-type Page = 'picker' | 'schedule' | 'roadmap' | 'weekplan' | 'performance' | 'habits' | 'tasks' | 'notes' | 'articles' | 'newsletter' | 'jobs' | 'english' | 'nutrition';
+/* ─── Navigation model ───
+   Scoped pages belong to the selected roadmap and take a roadmapId; global pages
+   stand on their own. The rail groups them by that split, and the hash mirrors it:
+   #/r/{roadmapId}/{page} for scoped, #/{page} for global, #/roadmaps for the picker. */
+
+type ScopedPage = 'schedule' | 'weekplan' | 'roadmap' | 'tasks' | 'performance' | 'habits';
+type GlobalPage = 'articles' | 'newsletter' | 'english' | 'notes' | 'nutrition' | 'jobs';
+type PageId = ScopedPage | GlobalPage;
+
+const SCOPED_PAGES: ScopedPage[] = ['schedule', 'weekplan', 'roadmap', 'tasks', 'performance', 'habits'];
+const GLOBAL_PAGES: GlobalPage[] = ['articles', 'newsletter', 'english', 'notes', 'nutrition', 'jobs'];
+
+const isScoped = (id: PageId): id is ScopedPage => (SCOPED_PAGES as string[]).includes(id);
+
+interface NavItem { id: PageId; label: string; icon: string; }
+interface NavGroup { title: string | null; scoped: boolean; items: NavItem[]; }
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    title: null, scoped: true, items: [
+      { id: 'schedule', label: 'Schedule', icon: '📅' },
+      { id: 'weekplan', label: 'Week', icon: '📆' },
+      { id: 'roadmap', label: 'Roadmap', icon: '🌳' },
+      { id: 'tasks', label: 'Tasks', icon: '📋' },
+      { id: 'performance', label: 'Performance', icon: '📈' },
+      { id: 'habits', label: 'Habits', icon: '🔁' },
+    ],
+  },
+  {
+    title: 'Learn', scoped: false, items: [
+      { id: 'articles', label: 'Articles', icon: '📖' },
+      { id: 'newsletter', label: 'Newsletter', icon: '📰' },
+      { id: 'english', label: 'English', icon: '🔤' },
+    ],
+  },
+  {
+    title: 'Track', scoped: false, items: [
+      { id: 'notes', label: 'Notes', icon: '📝' },
+      { id: 'nutrition', label: 'Nutrition', icon: '🍽️' },
+      { id: 'jobs', label: 'Jobs', icon: '💼' },
+    ],
+  },
+];
+
+const NAV_INDEX: Record<string, NavItem> = Object.fromEntries(
+  NAV_GROUPS.flatMap(g => g.items).map(i => [i.id, i])
+);
+
+/* Phone bottom bar: everything else lives one tap away behind "More". */
+const BOTTOM_BAR: PageId[] = ['schedule', 'weekplan', 'tasks', 'notes'];
+
+/* ─── Hash routing ─── */
+
+type Route =
+  | { kind: 'picker' }
+  | { kind: 'scoped'; roadmapId: string; page: ScopedPage }
+  | { kind: 'global'; page: GlobalPage };
+
+function parseHash(): Route {
+  const parts = window.location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  if (parts[0] === 'r' && parts[1]) {
+    const page = parts[2] as ScopedPage;
+    return { kind: 'scoped', roadmapId: parts[1], page: SCOPED_PAGES.includes(page) ? page : 'schedule' };
+  }
+  if (parts.length === 1 && GLOBAL_PAGES.includes(parts[0] as GlobalPage)) {
+    return { kind: 'global', page: parts[0] as GlobalPage };
+  }
+  return { kind: 'picker' };
+}
+
+function hashFor(id: PageId, roadmapId: string | null): string {
+  if (isScoped(id)) return roadmapId ? `#/r/${roadmapId}/${id}` : '#/roadmaps';
+  return `#/${id}`;
+}
+
+function useRoute(): [Route, (hash: string, replace?: boolean) => void] {
+  const [route, setRoute] = useState<Route>(parseHash);
+  useEffect(() => {
+    const onChange = () => setRoute(parseHash());
+    window.addEventListener('hashchange', onChange);
+    return () => window.removeEventListener('hashchange', onChange);
+  }, []);
+  // replaceState does not fire hashchange, and neither does re-assigning the same
+  // hash — both branches re-read the location so the route state stays authoritative.
+  const go = useCallback((hash: string, replace = false) => {
+    if (replace) {
+      window.history.replaceState(null, '', hash);
+      setRoute(parseHash());
+    } else if (window.location.hash === hash) {
+      setRoute(parseHash());
+    } else {
+      window.location.hash = hash;
+    }
+  }, []);
+  return [route, go];
+}
 
 function useTheme() {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -85,101 +180,125 @@ function LoginScreen({ password, setPassword, error, busy, onLogin, theme, toggl
 }
 
 function AuthedApp({ theme, toggleTheme, onLogout }: { theme: string; toggleTheme: () => void; onLogout: () => void }) {
+  const [route, go] = useRoute();
   const [roadmaps, setRoadmaps] = useState<RoadmapSummary[]>([]);
-  const [selId, setSelId] = useState<string | null>(null);
-  const [page, setPage] = useState<Page>('picker');
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(() => localStorage.getItem('railCollapsed') === '1');
+  // Global pages carry no roadmap, so the rail remembers the last one to stay usable there.
+  const [lastRoadmapId, setLastRoadmapId] = useState<string | null>(() => localStorage.getItem('lastRoadmapId'));
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
-    try {
-      const d = await api.listRoadmaps(); setRoadmaps(d);
-      if (d.length === 1 && !selId) { setSelId(d[0].id); setPage('schedule'); }
-    } finally { setLoading(false); }
-  };
-  useEffect(() => { load(); }, []);
+    try { setRoadmaps(await api.listRoadmaps()); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => { localStorage.setItem('railCollapsed', railCollapsed ? '1' : '0'); }, [railCollapsed]);
+
+  useEffect(() => {
+    if (route.kind !== 'scoped') return;
+    setLastRoadmapId(route.roadmapId);
+    localStorage.setItem('lastRoadmapId', route.roadmapId);
+  }, [route]);
+
+  useEffect(() => { setDrawerOpen(false); setMenuOpen(false); }, [route]);
+
+  // Land on the only roadmap when there is one, but only on first load — otherwise
+  // the picker would bounce you straight back out and a second roadmap could never be made.
+  const autoLanded = useRef(false);
+  useEffect(() => {
+    if (loading) return;
+    if (route.kind === 'scoped' && roadmaps.length > 0 && !roadmaps.some(r => r.id === route.roadmapId)) {
+      go('#/roadmaps', true); return;
+    }
+    if (autoLanded.current) return;
+    autoLanded.current = true;
+    if (route.kind === 'picker' && roadmaps.length === 1) go(`#/r/${roadmaps[0].id}/schedule`, true);
+  }, [loading, roadmaps, route, go]);
 
   const create = async () => {
     const t = newName.trim(); if (!t) return;
     const c = await api.createRoadmap(t);
-    setNewName(''); setCreating(false); setSelId(c.id); setPage('schedule'); load();
+    setNewName(''); setCreating(false);
+    await load();
+    go(`#/r/${c.id}/schedule`);
   };
 
-  const back = () => { setSelId(null); setPage('picker'); load(); };
+  const back = () => go('#/roadmaps');
 
-  const themeBtn = (
-    <button className="btn btn-ghost btn-sm" onClick={toggleTheme} title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-      style={{ fontSize: 18, padding: '4px 8px' }}>
-      {theme === 'light' ? '🌙' : '☀️'}
-    </button>
+  const railRoadmapId = route.kind === 'scoped'
+    ? route.roadmapId
+    : (lastRoadmapId && roadmaps.some(r => r.id === lastRoadmapId) ? lastRoadmapId : (roadmaps[0]?.id ?? null));
+  const railRoadmap = roadmaps.find(r => r.id === railRoadmapId) ?? null;
+  const activePage: PageId | null = route.kind === 'picker' ? null : route.page;
+
+  const rail = (collapsed: boolean, showCollapseToggle: boolean) => (
+    <>
+      <div className="rail-top">
+        <button className="rail-brand" onClick={() => setMenuOpen(o => !o)}
+          title={railRoadmap?.name ?? 'Choose roadmap'}>
+          <span className="rail-brand-mark">◆</span>
+          {!collapsed && <>
+            <span className="rail-brand-name">{railRoadmap?.name ?? 'Choose roadmap'}</span>
+            <span className="rail-brand-caret">▾</span>
+          </>}
+        </button>
+        {menuOpen && <>
+          <div className="rail-menu-backdrop" onClick={() => setMenuOpen(false)} />
+          <div className="rail-menu">
+            {roadmaps.map(r => (
+              <button key={r.id} className={`rail-menu-item ${r.id === railRoadmapId ? 'active' : ''}`}
+                onClick={() => go(`#/r/${r.id}/${route.kind === 'scoped' ? route.page : 'schedule'}`)}>
+                {r.name}
+              </button>
+            ))}
+            {roadmaps.length > 0 && <div className="rail-menu-sep" />}
+            <button className="rail-menu-item" onClick={() => go('#/roadmaps')}>All roadmaps…</button>
+          </div>
+        </>}
+      </div>
+
+      <div className="rail-groups">
+        {NAV_GROUPS.map((g, gi) => (
+          <div className="rail-group" key={gi}>
+            {g.title && (collapsed ? <div className="rail-group-rule" /> : <div className="rail-group-title">{g.title}</div>)}
+            {g.items.map(item => (
+              <button key={item.id} disabled={g.scoped && !railRoadmapId}
+                className={`rail-item ${activePage === item.id ? 'active' : ''}`}
+                title={collapsed ? item.label : undefined}
+                onClick={() => go(hashFor(item.id, railRoadmapId))}>
+                <span className="rail-item-icon">{item.icon}</span>
+                {!collapsed && <span className="rail-item-label">{item.label}</span>}
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      <div className="rail-foot">
+        <button className="rail-foot-btn" onClick={toggleTheme}
+          title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>{theme === 'light' ? '🌙' : '☀️'}</button>
+        <button className="rail-foot-btn" onClick={onLogout} title="Logout">🚪</button>
+        {showCollapseToggle && (
+          <button className="rail-foot-btn rail-collapse" onClick={() => setRailCollapsed(c => !c)}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>{collapsed ? '»' : '«'}</button>
+        )}
+      </div>
+    </>
   );
 
-  if (selId && page !== 'picker') {
-    const nav = (
-      <div className="nav-tabs">
-        <button className={`nav-tab ${page === 'schedule' ? 'active' : ''}`} onClick={() => setPage('schedule')}>Schedule</button>
-        <button className={`nav-tab ${page === 'weekplan' ? 'active' : ''}`} onClick={() => setPage('weekplan')}>Week</button>
-        <button className={`nav-tab ${page === 'roadmap' ? 'active' : ''}`} onClick={() => setPage('roadmap')}>Roadmap</button>
-        <button className={`nav-tab ${page === 'performance' ? 'active' : ''}`} onClick={() => setPage('performance')}>Performance</button>
-        <button className={`nav-tab ${page === 'habits' ? 'active' : ''}`} onClick={() => setPage('habits')}>Habits</button>
-        <button className={`nav-tab ${page === 'tasks' ? 'active' : ''}`} onClick={() => setPage('tasks')}>Tasks</button>
-        <button className={`nav-tab ${page === 'notes' ? 'active' : ''}`} onClick={() => setPage('notes')}>Notes</button>
-        <button className={`nav-tab ${page === 'articles' ? 'active' : ''}`} onClick={() => setPage('articles')}>Articles</button>
-        <button className={`nav-tab ${page === 'newsletter' ? 'active' : ''}`} onClick={() => setPage('newsletter')}>Professional Newsletter</button>
-        <button className={`nav-tab ${page === 'jobs' ? 'active' : ''}`} onClick={() => setPage('jobs')}>Jobs</button>
-        <button className={`nav-tab ${page === 'english' ? 'active' : ''}`} onClick={() => setPage('english')}>English</button>
-        <button className={`nav-tab ${page === 'nutrition' ? 'active' : ''}`} onClick={() => setPage('nutrition')}>Nutrition</button>
-      </div>
-    );
-
-    const renderPage = () => {
-      switch (page) {
-        case 'schedule': return <SchedulePage roadmapId={selId} onBack={back} />;
-        case 'roadmap': return <RoadmapPage roadmapId={selId} onBack={back} />;
-        case 'weekplan': return <WeekPlanPage roadmapId={selId} onBack={back} />;
-        case 'performance': return <PerformancePage roadmapId={selId} onBack={back} />;
-        case 'habits': return <HabitsPage roadmapId={selId} onBack={back} />;
-        case 'tasks': return <TasksPage roadmapId={selId} onBack={back} />;
-        case 'notes': return <NotesPage />;
-        case 'articles': return <ArticlesPage />;
-        case 'newsletter': return <NewsletterPage />;
-        case 'jobs': return <JobsPage />;
-        case 'english': return <EnglishPage />;
-        case 'nutrition': return <NutritionPage />;
-      }
-    };
-
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh' }}>
-        <div className="app-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-primary)', flexShrink: 0, gap: 8, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
-            <span style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}><span style={{ color: 'var(--accent)', fontWeight: 600 }}>◆</span> {roadmaps.find(r => r.id === selId)?.name}</span>
-            {nav}
-          </div>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-            {themeBtn}
-            <button className="btn btn-sm" onClick={back}>←</button>
-            <button className="btn btn-sm btn-ghost" onClick={onLogout} title="Logout" style={{ fontSize: 14 }}>🚪</button>
-          </div>
-        </div>
-        <div style={{ flex: 1, overflow: 'hidden' }}>
-          {renderPage()}
-        </div>
-      </div>
-    );
-  }
-
-  // Picker screen
-  return (
+  const picker = (
     <div className="picker-screen">
-      <div style={{ position: 'absolute', top: 16, right: 16 }}>{themeBtn}</div>
       <h1><span>◆</span> Roadmap</h1>
       {loading ? <p style={{ color: 'var(--text-muted)' }}>Loading...</p> : <>
         {roadmaps.length > 0 && <div className="picker-list">
           {roadmaps.map(r => (
-            <div key={r.id} className="picker-item" onClick={() => { setSelId(r.id); setPage('schedule'); }}>
+            <div key={r.id} className="picker-item" onClick={() => go(`#/r/${r.id}/schedule`)}>
               <div>
                 <div className="picker-item-name">{r.name}</div>
                 {r.description && <div className="picker-item-desc">{r.description}</div>}
@@ -197,6 +316,63 @@ function AuthedApp({ theme, toggleTheme, onLogout }: { theme: string; toggleThem
           </div>
         ) : <button className="btn btn-accent" onClick={() => setCreating(true)}>+ New Roadmap</button>}
       </>}
+    </div>
+  );
+
+  const renderRoute = () => {
+    if (route.kind === 'global') {
+      switch (route.page) {
+        case 'notes': return <NotesPage />;
+        case 'articles': return <ArticlesPage />;
+        case 'newsletter': return <NewsletterPage />;
+        case 'jobs': return <JobsPage />;
+        case 'english': return <EnglishPage />;
+        case 'nutrition': return <NutritionPage />;
+      }
+    }
+    if (route.kind === 'scoped') {
+      const rid = route.roadmapId;
+      switch (route.page) {
+        case 'schedule': return <SchedulePage roadmapId={rid} onBack={back} />;
+        case 'roadmap': return <RoadmapPage roadmapId={rid} onBack={back} />;
+        case 'weekplan': return <WeekPlanPage roadmapId={rid} onBack={back} />;
+        case 'performance': return <PerformancePage roadmapId={rid} onBack={back} />;
+        case 'habits': return <HabitsPage roadmapId={rid} onBack={back} />;
+        case 'tasks': return <TasksPage roadmapId={rid} onBack={back} />;
+      }
+    }
+    return picker;
+  };
+
+  return (
+    <div className="app-frame">
+      <nav className={`app-rail ${railCollapsed ? 'collapsed' : ''}`}>{rail(railCollapsed, true)}</nav>
+
+      {drawerOpen && <>
+        <div className="rail-backdrop" onClick={() => setDrawerOpen(false)} />
+        <nav className="app-rail app-rail-drawer">{rail(false, false)}</nav>
+      </>}
+
+      <div className="app-main">
+        <div className="app-page">{renderRoute()}</div>
+        <nav className="app-bottombar">
+          {BOTTOM_BAR.map(id => {
+            const item = NAV_INDEX[id];
+            return (
+              <button key={id} disabled={isScoped(id) && !railRoadmapId}
+                className={`bar-item ${activePage === id ? 'active' : ''}`}
+                onClick={() => go(hashFor(id, railRoadmapId))}>
+                <span className="bar-item-icon">{item.icon}</span>
+                <span className="bar-item-label">{item.label}</span>
+              </button>
+            );
+          })}
+          <button className={`bar-item ${drawerOpen ? 'active' : ''}`} onClick={() => setDrawerOpen(true)}>
+            <span className="bar-item-icon">☰</span>
+            <span className="bar-item-label">More</span>
+          </button>
+        </nav>
+      </div>
     </div>
   );
 }
