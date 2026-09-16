@@ -10,7 +10,7 @@ import { TasksPage } from './TasksPage';
 import { NotesPage } from './NotesPage';
 import { ArticlesPage } from './ArticlesPage';
 import { NewsletterPage } from './NewsletterPage';
-import { NAV_ICON } from './NavIcons';
+import { NAV_ICON, IconDefs } from './NavIcons';
 import { JobsPage } from './JobsPage';
 import { EnglishPage } from './EnglishPage';
 import { NutritionPage } from './NutritionPage';
@@ -348,6 +348,8 @@ function AuthedApp({ theme, toggleTheme, onLogout }: { theme: string; toggleThem
 
   return (
     <div className="app-frame">
+      {/* The icons' gradients, defined once outside anything that can be hidden. */}
+      <IconDefs />
       <nav className={`app-rail ${railCollapsed ? 'collapsed' : ''}`}>{rail(railCollapsed, true)}</nav>
 
       {drawerOpen && <>
