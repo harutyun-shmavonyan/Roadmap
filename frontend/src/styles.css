@@ -790,7 +790,7 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
   /* The quick row is the one bit of chrome seen at arm's length on a phone, so the active item
      gets a green pill rather than a colour swap — the icon keeps its own hue, the pill says which
      one you are on. Green reads as "you are here" without competing with any icon in the row. */
-  .bar-item.active { color: #15803d; background: rgba(34, 197, 94, 0.14); font-weight: 600; }
+  .bar-item.active { color: var(--ic-active-ink); background: var(--ic-active-bg); font-weight: 600; }
   .bar-item.active .bar-item-icon { transform: translateY(-1px); }
   .bar-item-icon { transition: transform var(--transition); }
   .bar-item:disabled { opacity: 0.4; }
@@ -808,5 +808,65 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 5px 7px; }
 .icon-btn svg { display: block; }
 
-/* The quick row's active pill, on the dark ground. */
-[data-theme="dark"] .bar-item.active { color: #4ade80; background: rgba(34, 197, 94, 0.18); }
+/* ─── Icon palette ────────────────────────────────────────────────────────────────────────────
+   Not eyeballed. These are the eight hues of a validated categorical palette (blue, orange, aqua,
+   yellow, magenta, green, violet, red), each with its own step for the light and the dark surface.
+
+   Twelve places, eight hues: the assignment was solved rather than chosen. Every pair that can end
+   up side by side — down the rail and across the phone's quick row — was checked in both modes for
+   colourblind separation (OKLab ΔE ≥ 8 under simulated protan/deutan) and for normal vision
+   (ΔE ≥ 15), which rules out most orderings: red may only sit beside blue or violet, and green may
+   not sit beside orange at all. A hue appears at most twice and never within four rows of itself.
+
+   Three light-mode steps (aqua, yellow, magenta) fall below 3:1 against white. That is allowed
+   here under the relief rule — every icon carries its text label — and it is the reason the
+   collapsed rail keeps tooltips. On the dark surface all twelve clear 3:1.
+
+   Shape is the primary identity; colour reinforces it. Anything new gets solved back into this
+   set rather than picking a hue that looks nice beside it. */
+:root {
+  --ic-schedule:    #eb6834;  /* orange  */
+  --ic-weekplan:    #2a78d6;  /* blue    */
+  --ic-roadmap:     #008300;  /* green   */
+  --ic-tasks:       #e87ba4;  /* magenta */
+  --ic-performance: #eda100;  /* yellow  */
+  --ic-habits:      #1baf7a;  /* aqua    */
+  --ic-articles:    #4a3aa7;  /* violet  */
+  --ic-newsletter:  #008300;  /* green   */
+  --ic-english:     #e87ba4;  /* magenta */
+  --ic-notes:       #2a78d6;  /* blue    */
+  --ic-nutrition:   #e34948;  /* red     */
+  --ic-jobs:        #4a3aa7;  /* violet  */
+
+  /* Delay acts on a task, so it borrows the task hue and badges it with the yellow. */
+  --ic-delay:       #e87ba4;
+  --ic-delay-badge: #eda100;
+  /* Theme and logout are actions, not places: ink, never a categorical hue. */
+  --ic-action:      #6b6a66;
+
+  /* The quick row's "you are here" pill. Green because it is a state, not a category. */
+  --ic-active-ink:  #0a6b1f;
+  --ic-active-bg:   rgba(0, 131, 0, 0.13);
+}
+
+[data-theme="dark"] {
+  --ic-schedule:    #d95926;
+  --ic-weekplan:    #3987e5;
+  --ic-roadmap:     #008300;
+  --ic-tasks:       #d55181;
+  --ic-performance: #c98500;
+  --ic-habits:      #199e70;
+  --ic-articles:    #9085e9;
+  --ic-newsletter:  #008300;
+  --ic-english:     #d55181;
+  --ic-notes:       #3987e5;
+  --ic-nutrition:   #e66767;
+  --ic-jobs:        #9085e9;
+
+  --ic-delay:       #d55181;
+  --ic-delay-badge: #c98500;
+  --ic-action:      #c3c2b7;
+
+  --ic-active-ink:  #5cc46f;
+  --ic-active-bg:   rgba(0, 131, 0, 0.26);
+}
