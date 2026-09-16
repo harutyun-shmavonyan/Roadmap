@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ScheduleBlock, ActionableItem, WorkLogDto, SprintDto, ScheduleHabitDto, ScheduleTaskDto, CustomLogDto, ScheduleSubPointDto } from './types';
 import { api } from './api';
+import { NAV_ICON } from './NavIcons';
 import { SprintModal } from './SprintModal';
 import { fmtUnit } from './unitFormat';
 
@@ -306,9 +307,9 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
                 {t.isOverdue && <span className="task-overdue">overdue</span>}
                 {t.dueDate && !t.isOverdue && !t.isCompleted && <span className="task-due">due {t.dueDate.slice(5)}</span>}
                 {!t.isCompleted && (
-                  <button className="btn btn-ghost btn-sm" title="Delay 3 days"
+                  <button className="btn btn-ghost btn-sm icon-btn" title="Delay 3 days"
                     onClick={async () => { await api.delayTask(roadmapId, t.id); await refresh(); }}>
-                    ⏭
+                    {NAV_ICON.delay}
                   </button>
                 )}
               </div>

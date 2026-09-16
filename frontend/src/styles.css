@@ -797,3 +797,8 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
      (the Schedule sidebar toggle) have to clear it. */
   .sidebar-toggle { bottom: calc(65px + env(safe-area-inset-bottom)); }
 }
+
+/* A button whose whole label is a drawn icon: centre it and let the glyph, not a font metric,
+   decide the height. */
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 5px 7px; }
+.icon-btn svg { display: block; }

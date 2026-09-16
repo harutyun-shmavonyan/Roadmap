@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 
 /**
- * The navigation's icons: a small flat set drawn here rather than pulled from a library or the
- * platform's emoji font.
+ * The app's icons: a small flat set drawn here rather than pulled from a library or the platform's
+ * emoji font. Mostly navigation, plus the odd action that sits in a row of them.
  *
  * Emoji were the previous answer and they look like whatever the reader's OS decides — three
  * different drawing styles in one column, and a different set again on the phone. These are one
@@ -140,6 +140,18 @@ export const NAV_ICON: Record<string, ReactNode> = {
     <S>
       <path d="M13.5 3.5h-6A2.5 2.5 0 0 0 5 6v12a2.5 2.5 0 0 0 2.5 2.5h6" stroke="#94a3b8" strokeWidth="2.2" fill="none" strokeLinecap="round" />
       <path d="M16.5 8.2 20.3 12l-3.8 3.8M19.8 12h-9" stroke="#64748b" strokeWidth="2.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </S>
+  ),
+
+  // Delay — a clock, badged with the nudge forward. Two marks rather than one, because a clock
+  // alone reads as "when" and an arrow alone as "next"; the pair is the only way the glyph says
+  // "later" at 18px.
+  delay: (
+    <S>
+      <circle cx="10.5" cy="10.5" r="8.5" fill="#64748b" />
+      <path d="M10.5 5.6v5h3.8" stroke="#fff" strokeWidth="2.1" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="18" cy="18" r="5.6" fill="#f59e0b" />
+      <path d="M15.6 18h4.2M18.1 16.2 19.9 18l-1.8 1.8" stroke="#fff" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round" />
     </S>
   ),
 
