@@ -747,7 +747,10 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 .rail-item:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-secondary); }
 .rail-item.active { background: var(--bg-primary); color: var(--accent); box-shadow: var(--shadow-sm); }
 .rail-item:disabled { opacity: 0.4; cursor: default; }
-.rail-item-icon { flex-shrink: 0; width: 20px; text-align: center; font-size: 15px; line-height: 1; }
+.rail-item-icon { flex-shrink: 0; width: 20px; height: 18px; display: flex; align-items: center; justify-content: center; }
+/* The icons are drawn, not typed: they keep their own colour, and only dim when the item is
+   unavailable, so the rail reads as a set of places rather than a row of stickers. */
+.rail-item:disabled .rail-item-icon, .bar-item:disabled .bar-item-icon { opacity: .4; }
 .rail-item-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app-rail.collapsed .rail-brand { justify-content: center; padding: 8px 0; }
 .app-rail.collapsed .rail-item { justify-content: center; padding: 9px 0; }
@@ -755,8 +758,7 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 .rail-foot { display: flex; align-items: center; gap: 2px; padding: 6px 8px; border-top: 1px solid var(--border-subtle); }
 .rail-foot-btn {
   padding: 6px 8px; border: none; background: transparent; border-radius: var(--radius-sm);
-  color: var(--text-muted); font-size: 15px; cursor: pointer; transition: all var(--transition);
-}
+  color: var(--text-muted); font-size: 15px; cursor: pointer; transition: all var(--transition); display: flex; align-items: center; justify-content: center; }
 .rail-foot-btn:hover { background: var(--bg-hover); }
 .rail-collapse { margin-left: auto; font-size: 13px; }
 .app-rail.collapsed .rail-foot { flex-direction: column; }
@@ -787,7 +789,8 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
   }
   .bar-item.active { color: var(--accent); }
   .bar-item:disabled { opacity: 0.4; }
-  .bar-item-icon { font-size: 17px; line-height: 1; }
+  .bar-item-icon { display: flex; align-items: center; justify-content: center; height: 20px; }
+  .bar-item-icon svg { width: 20px; height: 20px; }
   .bar-item-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* The bottom bar owns the foot of the screen, so page-level floating buttons

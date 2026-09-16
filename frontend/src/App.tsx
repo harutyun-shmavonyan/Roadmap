@@ -10,6 +10,7 @@ import { TasksPage } from './TasksPage';
 import { NotesPage } from './NotesPage';
 import { ArticlesPage } from './ArticlesPage';
 import { NewsletterPage } from './NewsletterPage';
+import { NAV_ICON } from './NavIcons';
 import { JobsPage } from './JobsPage';
 import { EnglishPage } from './EnglishPage';
 import { NutritionPage } from './NutritionPage';
@@ -28,32 +29,32 @@ const GLOBAL_PAGES: GlobalPage[] = ['articles', 'newsletter', 'english', 'notes'
 
 const isScoped = (id: PageId): id is ScopedPage => (SCOPED_PAGES as string[]).includes(id);
 
-interface NavItem { id: PageId; label: string; icon: string; }
+interface NavItem { id: PageId; label: string; }
 interface NavGroup { title: string | null; scoped: boolean; items: NavItem[]; }
 
 const NAV_GROUPS: NavGroup[] = [
   {
     title: null, scoped: true, items: [
-      { id: 'schedule', label: 'Schedule', icon: '📅' },
-      { id: 'weekplan', label: 'Week', icon: '📆' },
-      { id: 'roadmap', label: 'Roadmap', icon: '🌳' },
-      { id: 'tasks', label: 'Tasks', icon: '📋' },
-      { id: 'performance', label: 'Performance', icon: '📈' },
-      { id: 'habits', label: 'Habits', icon: '🔁' },
+      { id: 'schedule', label: 'Schedule' },
+      { id: 'weekplan', label: 'Week' },
+      { id: 'roadmap', label: 'Roadmap' },
+      { id: 'tasks', label: 'Tasks' },
+      { id: 'performance', label: 'Performance' },
+      { id: 'habits', label: 'Habits' },
     ],
   },
   {
     title: 'Learn', scoped: false, items: [
-      { id: 'articles', label: 'Articles', icon: '📖' },
-      { id: 'newsletter', label: 'Newsletter', icon: '📰' },
-      { id: 'english', label: 'English', icon: '🔤' },
+      { id: 'articles', label: 'Articles' },
+      { id: 'newsletter', label: 'Newsletter' },
+      { id: 'english', label: 'English' },
     ],
   },
   {
     title: 'Track', scoped: false, items: [
-      { id: 'notes', label: 'Notes', icon: '📝' },
-      { id: 'nutrition', label: 'Nutrition', icon: '🍽️' },
-      { id: 'jobs', label: 'Jobs', icon: '💼' },
+      { id: 'notes', label: 'Notes' },
+      { id: 'nutrition', label: 'Nutrition' },
+      { id: 'jobs', label: 'Jobs' },
     ],
   },
 ];
@@ -272,7 +273,7 @@ function AuthedApp({ theme, toggleTheme, onLogout }: { theme: string; toggleThem
                 className={`rail-item ${activePage === item.id ? 'active' : ''}`}
                 title={collapsed ? item.label : undefined}
                 onClick={() => go(hashFor(item.id, railRoadmapId))}>
-                <span className="rail-item-icon">{item.icon}</span>
+                <span className="rail-item-icon">{NAV_ICON[item.id]}</span>
                 {!collapsed && <span className="rail-item-label">{item.label}</span>}
               </button>
             ))}
@@ -282,8 +283,8 @@ function AuthedApp({ theme, toggleTheme, onLogout }: { theme: string; toggleThem
 
       <div className="rail-foot">
         <button className="rail-foot-btn" onClick={toggleTheme}
-          title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>{theme === 'light' ? '🌙' : '☀️'}</button>
-        <button className="rail-foot-btn" onClick={onLogout} title="Logout">🚪</button>
+          title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>{theme === 'light' ? NAV_ICON.moon : NAV_ICON.sun}</button>
+        <button className="rail-foot-btn" onClick={onLogout} title="Logout">{NAV_ICON.logout}</button>
         {showCollapseToggle && (
           <button className="rail-foot-btn rail-collapse" onClick={() => setRailCollapsed(c => !c)}
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>{collapsed ? '»' : '«'}</button>
@@ -362,13 +363,13 @@ function AuthedApp({ theme, toggleTheme, onLogout }: { theme: string; toggleThem
               <button key={id} disabled={isScoped(id) && !railRoadmapId}
                 className={`bar-item ${activePage === id ? 'active' : ''}`}
                 onClick={() => go(hashFor(id, railRoadmapId))}>
-                <span className="bar-item-icon">{item.icon}</span>
+                <span className="bar-item-icon">{NAV_ICON[item.id]}</span>
                 <span className="bar-item-label">{item.label}</span>
               </button>
             );
           })}
           <button className={`bar-item ${drawerOpen ? 'active' : ''}`} onClick={() => setDrawerOpen(true)}>
-            <span className="bar-item-icon">☰</span>
+            <span className="bar-item-icon">{NAV_ICON.more}</span>
             <span className="bar-item-label">More</span>
           </button>
         </nav>
