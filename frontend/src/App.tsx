@@ -64,7 +64,8 @@ const NAV_INDEX: Record<string, NavItem> = Object.fromEntries(
 );
 
 /* Phone bottom bar: everything else lives one tap away behind "More". */
-const BOTTOM_BAR: PageId[] = ['schedule', 'weekplan', 'tasks', 'notes'];
+// The phone's quick row: the two places you steer the day from, then the two you read.
+const BOTTOM_BAR: PageId[] = ['schedule', 'weekplan', 'newsletter', 'articles'];
 
 /* ─── Hash routing ─── */
 
