@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Roadmap">
+  <!-- The app's mark: the diamond it already wears beside the roadmap name in the header, on a
+       tile in the roadmap hue. A diamond because it survives a 16px tab — the roadmap glyph from
+       the navigation does not: at that size its spine and nodes collapse into a smudge. -->
+  <rect width="64" height="64" rx="14" fill="#008300"/>
+  <path d="M32 12 50 32 32 52 14 32Z" fill="#ffffff"/>
+  <path d="M32 24 40 32 32 40 24 32Z" fill="#008300"/>
+</svg>
