@@ -413,6 +413,15 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 .perf-card-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
 .perf-card-value { font-size: 30px; font-weight: 400; color: var(--text-primary); font-family: var(--font-mono); }
 .perf-card.accent .perf-card-value { color: var(--accent); }
+/* Where a card's number came from, set under it: label left, figure right, so the figures line up
+   in a column the eye can add up. */
+.perf-card-parts { margin-top: 10px; display: flex; flex-direction: column; gap: 2px;
+  font-size: 11.5px; font-family: var(--font-mono); color: var(--text-muted); }
+.perf-card-parts > div { display: flex; align-items: baseline; gap: 8px; }
+.perf-card-parts > div > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.perf-card-parts b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.perf-card-parts b.pos { color: var(--text-secondary); }
+.perf-card-parts b.neg { color: var(--danger); }
 .perf-section { margin-bottom: 32px; }
 .perf-section h2 { font-size: 16px; font-weight: 600; color: var(--text-secondary); margin-bottom: 14px; }
 .perf-table-wrap { overflow-x: auto; }

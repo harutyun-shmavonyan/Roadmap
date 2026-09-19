@@ -122,7 +122,11 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
             {/* Summary cards */}
             <div className="perf-cards">
               <div className="perf-card"><div className="perf-card-label">Planned Pts</div><div className="perf-card-value">{perf.totalPlannedPoints}</div></div>
-              <div className="perf-card accent"><div className="perf-card-label">Earned Pts</div><div className="perf-card-value">{perf.totalEarnedPoints}</div></div>
+              <div className="perf-card accent">
+                <div className="perf-card-label">Earned Pts</div>
+                <div className="perf-card-value">{perf.totalEarnedPoints}</div>
+                <EarnedParts progress={perf.dailyProgress} />
+              </div>
               <div className="perf-card"><div className="perf-card-label">Completion</div>
                 <div className="perf-card-value">{perf.totalPlannedPoints > 0 ? Math.round(perf.totalEarnedPoints / perf.totalPlannedPoints * 100) : 0}%</div></div>
               <div className="perf-card"><div className="perf-card-label">Items</div><div className="perf-card-value">{perf.items.length}</div></div>
@@ -406,18 +410,17 @@ function YGrid() {
 /**
  * The vertical read-out under the cursor. `value` is where the row sits on the chart, and is
  * printed as a percentage unless `text` gives the reading in its own units. `dot: false` is for a
- * row that is worth reading but isn't a point on any line, and `sub` sets a row underneath the
- * one above it as a part of it.
+ * row that is worth reading but isn't a point on any line.
  */
 function HoverCrosshair({ hoverIdx, n, values, dates }: {
   hoverIdx: number; n: number;
-  values: { label: string; value: number; color: string; text?: string; dot?: boolean; sub?: boolean }[];
+  values: { label: string; value: number; color: string; text?: string; dot?: boolean }[];
   dates: { date: string }[];
 }) {
   const x = xScale(hoverIdx, n);
   // Readings that carry their own units are longer than a bare percentage, so the box follows the
   // widest one rather than ellipsising it away.
-  const w = Math.max(160, ...values.map(v => (v.sub ? 104 : 92) + 6.6 * (v.text?.length ?? 6)));
+  const w = Math.max(160, ...values.map(v => 92 + 6.6 * (v.text?.length ?? 6)));
   return <>
     <line x1={x} y1={PT} x2={x} y2={H - P} stroke="var(--text-muted)" strokeWidth={1} strokeDasharray="4,3" opacity={0.7} />
     {values.map((v, i) => v.dot !== false && (
@@ -431,10 +434,8 @@ function HoverCrosshair({ hoverIdx, n, values, dates }: {
       } as React.CSSProperties}>
         <div style={{ fontWeight: 600, marginBottom: 2, color: 'var(--text-muted)' }}>{dates[hoverIdx]?.date.slice(5)}</div>
         {values.map((v, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4,
-            ...(v.sub ? { paddingLeft: 12, fontSize: 10.5, lineHeight: '15px', color: 'var(--text-muted)' } : null) }}>
-            {v.sub ? <span style={{ width: 8, flexShrink: 0 }} />
-              : <span style={{ width: 8, height: 8, borderRadius: '50%', background: v.color, flexShrink: 0 }} />}
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: v.color, flexShrink: 0 }} />
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.label}</span>
             <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{v.text ?? `${Math.round(v.value * 10) / 10}%`}</span>
           </div>
@@ -445,25 +446,32 @@ function HoverCrosshair({ hoverIdx, n, values, dates }: {
 }
 
 /**
- * The earned reading, and under it the three places points come from: work logged against the
- * schedule, sprint goals and their bonuses, and habits — which is a penalty as often as a reward,
- * so it is the one part that can be negative. Tasks and custom logs are earned but were never
- * planned, so they appear as their own part and only once there are any.
+ * The three places the sprint's points come from, under the total they add up to: work logged
+ * against the schedule, sprint goals and their bonuses, and habits — a penalty as often as a
+ * reward, and the one part that goes negative. Completed tasks and custom logs are earned but
+ * were never planned, so they stand apart and only appear when there are any.
  *
- * Every part is in points, not percentages: they are a breakdown of the points figure beside
- * "Earned", and each divides into the sprint's plan the same way that figure does.
+ * This sits on the card rather than on the chart because it is in points. The chart is the
+ * percentage view, and mixing the two units there is what made it hard to read.
  */
-function earnedRows(p: PerformanceSummary['dailyProgress'][number], color: string) {
-  const pts = (v: number) => `${v > 0 ? '+' : ''}${v} pts`;
-  return [
-    { label: 'Earned', value: p.earnedPercent, color, text: `${p.earnedPercent}% · ${p.cumulativeEarned} pts` },
-    { label: 'from schedule', value: 0, color, dot: false, sub: true, text: pts(p.earnedSchedule) },
-    { label: 'from goals', value: 0, color, dot: false, sub: true, text: pts(p.earnedGoals) },
-    { label: 'from habits', value: 0, color, dot: false, sub: true, text: pts(p.earnedHabits) },
-    ...(p.earnedOther !== 0
-      ? [{ label: 'tasks & logs', value: 0, color, dot: false, sub: true, text: pts(p.earnedOther) }]
-      : []),
+function EarnedParts({ progress }: { progress: PerformanceSummary['dailyProgress'] }) {
+  // The last day's running totals are the sprint's totals.
+  const p = progress[progress.length - 1];
+  if (!p) return null;
+  const parts: [string, number][] = [
+    ['schedule', p.earnedSchedule], ['goals', p.earnedGoals], ['habits', p.earnedHabits],
+    ...(p.earnedOther !== 0 ? [['tasks & logs', p.earnedOther] as [string, number]] : []),
   ];
+  return (
+    <div className="perf-card-parts">
+      {parts.map(([label, v]) => (
+        <div key={label}>
+          <span>{label}</span>
+          <b className={v < 0 ? 'neg' : v > 0 ? 'pos' : ''}>{v > 0 ? '+' : ''}{v}</b>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /**
@@ -498,7 +506,6 @@ function OverallChart({ progress, colors }: {
   const ideal = progress.map(p => p.plannedPercent);
   const livePts = progress.filter(p => !p.isFuture);
   const latest = livePts[livePts.length - 1];
-  const total = progress[n - 1].cumulativePlanned;
   // Ahead of the plan, near enough, or behind. A cue for the headline's colour only — it is not a
   // fourth percentage, so it is never shown as one.
   const standing = latest && latest.plannedPercent > 0 ? latest.earnedPercent / latest.plannedPercent : 1;
@@ -512,27 +519,12 @@ function OverallChart({ progress, colors }: {
             {latest.earnedPercent}%
           </span>
           <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
-            of the sprint earned — {latest.cumulativeEarned} of {total} pts · the plan wanted{' '}
-            <b style={{ color: 'var(--text-secondary)' }}>{latest.plannedPercent}%</b> ({latest.cumulativePlanned} pts) by {latest.date.slice(5)}
+            of the sprint earned · the plan wanted{' '}
+            <b style={{ color: 'var(--text-secondary)' }}>{latest.plannedPercent}%</b> by {latest.date.slice(5)}
           </span>
         </div>
       )}
-      {/* Where those points came from, without having to hover for it. Habits are as often a
-          penalty as a reward, and a bad week there is worth seeing next to the total it drags. */}
-      {latest && (
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 8,
-          fontSize: 11.5, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-          {([['schedule', latest.earnedSchedule], ['goals', latest.earnedGoals], ['habits', latest.earnedHabits],
-             ...(latest.earnedOther !== 0 ? [['tasks & logs', latest.earnedOther] as const] : [])] as const).map(([label, v]) => (
-            <span key={label}>
-              {label}{' '}
-              <b style={{ color: v < 0 ? '#d4574f' : v > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
-                {v > 0 ? '+' : ''}{v}
-              </b>
-            </span>
-          ))}
-        </div>
-      )}
+
       <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="chart-svg"
         onMouseMove={handleMouse} onMouseLeave={clearHover} style={{ cursor: 'crosshair' }}>
         <YGrid />
@@ -552,9 +544,10 @@ function OverallChart({ progress, colors }: {
         {hoverIdx !== null && (
           <HoverCrosshair hoverIdx={hoverIdx} n={n} dates={progress}
             values={[
-              ...(hoverIdx < livePts.length ? earnedRows(livePts[hoverIdx], color) : []),
-              { label: 'Plan by then', value: ideal[hoverIdx], color: '#888',
-                text: `${progress[hoverIdx].plannedPercent}% · ${progress[hoverIdx].cumulativePlanned} pts` },
+              ...(hoverIdx < livePts.length
+                ? [{ label: 'Earned', value: livePts[hoverIdx].earnedPercent, color }]
+                : []),
+              { label: 'Plan by then', value: ideal[hoverIdx], color: '#888' },
             ]} />
         )}
       </svg>
