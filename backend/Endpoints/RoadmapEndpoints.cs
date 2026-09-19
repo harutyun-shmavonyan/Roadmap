@@ -1127,8 +1127,9 @@ public static class RoadmapEndpoints
                 dailySplitMap[d][bucket] += pts;
                 return true;
             }
-            // What the plan asked for on each day — the denominator of overall progress.
-            // Tasks and custom logs never appear here: they are earned, never planned.
+            // What the plan asked for on each day — the denominator of overall progress, and the
+            // sprint's Planned Pts. Only scheduled work counts: habits, tasks, custom logs and
+            // goals are all earned without ever having been planned in points.
             var dailyPlannedMap = dates.ToDictionary(d => d, _ => 0.0);
             var today = AppClock.Today();
 
@@ -1333,19 +1334,14 @@ public static class RoadmapEndpoints
             // Add habit points: +2 for checked, -2 for missed (strictly past days only)
             var sprintHabits = await db.SprintHabits.AsNoTracking().Include(sh => sh.Checks)
                 .Where(sh => sh.SprintId == sprintId && !sh.IsPaused).ToListAsync();
-            double totalHabitPlannedPts = 0;
             double totalHabitEarnedPts = 0;
             foreach (var d in dates)
             {
                 foreach (var sh in sprintHabits)
                 {
-                    // The sprint asks for the habit on every one of its days, so every one of them
-                    // is planned. Counting only the days already reached made the sprint's planned
-                    // total climb by itself as the days passed, and left it a figure no percentage
-                    // could honestly divide by: the whole plan for the work, part of it for these.
-                    totalHabitPlannedPts += 2;
-                    dailyPlannedMap[d] += 2;
-
+                    // Nothing planned here. A habit is worth ±2 a day when it lands, but the
+                    // sprint's plan is its scheduled work, so a habit can only ever move the
+                    // earned side.
                     var check = sh.Checks.FirstOrDefault(c => c.Date == d);
                     if (check?.IsChecked == true)
                     {
@@ -1385,7 +1381,7 @@ public static class RoadmapEndpoints
             }
             var customLogDtos = customLogs.Select(c => new CustomLogDto(c.Id, c.Title, c.Points, c.Date.ToString("yyyy-MM-dd"), c.Note)).ToList();
 
-            var grandPlanned = items.Sum(i => i.PlannedPoints) + totalHabitPlannedPts;
+            var grandPlanned = items.Sum(i => i.PlannedPoints);
             var grandEarned = items.Sum(i => i.EarnedPoints) + totalHabitEarnedPts + totalTaskEarnedPts + totalCustomPts;
 
             var ctDtos = completedTasks.Select(t => new CompletedTaskDto(t.Id, t.Title, t.Priority.ToString(),

@@ -8,7 +8,7 @@ interface Props { roadmapId: string; onBack: () => void; }
 
 const COLORS = ['#4285f4', '#34a853', '#ea4335', '#fbbc04', '#46bdc6', '#e8710a', '#9334e6', '#f538a0'];
 
-type SortKey = 'title' | 'sessions' | 'time' | 'planned' | 'done' | 'pct' | 'pts';
+type SortKey = 'title' | 'planned' | 'done' | 'pct' | 'plannedPts' | 'donePts';
 type SortDir = 'asc' | 'desc';
 
 function sortItems(items: PerformanceItem[], key: SortKey, dir: SortDir): PerformanceItem[] {
@@ -16,12 +16,11 @@ function sortItems(items: PerformanceItem[], key: SortKey, dir: SortDir): Perfor
     let va: number | string = 0, vb: number | string = 0;
     switch (key) {
       case 'title': va = a.title.toLowerCase(); vb = b.title.toLowerCase(); break;
-      case 'sessions': va = a.scheduledSessions; vb = b.scheduledSessions; break;
-      case 'time': va = a.totalMinutes; vb = b.totalMinutes; break;
       case 'planned': va = a.plannedUnits; vb = b.plannedUnits; break;
       case 'done': va = a.doneUnits; vb = b.doneUnits; break;
       case 'pct': va = a.isNodeCompleted ? 1 : (a.plannedUnits > 0 ? a.doneUnits / a.plannedUnits : 0); vb = b.isNodeCompleted ? 1 : (b.plannedUnits > 0 ? b.doneUnits / b.plannedUnits : 0); break;
-      case 'pts': va = a.earnedPoints; vb = b.earnedPoints; break;
+      case 'plannedPts': va = a.plannedPoints; vb = b.plannedPoints; break;
+      case 'donePts': va = a.earnedPoints; vb = b.earnedPoints; break;
     }
     if (va < vb) return dir === 'asc' ? -1 : 1;
     if (va > vb) return dir === 'asc' ? 1 : -1;
@@ -195,12 +194,11 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
                 <table className="perf-table">
                   <thead><tr>
                     <th className="sortable" onClick={() => handleSort('title')}>Item{arrow('title')}</th>
-                    <th className="sortable" onClick={() => handleSort('sessions')}>Sessions{arrow('sessions')}</th>
-                    <th className="sortable" onClick={() => handleSort('time')}>Time{arrow('time')}</th>
                     <th className="sortable" onClick={() => handleSort('planned')}>Planned{arrow('planned')}</th>
                     <th className="sortable" onClick={() => handleSort('done')}>Done{arrow('done')}</th>
                     <th className="sortable" onClick={() => handleSort('pct')}>%{arrow('pct')}</th>
-                    <th className="sortable" onClick={() => handleSort('pts')}>Pts{arrow('pts')}</th>
+                    <th className="sortable" onClick={() => handleSort('plannedPts')}>Planned pts{arrow('plannedPts')}</th>
+                    <th className="sortable" onClick={() => handleSort('donePts')}>Done pts{arrow('donePts')}</th>
                   </tr></thead>
                   <tbody>
                     {sortedItems.map((item) => {
@@ -219,13 +217,13 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
                               title="Not committed this sprint — the queue only reached it because you got ahead. Earns points, owes none.">bonus</span>}
                             <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>{isExpanded ? '▼' : '▶'}</span>
                           </td>
-                          <td>{item.isBonus ? '—' : item.scheduledSessions}</td>
-                          <td>{item.isBonus ? '—' : item.totalMinutes >= 60 ? `${Math.round(item.totalMinutes / 60 * 10) / 10}h` : `${Math.round(item.totalMinutes)}m`}</td>
                           <td>{item.isBonus ? <span style={{ color: 'var(--text-muted)' }}>—</span> : fmtUnit(item.plannedUnits, item.unit)}</td>
                           <td>{fmtUnit(item.doneUnits, item.unit)}</td>
                           <td>{item.isBonus
                             ? <span className="perf-pct bonus" title="No commitment to fall short of">+{Math.round(item.earnedPoints)}</span>
                             : <span className={`perf-pct ${pct >= 100 ? 'done' : pct >= 50 ? 'mid' : 'low'}`}>{pct}%</span>}</td>
+                          {/* A bonus item was never committed to, so it has no plan to print. */}
+                          <td>{item.isBonus ? <span style={{ color: 'var(--text-muted)' }}>—</span> : item.plannedPoints}</td>
                           <td>{item.earnedPoints}</td>
                         </tr>);
                     })}
