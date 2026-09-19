@@ -181,8 +181,7 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
             {/* Overall Progress Chart with ideal + 75% + 90% lines */}
             <div className="perf-section">
               <h2>Overall Progress</h2>
-              {/* Committed work only — bonus items have no ideal line to average against. */}
-              <OverallChart items={perf.items.filter(i => !i.isBonus)} colors={COLORS} />
+              <OverallChart progress={perf.dailyProgress} colors={COLORS} />
             </div>
 
             {/* Sortable summary table */}
@@ -404,15 +403,20 @@ function YGrid() {
   })}</>;
 }
 
+/**
+ * The vertical read-out under the cursor. A row is a percentage plotted on the chart unless it
+ * carries `text`, which makes it a bare reading — shown in the tooltip, not marked on the line,
+ * since its units aren't the y axis's.
+ */
 function HoverCrosshair({ hoverIdx, n, values, dates }: {
   hoverIdx: number; n: number;
-  values: { label: string; value: number; color: string }[];
+  values: { label: string; value: number; color: string; text?: string }[];
   dates: { date: string }[];
 }) {
   const x = xScale(hoverIdx, n);
   return <>
     <line x1={x} y1={PT} x2={x} y2={H - P} stroke="var(--text-muted)" strokeWidth={1} strokeDasharray="4,3" opacity={0.7} />
-    {values.map((v, i) => (
+    {values.map((v, i) => v.text === undefined && (
       <circle key={i} cx={x} cy={yScale(v.value)} r={5} fill={v.color} stroke="var(--bg-primary)" strokeWidth={2} />
     ))}
     <foreignObject x={Math.min(x + 12, W - 170)} y={PT} width={160} height={values.length * 20 + 28}>
@@ -426,7 +430,7 @@ function HoverCrosshair({ hoverIdx, n, values, dates }: {
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: v.color, flexShrink: 0 }} />
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.label}</span>
-            <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{Math.round(v.value * 10) / 10}%</span>
+            <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{v.text ?? `${Math.round(v.value * 10) / 10}%`}</span>
           </div>
         ))}
       </div>
@@ -434,68 +438,74 @@ function HoverCrosshair({ hoverIdx, n, values, dates }: {
   </>;
 }
 
-/** Overall chart: accumulated avg % with ideal line + 75% + 90% reference lines */
-function OverallChart({ items, colors }: { items: PerformanceItem[]; colors: string[] }) {
+/**
+ * The sprint's pace: everything earned up to and including a day, over everything the plan had
+ * asked for by then.
+ *
+ * It used to average each item's own completion percentage, which answered a different question
+ * and answered it badly — a plain mean over items, so a 3-point item finished five times over
+ * counted exactly as much as a 52-point item untouched, and early in a sprint the many items
+ * scheduled for later days sat at 0% and dragged the line down regardless of how the days
+ * actually went.
+ *
+ * Because the denominator already carries the shape of the plan, the reference lines are flat:
+ * 100 is on plan, and the line crossing above it means ahead. The series stops at today — beyond
+ * it the plan keeps growing while nothing can have been earned yet, which would only draw how
+ * much of the future has not happened.
+ */
+function OverallChart({ progress, colors }: {
+  progress: { date: string; cumulativeEarned: number; cumulativePlanned: number; actualPercent: number; isFuture: boolean }[];
+  colors: string[];
+}) {
   const svgRef = useRef<SVGSVGElement>(null);
-  if (items.length === 0 || items[0].dailyCumulative.length === 0) return <p style={{ color: 'var(--text-muted)' }}>No data.</p>;
-
-  const dates = items[0].dailyCumulative;
-  const n = dates.length;
+  const n = progress.length;
   const { hoverIdx, handleMouse, clearHover } = useChartHover(svgRef, n);
+  if (n === 0) return <p style={{ color: 'var(--text-muted)' }}>No data.</p>;
 
-  // Average cumulative % per day (actual)
-  const avgData = dates.map((_, di) => {
-    const vals = items.map(it => it.dailyCumulative[di]?.cumulativePercent ?? 0);
-    return vals.reduce((a, b) => a + b, 0) / vals.length;
-  });
-
-  // Average ideal % per day (from backend — based on actual planned units per day)
-  const idealData = dates.map((_, di) => {
-    const vals = items.map(it => it.dailyCumulative[di]?.idealPercent ?? 0);
-    return vals.reduce((a, b) => a + b, 0) / vals.length;
-  });
-
-  const linePath = avgData.map((v, i) => `${i === 0 ? 'M' : 'L'}${xScale(i, n)},${yScale(v)}`).join(' ');
-  const idealPath = idealData.map((v, i) => `${i === 0 ? 'M' : 'L'}${xScale(i, n)},${yScale(v)}`).join(' ');
-  const line75 = idealData.map((v, i) => `${i === 0 ? 'M' : 'L'}${xScale(i, n)},${yScale(v * 0.75)}`).join(' ');
-  const line90 = idealData.map((v, i) => `${i === 0 ? 'M' : 'L'}${xScale(i, n)},${yScale(v * 0.90)}`).join(' ');
+  const livePts = progress.filter(p => !p.isFuture);
+  const color = colors[0];
+  const linePath = livePts.map((p, i) => `${i === 0 ? 'M' : 'L'}${xScale(i, n)},${yScale(p.actualPercent)}`).join(' ');
+  const flat = (v: number) => `M${xScale(0, n)},${yScale(v)} L${xScale(n - 1, n)},${yScale(v)}`;
+  const latest = livePts[livePts.length - 1];
 
   return (
-    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="chart-svg"
-      onMouseMove={handleMouse} onMouseLeave={clearHover} style={{ cursor: 'crosshair' }}>
-      <YGrid />
-
-      {/* Ideal line (100%) */}
-      <path d={idealPath} fill="none" stroke="var(--text-muted)" strokeWidth={2.5} strokeDasharray="6,4" opacity={0.5} />
-      {/* 90% line */}
-      <path d={line90} fill="none" stroke="#8aca6a" strokeWidth={2} strokeDasharray="4,3" opacity={0.5} />
-      {/* 75% line */}
-      <path d={line75} fill="none" stroke="#d4aa5a" strokeWidth={2} strokeDasharray="4,3" opacity={0.5} />
-
-      {/* Actual progress — line only */}
-      <path d={linePath} fill="none" stroke={colors[0]} strokeWidth={2.5} strokeLinejoin="round" />
-
-      {/* Legend for reference lines */}
-      <g transform={`translate(${W - PR - 120}, ${PT + 2})`}>
-        <line x1={0} y1={4} x2={16} y2={4} stroke="var(--text-muted)" strokeWidth={2.5} strokeDasharray="4,3" opacity={0.5} />
-        <text x={20} y={7} fill="var(--text-muted)" fontSize={9}>Ideal (100%)</text>
-        <line x1={0} y1={16} x2={16} y2={16} stroke="#8aca6a" strokeWidth={2} strokeDasharray="4,3" opacity={0.5} />
-        <text x={20} y={19} fill="var(--text-muted)" fontSize={9}>90%</text>
-        <line x1={0} y1={28} x2={16} y2={28} stroke="#d4aa5a" strokeWidth={2} strokeDasharray="4,3" opacity={0.5} />
-        <text x={20} y={31} fill="var(--text-muted)" fontSize={9}>75%</text>
-      </g>
-
-      <XLabels dates={dates} />
-      {hoverIdx !== null && (
-        <HoverCrosshair hoverIdx={hoverIdx} n={n} dates={dates}
-          values={[
-            { label: 'Actual', value: avgData[hoverIdx], color: colors[0] },
-            { label: 'Ideal', value: idealData[hoverIdx], color: '#888' },
-            { label: '90%', value: idealData[hoverIdx] * 0.9, color: '#34a853' },
-            { label: '75%', value: idealData[hoverIdx] * 0.75, color: '#f9ab00' },
-          ]} />
+    <>
+      {latest && (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700,
+            color: latest.actualPercent >= 100 ? 'var(--success)' : latest.actualPercent >= 75 ? 'var(--text-primary)' : '#d4aa5a' }}>
+            {latest.actualPercent}%
+          </span>
+          <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+            of plan so far — {latest.cumulativeEarned} of {latest.cumulativePlanned} pts due by {latest.date.slice(5)}
+          </span>
+        </div>
       )}
-    </svg>
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="chart-svg"
+        onMouseMove={handleMouse} onMouseLeave={clearHover} style={{ cursor: 'crosshair' }}>
+        <YGrid />
+        {/* Flat, because the denominator already carries the plan's shape. Labelled on the line
+            itself: a corner legend would only say the same thing further from what it names. */}
+        {([[100, 'var(--text-muted)', 'on plan', '6,4'], [90, '#8aca6a', '90%', '4,3'], [75, '#d4aa5a', '75%', '4,3']] as const).map(([v, stroke, label, dash]) => (
+          <g key={v}>
+            <path d={flat(v)} fill="none" stroke={stroke} strokeWidth={v === 100 ? 2.5 : 2} strokeDasharray={dash} opacity={v === 100 ? 0.5 : 0.45} />
+            {/* "on plan" sits above its line, the other two below theirs — the three are close
+                enough together that labelling them all on the same side would stack them. */}
+            <text x={W - PR} y={yScale(v) + (v === 100 ? -5 : 11)} fill={stroke} fontSize={9.5} textAnchor="end" opacity={0.85}>{label}</text>
+          </g>
+        ))}
+        <path d={linePath} fill="none" stroke={color} strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" />
+        <XLabels dates={progress} />
+        {hoverIdx !== null && hoverIdx < livePts.length && (
+          <HoverCrosshair hoverIdx={hoverIdx} n={n} dates={progress}
+            values={[
+              { label: 'Pace', value: livePts[hoverIdx].actualPercent, color },
+              { label: 'Earned', value: livePts[hoverIdx].cumulativeEarned, color: '#888', text: `${livePts[hoverIdx].cumulativeEarned} pts` },
+              { label: 'Due by then', value: livePts[hoverIdx].cumulativePlanned, color: '#888', text: `${livePts[hoverIdx].cumulativePlanned} pts` },
+            ]} />
+        )}
+      </svg>
+    </>
   );
 }
 

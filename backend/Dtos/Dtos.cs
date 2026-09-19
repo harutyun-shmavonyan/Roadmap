@@ -88,11 +88,21 @@ public record StatusChangeDto(Guid Id, Guid NodeId, string NodeTitle, string Old
 
 // --- Performance (sprint-scoped, all based on sprint plan + sprint work logs) ---
 
+/// <summary>
+/// The sprint's pace on one day: everything earned up to and including it, against everything the
+/// plan had asked for by then. 100 means exactly on plan — the ideal line is flat, not a ramp,
+/// because the denominator already carries the shape of the plan.
+/// </summary>
+public record DailyProgressDto(string Date, double CumulativeEarned, double CumulativePlanned,
+    double ActualPercent, bool IsFuture);
+
 public record PerformanceSummaryDto(
     List<PerformanceItemDto> Items,
     double TotalPlannedPoints,
     double TotalEarnedPoints,
     List<DailyPointsDto> DailyPoints,
+    // Earned-to-date over planned-to-date, per day — what "overall progress" plots.
+    List<DailyProgressDto> DailyProgress,
     List<CompletedTaskDto> CompletedTasks,
     List<CustomLogDto> CustomLogs,
     List<CategoryTimeDto> CategoryBreakdown,

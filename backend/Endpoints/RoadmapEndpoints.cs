@@ -1116,6 +1116,9 @@ public static class RoadmapEndpoints
 
             var items = new List<PerformanceItemDto>();
             var dailyPointsMap = dates.ToDictionary(d => d, _ => 0.0);
+            // What the plan asked for on each day — the denominator of the sprint's pace.
+            // Tasks and custom logs never appear here: they are earned, never planned.
+            var dailyPlannedMap = dates.ToDictionary(d => d, _ => 0.0);
             var today = AppClock.Today();
 
             // First pass: compute per-item planned/done points
@@ -1151,6 +1154,7 @@ public static class RoadmapEndpoints
                 itemDataList.Add((nodeId, node, totalPlannedPts, totalDonePts, sessions, totalPlannedUnits, totalDoneUnits, totalMins, dailyPlan, dailyDone));
 
                 foreach (var log in nodeLogs) { if (dailyPointsMap.ContainsKey(log.Date)) dailyPointsMap[log.Date] += LogPts(log); }
+                foreach (var (d, pts) in dailyPlan) if (dailyPlannedMap.ContainsKey(d)) dailyPlannedMap[d] += pts;
             }
 
             // Second pass: build items with per-item cumulative % (points-based relative to item's own planned points)
@@ -1269,7 +1273,9 @@ public static class RoadmapEndpoints
                 double runPlanned = 0, runDone = 0;
                 foreach (var d in dates)
                 {
-                    runPlanned += blockPlan.Where(p => p.Date == d).Sum(p => p.PlannedUnits) * avgPph;
+                    var dayPlanned = blockPlan.Where(p => p.Date == d).Sum(p => p.PlannedUnits) * avgPph;
+                    dailyPlannedMap[d] += dayPlanned;
+                    runPlanned += dayPlanned;
                     runDone += memberLogs.Where(w => w.Date == d).Sum(PoolLogPts);
                     poolCum.Add(new DailyCumulativeDto(d.ToString("yyyy-MM-dd"),
                         poolDenom > 0 ? Math.Round(runDone / poolDenom * 100, 1) : 0,
@@ -1327,6 +1333,7 @@ public static class RoadmapEndpoints
                     // Only count planned points for days that have passed or are today
                     if (d <= today)
                         totalHabitPlannedPts += 2;
+                    dailyPlannedMap[d] += 2;
 
                     var check = sh.Checks.FirstOrDefault(c => c.Date == d);
                     if (check?.IsChecked == true)
@@ -1465,9 +1472,31 @@ public static class RoadmapEndpoints
             }
             grandEarned += totalGoalBonusPts;
 
+            // The sprint's pace, day by day: everything earned up to and including a day over
+            // everything the plan had asked for by then. Every earning source counts in the
+            // numerator — items, pools, habits, tasks, custom logs, goal logs and their bonuses —
+            // because they all count in the sprint's earned total; the denominator carries only
+            // what the plan actually committed to a day. Days after today are flagged rather than
+            // dropped, because a ratio there would only measure how much of the future has not
+            // happened yet.
+            var dailyProgress = new List<DailyProgressDto>();
+            double cumEarned = 0, cumPlanned = 0;
+            foreach (var d in dates)
+            {
+                cumEarned += dailyPointsMap[d];
+                cumPlanned += dailyPlannedMap[d];
+                dailyProgress.Add(new DailyProgressDto(
+                    d.ToString("yyyy-MM-dd"),
+                    Math.Round(cumEarned, 1),
+                    Math.Round(cumPlanned, 1),
+                    cumPlanned > 0 ? Math.Round(cumEarned / cumPlanned * 100, 1) : 0,
+                    d > today));
+            }
+
             return Results.Ok(new PerformanceSummaryDto(items, Math.Round(grandPlanned, 1),
                 Math.Round(grandEarned, 1),
                 dates.Select(d => new DailyPointsDto(d.ToString("yyyy-MM-dd"), Math.Round(dailyPointsMap[d], 1))).ToList(),
+                dailyProgress,
                 ctDtos, customLogDtos, catDtos, goalDtos, Math.Round(totalGoalBonusPts, 1),
                 sprint.ScoringMode.ToString()));
         });
