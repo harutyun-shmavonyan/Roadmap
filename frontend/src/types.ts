@@ -62,8 +62,16 @@ export interface WorkLogDto { id: string; nodeId: string; nodeTitle: string; dat
 export interface PerformanceSummary {
   items: PerformanceItem[]; totalPlannedPoints: number; totalEarnedPoints: number;
   dailyPoints: { date: string; points: number }[];
-  /** Earned-to-date over planned-to-date, per day — the sprint's pace. */
-  dailyProgress: { date: string; cumulativeEarned: number; cumulativePlanned: number; actualPercent: number; isFuture: boolean }[];
+  /**
+   * Earned and due to date, per day, each as a percentage of the sprint's whole plan. The four
+   * `earned*` figures split `cumulativeEarned` by where it came from and add back up to it.
+   */
+  dailyProgress: {
+    date: string; cumulativeEarned: number; cumulativePlanned: number;
+    earnedPercent: number; plannedPercent: number;
+    earnedSchedule: number; earnedGoals: number; earnedHabits: number; earnedOther: number;
+    isFuture: boolean;
+  }[];
   completedTasks: { id: string; title: string; priority: string; estimatedHours: number; points: number; completedDate: string }[];
   customLogs: { id: string; title: string; points: number; date: string; note: string | null }[];
   categoryBreakdown: CategoryTimeNode[];

@@ -406,20 +406,24 @@ function YGrid() {
 /**
  * The vertical read-out under the cursor. `value` is where the row sits on the chart, and is
  * printed as a percentage unless `text` gives the reading in its own units. `dot: false` is for a
- * row that is worth reading but isn't a point on any line.
+ * row that is worth reading but isn't a point on any line, and `sub` sets a row underneath the
+ * one above it as a part of it.
  */
 function HoverCrosshair({ hoverIdx, n, values, dates }: {
   hoverIdx: number; n: number;
-  values: { label: string; value: number; color: string; text?: string; dot?: boolean }[];
+  values: { label: string; value: number; color: string; text?: string; dot?: boolean; sub?: boolean }[];
   dates: { date: string }[];
 }) {
   const x = xScale(hoverIdx, n);
+  // Readings that carry their own units are longer than a bare percentage, so the box follows the
+  // widest one rather than ellipsising it away.
+  const w = Math.max(160, ...values.map(v => (v.sub ? 104 : 92) + 6.6 * (v.text?.length ?? 6)));
   return <>
     <line x1={x} y1={PT} x2={x} y2={H - P} stroke="var(--text-muted)" strokeWidth={1} strokeDasharray="4,3" opacity={0.7} />
     {values.map((v, i) => v.dot !== false && (
       <circle key={i} cx={x} cy={yScale(v.value)} r={5} fill={v.color} stroke="var(--bg-primary)" strokeWidth={2} />
     ))}
-    <foreignObject x={Math.min(x + 12, W - 170)} y={PT} width={160} height={values.length * 20 + 28}>
+    <foreignObject x={Math.min(x + 12, W - w - 10)} y={PT} width={w} height={values.length * 20 + 28}>
       <div style={{
         background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 6,
         padding: '6px 10px', fontSize: 11, lineHeight: '18px', color: 'var(--text-primary)',
@@ -427,8 +431,10 @@ function HoverCrosshair({ hoverIdx, n, values, dates }: {
       } as React.CSSProperties}>
         <div style={{ fontWeight: 600, marginBottom: 2, color: 'var(--text-muted)' }}>{dates[hoverIdx]?.date.slice(5)}</div>
         {values.map((v, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: v.color, flexShrink: 0 }} />
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4,
+            ...(v.sub ? { paddingLeft: 12, fontSize: 10.5, lineHeight: '15px', color: 'var(--text-muted)' } : null) }}>
+            {v.sub ? <span style={{ width: 8, flexShrink: 0 }} />
+              : <span style={{ width: 8, height: 8, borderRadius: '50%', background: v.color, flexShrink: 0 }} />}
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.label}</span>
             <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{v.text ?? `${Math.round(v.value * 10) / 10}%`}</span>
           </div>
@@ -439,16 +445,39 @@ function HoverCrosshair({ hoverIdx, n, values, dates }: {
 }
 
 /**
- * Overall progress, in points rather than in an average of percentages.
+ * The earned reading, and under it the three places points come from: work logged against the
+ * schedule, sprint goals and their bonuses, and habits — which is a penalty as often as a reward,
+ * so it is the one part that can be negative. Tasks and custom logs are earned but were never
+ * planned, so they appear as their own part and only once there are any.
  *
- * Both lines are scaled by the sprint's whole plan, so the dashed one climbs to 100% on the last
- * day and carries the plan's shape — heavy days steepen it, relax days flatten it. The solid line
- * is everything earned so far on that same scale, which makes the vertical gap between them the
- * shortfall in points and their ratio the pace quoted above the chart.
+ * Every part is in points, not percentages: they are a breakdown of the points figure beside
+ * "Earned", and each divides into the sprint's plan the same way that figure does.
+ */
+function earnedRows(p: PerformanceSummary['dailyProgress'][number], color: string) {
+  const pts = (v: number) => `${v > 0 ? '+' : ''}${v} pts`;
+  return [
+    { label: 'Earned', value: p.earnedPercent, color, text: `${p.earnedPercent}% · ${p.cumulativeEarned} pts` },
+    { label: 'from schedule', value: 0, color, dot: false, sub: true, text: pts(p.earnedSchedule) },
+    { label: 'from goals', value: 0, color, dot: false, sub: true, text: pts(p.earnedGoals) },
+    { label: 'from habits', value: 0, color, dot: false, sub: true, text: pts(p.earnedHabits) },
+    ...(p.earnedOther !== 0
+      ? [{ label: 'tasks & logs', value: 0, color, dot: false, sub: true, text: pts(p.earnedOther) }]
+      : []),
+  ];
+}
+
+/**
+ * Overall progress: how much of the sprint's plan has been earned, and how much of it had been
+ * asked for, day by day.
  *
- * The number above is what "overall progress" now means: everything earned up to and including
- * today over everything the plan had asked for by then. It used to be a plain mean of each item's
- * own completion percentage — so a 3-point item finished five times over counted exactly as much
+ * Every percentage on this chart has the same denominator — the sprint's plan in full. The dashed
+ * line is the plan's own progress against itself, so it climbs to 100% on the last day and
+ * carries the plan's shape (heavy days steepen it, relax days flatten it); the solid line is
+ * what's actually been earned, on that same scale. One yardstick for both is what makes the
+ * vertical gap between them read directly as the shortfall.
+ *
+ * This replaced a plain mean of each item's own completion percentage, which answered a different
+ * question and answered it badly: a 3-point item finished five times over counted exactly as much
  * as a 52-point item untouched, and early in a sprint the many items scheduled for later days sat
  * at 0% and dragged it down however the days had actually gone.
  *
@@ -456,7 +485,7 @@ function HoverCrosshair({ hoverIdx, n, values, dates }: {
  * earned yet, so continuing it would only draw how much of the future has not happened.
  */
 function OverallChart({ progress, colors }: {
-  progress: { date: string; cumulativeEarned: number; cumulativePlanned: number; actualPercent: number; isFuture: boolean }[];
+  progress: PerformanceSummary['dailyProgress'];
   colors: string[];
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -465,33 +494,50 @@ function OverallChart({ progress, colors }: {
   if (n === 0) return <p style={{ color: 'var(--text-muted)' }}>No data.</p>;
 
   const color = colors[0];
-  // The sprint's whole commitment is the yardstick, so the plan line lands on 100% at the end.
-  const total = progress[n - 1].cumulativePlanned;
-  const pct = (pts: number) => (total > 0 ? (pts / total) * 100 : 0);
   const path = (vals: number[]) => vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${xScale(i, n)},${yScale(v)}`).join(' ');
-
-  const ideal = progress.map(p => pct(p.cumulativePlanned));
+  const ideal = progress.map(p => p.plannedPercent);
   const livePts = progress.filter(p => !p.isFuture);
   const latest = livePts[livePts.length - 1];
+  const total = progress[n - 1].cumulativePlanned;
+  // Ahead of the plan, near enough, or behind. A cue for the headline's colour only — it is not a
+  // fourth percentage, so it is never shown as one.
+  const standing = latest && latest.plannedPercent > 0 ? latest.earnedPercent / latest.plannedPercent : 1;
 
   return (
     <>
       {latest && (
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700,
-            color: latest.actualPercent >= 100 ? 'var(--success)' : latest.actualPercent >= 75 ? 'var(--text-primary)' : '#d4aa5a' }}>
-            {latest.actualPercent}%
+            color: standing >= 1 ? 'var(--success)' : standing >= 0.75 ? 'var(--text-primary)' : '#d4aa5a' }}>
+            {latest.earnedPercent}%
           </span>
           <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
-            of plan so far — {latest.cumulativeEarned} of {latest.cumulativePlanned} pts due by {latest.date.slice(5)}
+            of the sprint earned — {latest.cumulativeEarned} of {total} pts · the plan wanted{' '}
+            <b style={{ color: 'var(--text-secondary)' }}>{latest.plannedPercent}%</b> ({latest.cumulativePlanned} pts) by {latest.date.slice(5)}
           </span>
+        </div>
+      )}
+      {/* Where those points came from, without having to hover for it. Habits are as often a
+          penalty as a reward, and a bad week there is worth seeing next to the total it drags. */}
+      {latest && (
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 8,
+          fontSize: 11.5, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+          {([['schedule', latest.earnedSchedule], ['goals', latest.earnedGoals], ['habits', latest.earnedHabits],
+             ...(latest.earnedOther !== 0 ? [['tasks & logs', latest.earnedOther] as const] : [])] as const).map(([label, v]) => (
+            <span key={label}>
+              {label}{' '}
+              <b style={{ color: v < 0 ? '#d4574f' : v > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
+                {v > 0 ? '+' : ''}{v}
+              </b>
+            </span>
+          ))}
         </div>
       )}
       <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="chart-svg"
         onMouseMove={handleMouse} onMouseLeave={clearHover} style={{ cursor: 'crosshair' }}>
         <YGrid />
-        {/* The plan and the two thresholds under it, all carrying its shape. They are labelled at
-            the right edge, where each one ends on the figure it stands for. */}
+        {/* The plan and the two thresholds under it, all carrying its shape. Labelled at the right
+            edge, where each one ends on the figure it stands for. */}
         <path d={path(ideal)} fill="none" stroke="var(--text-muted)" strokeWidth={2.5} strokeDasharray="6,4" opacity={0.5} />
         <path d={path(ideal.map(v => v * 0.9))} fill="none" stroke="#8aca6a" strokeWidth={2} strokeDasharray="4,3" opacity={0.5} />
         <path d={path(ideal.map(v => v * 0.75))} fill="none" stroke="#d4aa5a" strokeWidth={2} strokeDasharray="4,3" opacity={0.5} />
@@ -499,18 +545,16 @@ function OverallChart({ progress, colors }: {
         <text x={W - PR} y={yScale(90) + 11} fill="#8aca6a" fontSize={9.5} textAnchor="end" opacity={0.9}>90%</text>
         <text x={W - PR} y={yScale(75) + 11} fill="#d4aa5a" fontSize={9.5} textAnchor="end" opacity={0.9}>75%</text>
 
-        <path d={path(livePts.map(p => pct(p.cumulativeEarned)))} fill="none" stroke={color}
+        <path d={path(livePts.map(p => p.earnedPercent))} fill="none" stroke={color}
           strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" />
 
         <XLabels dates={progress} />
         {hoverIdx !== null && (
           <HoverCrosshair hoverIdx={hoverIdx} n={n} dates={progress}
             values={[
-              ...(hoverIdx < livePts.length ? [
-                { label: 'Earned', value: pct(livePts[hoverIdx].cumulativeEarned), color, text: `${livePts[hoverIdx].cumulativeEarned} pts` },
-                { label: 'Pace', value: 0, color, text: `${livePts[hoverIdx].actualPercent}%`, dot: false },
-              ] : []),
-              { label: 'Plan by then', value: ideal[hoverIdx], color: '#888', text: `${progress[hoverIdx].cumulativePlanned} pts` },
+              ...(hoverIdx < livePts.length ? earnedRows(livePts[hoverIdx], color) : []),
+              { label: 'Plan by then', value: ideal[hoverIdx], color: '#888',
+                text: `${progress[hoverIdx].plannedPercent}% · ${progress[hoverIdx].cumulativePlanned} pts` },
             ]} />
         )}
       </svg>

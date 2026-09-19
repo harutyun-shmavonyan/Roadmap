@@ -1116,7 +1116,18 @@ public static class RoadmapEndpoints
 
             var items = new List<PerformanceItemDto>();
             var dailyPointsMap = dates.ToDictionary(d => d, _ => 0.0);
-            // What the plan asked for on each day — the denominator of the sprint's pace.
+            // The same earnings, split by where they came from. Everything goes through Earn, so
+            // the parts cannot drift from the total they are parts of.
+            const int BSchedule = 0, BGoals = 1, BHabits = 2, BOther = 3;
+            var dailySplitMap = dates.ToDictionary(d => d, _ => new double[4]);
+            bool Earn(DateOnly d, double pts, int bucket)
+            {
+                if (!dailyPointsMap.ContainsKey(d)) return false;
+                dailyPointsMap[d] += pts;
+                dailySplitMap[d][bucket] += pts;
+                return true;
+            }
+            // What the plan asked for on each day — the denominator of overall progress.
             // Tasks and custom logs never appear here: they are earned, never planned.
             var dailyPlannedMap = dates.ToDictionary(d => d, _ => 0.0);
             var today = AppClock.Today();
@@ -1153,7 +1164,7 @@ public static class RoadmapEndpoints
                 grandTotalPlannedPts += totalPlannedPts;
                 itemDataList.Add((nodeId, node, totalPlannedPts, totalDonePts, sessions, totalPlannedUnits, totalDoneUnits, totalMins, dailyPlan, dailyDone));
 
-                foreach (var log in nodeLogs) { if (dailyPointsMap.ContainsKey(log.Date)) dailyPointsMap[log.Date] += LogPts(log); }
+                foreach (var log in nodeLogs) Earn(log.Date, LogPts(log), BSchedule);
                 foreach (var (d, pts) in dailyPlan) if (dailyPlannedMap.ContainsKey(d)) dailyPlannedMap[d] += pts;
             }
 
@@ -1260,9 +1271,7 @@ public static class RoadmapEndpoints
                 var poolDonePts = memberLogs.Sum(PoolLogPts);
                 grandTotalPlannedPts += poolPlannedPts;
 
-                foreach (var log in memberLogs)
-                    if (dailyPointsMap.ContainsKey(log.Date))
-                        dailyPointsMap[log.Date] += PoolLogPts(log);
+                foreach (var log in memberLogs) Earn(log.Date, PoolLogPts(log), BSchedule);
 
                 // Same curve as an item's: actual against the block's commitment, ideal against
                 // the shape of that commitment. A pool with no commitment is bonus, so it is
@@ -1330,20 +1339,22 @@ public static class RoadmapEndpoints
             {
                 foreach (var sh in sprintHabits)
                 {
-                    // Only count planned points for days that have passed or are today
-                    if (d <= today)
-                        totalHabitPlannedPts += 2;
+                    // The sprint asks for the habit on every one of its days, so every one of them
+                    // is planned. Counting only the days already reached made the sprint's planned
+                    // total climb by itself as the days passed, and left it a figure no percentage
+                    // could honestly divide by: the whole plan for the work, part of it for these.
+                    totalHabitPlannedPts += 2;
                     dailyPlannedMap[d] += 2;
 
                     var check = sh.Checks.FirstOrDefault(c => c.Date == d);
                     if (check?.IsChecked == true)
                     {
-                        dailyPointsMap[d] += 2;
+                        Earn(d, 2, BHabits);
                         totalHabitEarnedPts += 2;
                     }
                     else if (d < today) // only penalize days that have fully passed
                     {
-                        dailyPointsMap[d] -= 2;
+                        Earn(d, -2, BHabits);
                         totalHabitEarnedPts -= 2;
                     }
                 }
@@ -1359,8 +1370,7 @@ public static class RoadmapEndpoints
             {
                 var taskPts = Math.Floor(ct.EstimatedHours * 2);
                 totalTaskEarnedPts += taskPts;
-                if (ct.CompletedDate.HasValue && dailyPointsMap.ContainsKey(ct.CompletedDate.Value))
-                    dailyPointsMap[ct.CompletedDate.Value] += taskPts;
+                if (ct.CompletedDate.HasValue) Earn(ct.CompletedDate.Value, taskPts, BOther);
             }
 
             // Add custom log points (earned only, not planned)
@@ -1371,7 +1381,7 @@ public static class RoadmapEndpoints
             foreach (var cl in customLogs)
             {
                 totalCustomPts += cl.Points;
-                if (dailyPointsMap.ContainsKey(cl.Date)) dailyPointsMap[cl.Date] += cl.Points;
+                Earn(cl.Date, cl.Points, BOther);
             }
             var customLogDtos = customLogs.Select(c => new CustomLogDto(c.Id, c.Title, c.Points, c.Date.ToString("yyyy-MM-dd"), c.Note)).ToList();
 
@@ -1440,13 +1450,8 @@ public static class RoadmapEndpoints
             foreach (var goal in sprintGoals)
             {
                 foreach (var log in goal.Logs)
-                {
-                    if (dailyPointsMap.ContainsKey(log.Date))
-                    {
-                        dailyPointsMap[log.Date] += log.Amount;
+                    if (Earn(log.Date, log.Amount, BGoals))
                         totalSprintGoalPts += log.Amount;
-                    }
-                }
             }
             grandEarned += totalSprintGoalPts;
 
@@ -1462,34 +1467,45 @@ public static class RoadmapEndpoints
                 {
                     cumulative += log.Amount;
                     if (cumulative < goal.TargetAmount) continue;
-                    if (dailyPointsMap.ContainsKey(log.Date))
-                    {
-                        dailyPointsMap[log.Date] += GoalBonusPoints;
+                    if (Earn(log.Date, GoalBonusPoints, BGoals))
                         totalGoalBonusPts += GoalBonusPoints;
-                    }
                     break;
                 }
             }
             grandEarned += totalGoalBonusPts;
 
-            // The sprint's pace, day by day: everything earned up to and including a day over
-            // everything the plan had asked for by then. Every earning source counts in the
-            // numerator — items, pools, habits, tasks, custom logs, goal logs and their bonuses —
-            // because they all count in the sprint's earned total; the denominator carries only
-            // what the plan actually committed to a day. Days after today are flagged rather than
-            // dropped, because a ratio there would only measure how much of the future has not
-            // happened yet.
+            // Overall progress, day by day. Everything the sprint counts as earned goes into the
+            // running total — items, pools, habits, tasks, custom logs, goal logs and their
+            // bonuses — while the plan's running total carries only what was actually committed
+            // to a day.
+            //
+            // Both are then divided by the same number: the sprint's plan in full. One
+            // denominator for every percentage is what makes the two comparable at a glance —
+            // the plan's own curve reaches 100 on the last day, and how far the earned curve
+            // trails it is the shortfall. Dividing each day by its own plan-to-date instead would
+            // pin the plan at a flat 100 and throw that shape away.
+            //
+            // Days after today are flagged, not dropped: the plan ahead is worth drawing, but
+            // nothing can have been earned there yet.
+            var sprintPlannedPts = dates.Sum(d => dailyPlannedMap[d]);
             var dailyProgress = new List<DailyProgressDto>();
             double cumEarned = 0, cumPlanned = 0;
+            var cumSplit = new double[4];
             foreach (var d in dates)
             {
                 cumEarned += dailyPointsMap[d];
                 cumPlanned += dailyPlannedMap[d];
+                for (var b = 0; b < cumSplit.Length; b++) cumSplit[b] += dailySplitMap[d][b];
                 dailyProgress.Add(new DailyProgressDto(
                     d.ToString("yyyy-MM-dd"),
                     Math.Round(cumEarned, 1),
                     Math.Round(cumPlanned, 1),
-                    cumPlanned > 0 ? Math.Round(cumEarned / cumPlanned * 100, 1) : 0,
+                    sprintPlannedPts > 0 ? Math.Round(cumEarned / sprintPlannedPts * 100, 1) : 0,
+                    sprintPlannedPts > 0 ? Math.Round(cumPlanned / sprintPlannedPts * 100, 1) : 0,
+                    Math.Round(cumSplit[BSchedule], 1),
+                    Math.Round(cumSplit[BGoals], 1),
+                    Math.Round(cumSplit[BHabits], 1),
+                    Math.Round(cumSplit[BOther], 1),
                     d > today));
             }
 

@@ -89,19 +89,30 @@ public record StatusChangeDto(Guid Id, Guid NodeId, string NodeTitle, string Old
 // --- Performance (sprint-scoped, all based on sprint plan + sprint work logs) ---
 
 /// <summary>
-/// The sprint's pace on one day: everything earned up to and including it, against everything the
-/// plan had asked for by then. 100 means exactly on plan — the ideal line is flat, not a ramp,
-/// because the denominator already carries the shape of the plan.
+/// One day of the sprint's overall progress: points earned and points due, each to date, and each
+/// as a percentage of <b>the whole sprint's plan</b>. That single denominator is what makes the
+/// two readings comparable — <see cref="PlannedPercent"/> reaches 100 on the last day and carries
+/// the shape of the plan, and <see cref="EarnedPercent"/> is measured against the same yardstick,
+/// so the gap between them is the shortfall.
 /// </summary>
+/// <remarks>
+/// The four earned figures are the same total split by where it came from, and they add back up
+/// to <see cref="CumulativeEarned"/> exactly: <b>Schedule</b> is work logged against the plan,
+/// items and pools alike; <b>Goals</b> is sprint-goal amounts plus the bonus for reaching one;
+/// <b>Habits</b> is ±2 a day and is often negative; <b>Other</b> is completed tasks and custom
+/// logs, which are earned but were never planned.
+/// </remarks>
 public record DailyProgressDto(string Date, double CumulativeEarned, double CumulativePlanned,
-    double ActualPercent, bool IsFuture);
+    double EarnedPercent, double PlannedPercent,
+    double EarnedSchedule, double EarnedGoals, double EarnedHabits, double EarnedOther,
+    bool IsFuture);
 
 public record PerformanceSummaryDto(
     List<PerformanceItemDto> Items,
     double TotalPlannedPoints,
     double TotalEarnedPoints,
     List<DailyPointsDto> DailyPoints,
-    // Earned-to-date over planned-to-date, per day — what "overall progress" plots.
+    // Earned and due to date, per day, both over the sprint's whole plan — "overall progress".
     List<DailyProgressDto> DailyProgress,
     List<CompletedTaskDto> CompletedTasks,
     List<CustomLogDto> CustomLogs,
