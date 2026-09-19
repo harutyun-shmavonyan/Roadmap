@@ -505,26 +505,9 @@ function OverallChart({ progress, colors }: {
   const path = (vals: number[]) => vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${xScale(i, n)},${yScale(v)}`).join(' ');
   const ideal = progress.map(p => p.plannedPercent);
   const livePts = progress.filter(p => !p.isFuture);
-  const latest = livePts[livePts.length - 1];
-  // Ahead of the plan, near enough, or behind. A cue for the headline's colour only — it is not a
-  // fourth percentage, so it is never shown as one.
-  const standing = latest && latest.plannedPercent > 0 ? latest.earnedPercent / latest.plannedPercent : 1;
 
   return (
     <>
-      {latest && (
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700,
-            color: standing >= 1 ? 'var(--success)' : standing >= 0.75 ? 'var(--text-primary)' : '#d4aa5a' }}>
-            {latest.earnedPercent}%
-          </span>
-          <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
-            of the sprint earned · the plan wanted{' '}
-            <b style={{ color: 'var(--text-secondary)' }}>{latest.plannedPercent}%</b> by {latest.date.slice(5)}
-          </span>
-        </div>
-      )}
-
       <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="chart-svg"
         onMouseMove={handleMouse} onMouseLeave={clearHover} style={{ cursor: 'crosshair' }}>
         <YGrid />
@@ -544,10 +527,14 @@ function OverallChart({ progress, colors }: {
         {hoverIdx !== null && (
           <HoverCrosshair hoverIdx={hoverIdx} n={n} dates={progress}
             values={[
+              // Earned only where there is a line to read it off; the rest are the plan and the
+              // two thresholds under it, which are drawn across the whole sprint.
               ...(hoverIdx < livePts.length
                 ? [{ label: 'Earned', value: livePts[hoverIdx].earnedPercent, color }]
                 : []),
-              { label: 'Plan by then', value: ideal[hoverIdx], color: '#888' },
+              { label: 'Plan', value: ideal[hoverIdx], color: '#888' },
+              { label: '90%', value: ideal[hoverIdx] * 0.9, color: '#8aca6a' },
+              { label: '75%', value: ideal[hoverIdx] * 0.75, color: '#d4aa5a' },
             ]} />
         )}
       </svg>
