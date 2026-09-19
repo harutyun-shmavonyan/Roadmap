@@ -3160,6 +3160,82 @@ public static class RoadmapEndpoints
     }
 
     /// <summary>
+    /// Bring a frozen commitment's <b>queue blocks</b> up to date with the order they are in now,
+    /// returning the reseated snapshot, or null when nothing moved.
+    ///
+    /// The commitment is otherwise frozen on purpose, and everything that makes it a commitment
+    /// stays frozen here: rates, schedule templates, item sizes, relax days and the window. Three
+    /// things are allowed through, because all three change which item a queue is pointing at, and
+    /// a Performance tab that plans a different item from the one the day view schedules is just
+    /// wrong:
+    ///
+    /// <list type="bullet">
+    ///   <item>the order of a queue block's items,</item>
+    ///   <item>its membership — an item queued mid-sprint is a real new obligation,</item>
+    ///   <item>a live Stop or Pause, which takes an item out of the queue so the next one takes
+    ///         its sessions.</item>
+    /// </list>
+    ///
+    /// A <see cref="ActionItemStatus.Completed"/> is deliberately <i>not</i> followed: the frozen
+    /// status is what the item was on the sprint's first morning, and copying a completion over it
+    /// would delete the obligation at the moment it was met, erasing the very thing that was
+    /// achieved. Pool blocks are left alone as well — a pool's sessions belong to the block, not to
+    /// any one item, so activating something inside it was never meant to move what was promised.
+    /// </summary>
+    private static PlanSnapshot? ReseatQueues(PlanSnapshot snap, List<RoadmapNode> allNodes,
+        List<ScheduleBlock> blocks)
+    {
+        var live = allNodes.ToDictionary(n => n.Id);
+        var liveBlocks = blocks.ToDictionary(b => b.Id);
+        // Only queue blocks the commitment already knows about; a block created mid-sprint brings
+        // obligations the sprint never opened with.
+        var queues = snap.Blocks.Select(b => b.Id)
+            .Where(id => liveBlocks.TryGetValue(id, out var lb) && lb.Mode == ScheduleBlockMode.Queue)
+            .ToHashSet();
+        var changed = false;
+
+        var newBlocks = snap.Blocks.Select(b =>
+        {
+            if (!queues.Contains(b.Id)) return b;
+            var ids = liveBlocks[b.Id].Items.Where(i => i.IsActionable)
+                .OrderBy(i => i.BlockSortOrder).Select(i => i.Id).ToList();
+            if (ids.SequenceEqual(b.ItemIds)) return b;
+            changed = true;
+            return b with { ItemIds = ids };
+        }).ToList();
+
+        var newNodes = snap.Nodes.Select(n =>
+        {
+            if (!live.TryGetValue(n.Id, out var cur)) return n;            // deleted since
+            var inQueue = queues.Contains(cur.ScheduleBlockId ?? Guid.Empty)
+                       || queues.Contains(n.BlockId ?? Guid.Empty);
+            if (!inQueue) return n;
+            var status = cur.Status == ActionItemStatus.Completed ? n.Status : cur.Status;
+            if (cur.ScheduleBlockId == n.BlockId && cur.BlockSortOrder == n.BlockSortOrder
+                && status == n.Status) return n;
+            changed = true;
+            return n with { BlockId = cur.ScheduleBlockId, BlockSortOrder = cur.BlockSortOrder, Status = status };
+        }).ToList();
+
+        // An item queued into one of those blocks after the sprint began has no frozen inputs to
+        // keep, so it joins on its current ones.
+        var have = newNodes.Select(n => n.Id).ToHashSet();
+        foreach (var b in newBlocks.Where(b => queues.Contains(b.Id)))
+            foreach (var id in b.ItemIds)
+            {
+                if (!have.Add(id) || !live.TryGetValue(id, out var cur)) continue;
+                newNodes.Add(new SnapshotNode(cur.Id, cur.TotalSize, cur.UnitsPerHour, cur.PointsPerUnit,
+                    cur.ScheduleTemplate, cur.ScheduleBlockId, cur.BlockSortOrder, cur.SortOrder,
+                    // It cannot have been completed before it was committed to.
+                    cur.Status == ActionItemStatus.Completed ? ActionItemStatus.Active : cur.Status,
+                    cur.IsActiveInBlock));
+                changed = true;
+            }
+
+        return changed ? snap with { Blocks = newBlocks, Nodes = newNodes } : null;
+    }
+
+    /// <summary>
     /// Rebuild the still-provisional half of every running (and not-yet-reached) sprint's plan.
     ///
     /// Days before today are frozen history and are never rewritten — a session you were
@@ -3187,7 +3263,15 @@ public static class RoadmapEndpoints
         foreach (var sprint in sprints)
         {
             // Sprints started before commitments existed get theirs captured on the first write.
-            await GetOrCapturePlanInputsAsync(db, sprint, persist: true);
+            var snap = await GetOrCapturePlanInputsAsync(db, sprint, persist: true);
+
+            // Keep the commitment's queues on the live order too, so Performance plans the same
+            // item the day view does.
+            if (snap is not null && ReseatQueues(snap, allNodes, blocks) is { } reseated)
+            {
+                var tracked = await db.Sprints.FirstOrDefaultAsync(s => s.Id == sprint.Id);
+                if (tracked is not null) tracked.PlanInputs = JsonSerializer.Serialize(reseated);
+            }
 
             var from = today > sprint.StartDate ? today : sprint.StartDate;
 
