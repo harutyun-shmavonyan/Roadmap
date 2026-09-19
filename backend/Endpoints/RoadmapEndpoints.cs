@@ -3164,23 +3164,26 @@ public static class RoadmapEndpoints
     /// returning the reseated snapshot, or null when nothing moved.
     ///
     /// The commitment is otherwise frozen on purpose, and everything that makes it a commitment
-    /// stays frozen here: rates, schedule templates, item sizes, relax days and the window. Three
-    /// things are allowed through, because all three change which item a queue is pointing at, and
-    /// a Performance tab that plans a different item from the one the day view schedules is just
+    /// stays frozen here: rates, schedule templates, item sizes, relax days and the window. Two
+    /// things are allowed through, because both change which item a queue is pointing at, and a
+    /// Performance tab that plans a different item from the one the day view schedules is just
     /// wrong:
     ///
     /// <list type="bullet">
     ///   <item>the order of a queue block's items,</item>
-    ///   <item>its membership — an item queued mid-sprint is a real new obligation,</item>
-    ///   <item>a live Stop or Pause, which takes an item out of the queue so the next one takes
-    ///         its sessions.</item>
+    ///   <item>its membership — an item queued mid-sprint is a real new obligation.</item>
     /// </list>
     ///
-    /// A <see cref="ActionItemStatus.Completed"/> is deliberately <i>not</i> followed: the frozen
-    /// status is what the item was on the sprint's first morning, and copying a completion over it
-    /// would delete the obligation at the moment it was met, erasing the very thing that was
-    /// achieved. Pool blocks are left alone as well — a pool's sessions belong to the block, not to
-    /// any one item, so activating something inside it was never meant to move what was promised.
+    /// <b>Status is never followed.</b> The frozen status is what the item was on the sprint's
+    /// first morning, and that is the whole point of it. Stopping an item does not refund what it
+    /// was on the hook for — the sprint had already promised those points before it began, and a
+    /// commitment you can cancel by stopping the item is not a commitment. Completing one must not
+    /// erase the obligation at the moment it was met either. The day view is a different question
+    /// and answers it from live status, so a stopped item still hands its sessions to the next in
+    /// the queue there.
+    ///
+    /// Pool blocks are left alone as well — a pool's sessions belong to the block, not to any one
+    /// item, so activating something inside it was never meant to move what was promised.
     /// </summary>
     private static PlanSnapshot? ReseatQueues(PlanSnapshot snap, List<RoadmapNode> allNodes,
         List<ScheduleBlock> blocks)
@@ -3210,11 +3213,9 @@ public static class RoadmapEndpoints
             var inQueue = queues.Contains(cur.ScheduleBlockId ?? Guid.Empty)
                        || queues.Contains(n.BlockId ?? Guid.Empty);
             if (!inQueue) return n;
-            var status = cur.Status == ActionItemStatus.Completed ? n.Status : cur.Status;
-            if (cur.ScheduleBlockId == n.BlockId && cur.BlockSortOrder == n.BlockSortOrder
-                && status == n.Status) return n;
+            if (cur.ScheduleBlockId == n.BlockId && cur.BlockSortOrder == n.BlockSortOrder) return n;
             changed = true;
-            return n with { BlockId = cur.ScheduleBlockId, BlockSortOrder = cur.BlockSortOrder, Status = status };
+            return n with { BlockId = cur.ScheduleBlockId, BlockSortOrder = cur.BlockSortOrder };
         }).ToList();
 
         // An item queued into one of those blocks after the sprint began has no frozen inputs to
@@ -3226,8 +3227,10 @@ public static class RoadmapEndpoints
                 if (!have.Add(id) || !live.TryGetValue(id, out var cur)) continue;
                 newNodes.Add(new SnapshotNode(cur.Id, cur.TotalSize, cur.UnitsPerHour, cur.PointsPerUnit,
                     cur.ScheduleTemplate, cur.ScheduleBlockId, cur.BlockSortOrder, cur.SortOrder,
-                    // It cannot have been completed before it was committed to.
-                    cur.Status == ActionItemStatus.Completed ? ActionItemStatus.Active : cur.Status,
+                    // Joining late, it has no frozen status to keep; it takes on the obligation as
+                    // an open item, whatever it has since become.
+                    cur.Status is ActionItemStatus.Completed or ActionItemStatus.Stopped
+                        or ActionItemStatus.Paused ? ActionItemStatus.Active : cur.Status,
                     cur.IsActiveInBlock));
                 changed = true;
             }
