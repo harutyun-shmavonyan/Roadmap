@@ -404,19 +404,19 @@ function YGrid() {
 }
 
 /**
- * The vertical read-out under the cursor. A row is a percentage plotted on the chart unless it
- * carries `text`, which makes it a bare reading — shown in the tooltip, not marked on the line,
- * since its units aren't the y axis's.
+ * The vertical read-out under the cursor. `value` is where the row sits on the chart, and is
+ * printed as a percentage unless `text` gives the reading in its own units. `dot: false` is for a
+ * row that is worth reading but isn't a point on any line.
  */
 function HoverCrosshair({ hoverIdx, n, values, dates }: {
   hoverIdx: number; n: number;
-  values: { label: string; value: number; color: string; text?: string }[];
+  values: { label: string; value: number; color: string; text?: string; dot?: boolean }[];
   dates: { date: string }[];
 }) {
   const x = xScale(hoverIdx, n);
   return <>
     <line x1={x} y1={PT} x2={x} y2={H - P} stroke="var(--text-muted)" strokeWidth={1} strokeDasharray="4,3" opacity={0.7} />
-    {values.map((v, i) => v.text === undefined && (
+    {values.map((v, i) => v.dot !== false && (
       <circle key={i} cx={x} cy={yScale(v.value)} r={5} fill={v.color} stroke="var(--bg-primary)" strokeWidth={2} />
     ))}
     <foreignObject x={Math.min(x + 12, W - 170)} y={PT} width={160} height={values.length * 20 + 28}>
@@ -439,19 +439,21 @@ function HoverCrosshair({ hoverIdx, n, values, dates }: {
 }
 
 /**
- * The sprint's pace: everything earned up to and including a day, over everything the plan had
- * asked for by then.
+ * Overall progress, in points rather than in an average of percentages.
  *
- * It used to average each item's own completion percentage, which answered a different question
- * and answered it badly — a plain mean over items, so a 3-point item finished five times over
- * counted exactly as much as a 52-point item untouched, and early in a sprint the many items
- * scheduled for later days sat at 0% and dragged the line down regardless of how the days
- * actually went.
+ * Both lines are scaled by the sprint's whole plan, so the dashed one climbs to 100% on the last
+ * day and carries the plan's shape — heavy days steepen it, relax days flatten it. The solid line
+ * is everything earned so far on that same scale, which makes the vertical gap between them the
+ * shortfall in points and their ratio the pace quoted above the chart.
  *
- * Because the denominator already carries the shape of the plan, the reference lines are flat:
- * 100 is on plan, and the line crossing above it means ahead. The series stops at today — beyond
- * it the plan keeps growing while nothing can have been earned yet, which would only draw how
- * much of the future has not happened.
+ * The number above is what "overall progress" now means: everything earned up to and including
+ * today over everything the plan had asked for by then. It used to be a plain mean of each item's
+ * own completion percentage — so a 3-point item finished five times over counted exactly as much
+ * as a 52-point item untouched, and early in a sprint the many items scheduled for later days sat
+ * at 0% and dragged it down however the days had actually gone.
+ *
+ * The solid line stops at today. Past it the plan keeps climbing while nothing can have been
+ * earned yet, so continuing it would only draw how much of the future has not happened.
  */
 function OverallChart({ progress, colors }: {
   progress: { date: string; cumulativeEarned: number; cumulativePlanned: number; actualPercent: number; isFuture: boolean }[];
@@ -462,10 +464,14 @@ function OverallChart({ progress, colors }: {
   const { hoverIdx, handleMouse, clearHover } = useChartHover(svgRef, n);
   if (n === 0) return <p style={{ color: 'var(--text-muted)' }}>No data.</p>;
 
-  const livePts = progress.filter(p => !p.isFuture);
   const color = colors[0];
-  const linePath = livePts.map((p, i) => `${i === 0 ? 'M' : 'L'}${xScale(i, n)},${yScale(p.actualPercent)}`).join(' ');
-  const flat = (v: number) => `M${xScale(0, n)},${yScale(v)} L${xScale(n - 1, n)},${yScale(v)}`;
+  // The sprint's whole commitment is the yardstick, so the plan line lands on 100% at the end.
+  const total = progress[n - 1].cumulativePlanned;
+  const pct = (pts: number) => (total > 0 ? (pts / total) * 100 : 0);
+  const path = (vals: number[]) => vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${xScale(i, n)},${yScale(v)}`).join(' ');
+
+  const ideal = progress.map(p => pct(p.cumulativePlanned));
+  const livePts = progress.filter(p => !p.isFuture);
   const latest = livePts[livePts.length - 1];
 
   return (
@@ -484,24 +490,27 @@ function OverallChart({ progress, colors }: {
       <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="chart-svg"
         onMouseMove={handleMouse} onMouseLeave={clearHover} style={{ cursor: 'crosshair' }}>
         <YGrid />
-        {/* Flat, because the denominator already carries the plan's shape. Labelled on the line
-            itself: a corner legend would only say the same thing further from what it names. */}
-        {([[100, 'var(--text-muted)', 'on plan', '6,4'], [90, '#8aca6a', '90%', '4,3'], [75, '#d4aa5a', '75%', '4,3']] as const).map(([v, stroke, label, dash]) => (
-          <g key={v}>
-            <path d={flat(v)} fill="none" stroke={stroke} strokeWidth={v === 100 ? 2.5 : 2} strokeDasharray={dash} opacity={v === 100 ? 0.5 : 0.45} />
-            {/* "on plan" sits above its line, the other two below theirs — the three are close
-                enough together that labelling them all on the same side would stack them. */}
-            <text x={W - PR} y={yScale(v) + (v === 100 ? -5 : 11)} fill={stroke} fontSize={9.5} textAnchor="end" opacity={0.85}>{label}</text>
-          </g>
-        ))}
-        <path d={linePath} fill="none" stroke={color} strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" />
+        {/* The plan and the two thresholds under it, all carrying its shape. They are labelled at
+            the right edge, where each one ends on the figure it stands for. */}
+        <path d={path(ideal)} fill="none" stroke="var(--text-muted)" strokeWidth={2.5} strokeDasharray="6,4" opacity={0.5} />
+        <path d={path(ideal.map(v => v * 0.9))} fill="none" stroke="#8aca6a" strokeWidth={2} strokeDasharray="4,3" opacity={0.5} />
+        <path d={path(ideal.map(v => v * 0.75))} fill="none" stroke="#d4aa5a" strokeWidth={2} strokeDasharray="4,3" opacity={0.5} />
+        <text x={W - PR} y={yScale(100) - 5} fill="var(--text-muted)" fontSize={9.5} textAnchor="end" opacity={0.85}>plan</text>
+        <text x={W - PR} y={yScale(90) + 11} fill="#8aca6a" fontSize={9.5} textAnchor="end" opacity={0.9}>90%</text>
+        <text x={W - PR} y={yScale(75) + 11} fill="#d4aa5a" fontSize={9.5} textAnchor="end" opacity={0.9}>75%</text>
+
+        <path d={path(livePts.map(p => pct(p.cumulativeEarned)))} fill="none" stroke={color}
+          strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" />
+
         <XLabels dates={progress} />
-        {hoverIdx !== null && hoverIdx < livePts.length && (
+        {hoverIdx !== null && (
           <HoverCrosshair hoverIdx={hoverIdx} n={n} dates={progress}
             values={[
-              { label: 'Pace', value: livePts[hoverIdx].actualPercent, color },
-              { label: 'Earned', value: livePts[hoverIdx].cumulativeEarned, color: '#888', text: `${livePts[hoverIdx].cumulativeEarned} pts` },
-              { label: 'Due by then', value: livePts[hoverIdx].cumulativePlanned, color: '#888', text: `${livePts[hoverIdx].cumulativePlanned} pts` },
+              ...(hoverIdx < livePts.length ? [
+                { label: 'Earned', value: pct(livePts[hoverIdx].cumulativeEarned), color, text: `${livePts[hoverIdx].cumulativeEarned} pts` },
+                { label: 'Pace', value: 0, color, text: `${livePts[hoverIdx].actualPercent}%`, dot: false },
+              ] : []),
+              { label: 'Plan by then', value: ideal[hoverIdx], color: '#888', text: `${progress[hoverIdx].cumulativePlanned} pts` },
             ]} />
         )}
       </svg>
