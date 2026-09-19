@@ -2686,10 +2686,18 @@ public static class RoadmapEndpoints
     /// completed on or after the first date still owns its slots up to its completion day —
     /// so hitting Complete today leaves today's session with that item and hands the next
     /// queued item the *following* scheduled day, matching the daily schedule view.
+    ///
+    /// <paramref name="stopsClose"/> extends that to a stop or a pause, and only the sprint's
+    /// commitment asks for it. There, an item stopped mid-sprint has to keep the sessions it was
+    /// committed to up to the day it was stopped — those were promised and not delivered, and a
+    /// stop must not refund them — while everything after that day passes to whatever was queued
+    /// behind it. The daily schedule wants the opposite and leaves this off: a stopped item drops
+    /// out of the queue at once, so the next item takes today's session.
     /// </summary>
     internal static List<ComputedPlanEntry> ComputeSprintPlan(
         List<RoadmapNode> allNodes, List<ScheduleBlock> blocks, List<DateOnly> dates, Dictionary<Guid, double> allTimeLogged,
-        HashSet<string>? relaxDays = null, Dictionary<Guid, DateOnly>? completionBoundaries = null)
+        HashSet<string>? relaxDays = null, Dictionary<Guid, DateOnly>? completionBoundaries = null,
+        bool stopsClose = false)
     {
         var entries = new List<ComputedPlanEntry>();
         if (dates.Count == 0) return entries;
@@ -2702,9 +2710,14 @@ public static class RoadmapEndpoints
         // The day a completed item stops occupying the schedule, or null when the item is
         // still open. Completions that landed before the re-planned window free their slots
         // immediately; completions from planFrom onward keep them through the completion day.
+        // Statuses that close an item: it stops consuming its remainder, but may still hold the
+        // sessions it was already scheduled for, up to the day it closed.
+        bool Closes(ActionItemStatus st) => st == ActionItemStatus.Completed
+            || (stopsClose && st is ActionItemStatus.Stopped or ActionItemStatus.Paused);
+
         DateOnly? OccupiedThrough(RoadmapNode n)
         {
-            if (n.Status != ActionItemStatus.Completed) return null;
+            if (!Closes(n.Status)) return null;
             if (completionBoundaries is null) return beforePlan;
             return completionBoundaries.TryGetValue(n.Id, out var b) ? b : beforePlan;
         }
@@ -2747,7 +2760,7 @@ public static class RoadmapEndpoints
 
             var queue = block.Items
                 .Where(n => n.IsActionable && (n.Status == ActionItemStatus.Active || n.Status == ActionItemStatus.NotStarted
-                    || (n.Status == ActionItemStatus.Completed && OccupiedThrough(n) >= planFrom)))
+                    || (Closes(n.Status) && OccupiedThrough(n) >= planFrom)))
                 .OrderBy(n => n.BlockSortOrder).ToList();
             if (queue.Count == 0) continue;
 
@@ -2768,8 +2781,12 @@ public static class RoadmapEndpoints
                 while (qi < queue.Count)
                 {
                     var head = queue[qi];
+                    // A finished item holds its slot until its completion day whatever is left of
+                    // it. A stopped one holds its slot only while it still has something to plan:
+                    // otherwise it would sit on days it can contribute nothing to, and those
+                    // sessions would fall out of the sprint's plan entirely.
                     var spent = OccupiedThrough(head) is DateOnly done
-                        ? date > done
+                        ? date > done || (head.Status != ActionItemStatus.Completed && remainingForCurrent <= 0.01)
                         : remainingForCurrent <= 0.01;
                     if (!spent) break;
                     qi++;
@@ -2780,16 +2797,18 @@ public static class RoadmapEndpoints
                 var item = queue[qi];
                 var dur = blockTmpl.GetDurationMinutes(ddow);
                 var rawPlanned = item.UnitsPerHour.HasValue ? (dur / 60.0) * item.UnitsPerHour.Value : 0;
-                // A closed item keeps the session it was scheduled for; "remaining" is
-                // meaningless once it is done (it may have been completed short of its size).
-                var isClosed = item.Status == ActionItemStatus.Completed;
-                var actualPlanned = isClosed ? rawPlanned : Math.Min(rawPlanned, remainingForCurrent);
+                // A finished item keeps the session it was scheduled for whole: "remaining" is
+                // meaningless once it is done, since it may have been completed short of its
+                // size. A stopped one is not the same — it was never going to be planned past
+                // its size, so its sessions stay capped and keep consuming what is left of it.
+                var finished = item.Status == ActionItemStatus.Completed;
+                var actualPlanned = finished ? rawPlanned : Math.Min(rawPlanned, remainingForCurrent);
 
                 if (actualPlanned > 0)
                     entries.Add(new ComputedPlanEntry(item.Id, null, date, blockTmpl.GetStartMinute(ddow), dur,
                         Math.Round(actualPlanned, 2), item.PointsPerUnit ?? 0));
 
-                if (!isClosed) remainingForCurrent -= actualPlanned;
+                if (!finished) remainingForCurrent -= actualPlanned;
             }
         }
 
@@ -2797,7 +2816,7 @@ public static class RoadmapEndpoints
         foreach (var n in allNodes.Where(n => n.IsActionable && n.ScheduleTemplate != null
             && !blockItemIds.Contains(n.Id)
             && (n.Status == ActionItemStatus.Active || n.Status == ActionItemStatus.NotStarted
-                || (n.Status == ActionItemStatus.Completed && OccupiedThrough(n) >= planFrom))))
+                || (Closes(n.Status) && OccupiedThrough(n) >= planFrom))))
         {
             var tmpl = ParseTemplate(n.ScheduleTemplate); if (tmpl is null) continue;
             var occupiedThrough = OccupiedThrough(n);
@@ -2890,6 +2909,16 @@ public static class RoadmapEndpoints
             .GroupBy(w => w.NodeId).Select(g => new { g.Key, Total = g.Sum(w => w.Amount) })
             .ToDictionaryAsync(x => x.Key, x => x.Total);
 
+        // A stop or a pause is the one status change the commitment follows. It does not refund
+        // anything: the item keeps every session it was committed to up to the day it stopped, and
+        // only the days after that pass to whatever is queued behind it. A completion is never
+        // followed — copying it over the frozen status would delete the obligation at the moment
+        // it was met.
+        ActionItemStatus StatusFor(SnapshotNode s) =>
+            live.TryGetValue(s.Id, out var cur)
+            && cur.Status is ActionItemStatus.Stopped or ActionItemStatus.Paused
+                ? cur.Status : s.Status;
+
         double? CorrectedSize(SnapshotNode s)
         {
             if (!live.TryGetValue(s.Id, out var cur)) return s.TotalSize; // deleted since — keep the estimate
@@ -2904,7 +2933,7 @@ public static class RoadmapEndpoints
         var nodes = snap.Nodes.Select(s => new RoadmapNode
         {
             Id = s.Id, RoadmapId = sprint.RoadmapId, IsActionable = true,
-            Status = s.Status, TotalSize = CorrectedSize(s), UnitsPerHour = s.UnitsPerHour,
+            Status = StatusFor(s), TotalSize = CorrectedSize(s), UnitsPerHour = s.UnitsPerHour,
             PointsPerUnit = s.PointsPerUnit, ScheduleTemplate = s.ScheduleTemplate,
             ScheduleBlockId = s.BlockId, BlockSortOrder = s.BlockSortOrder, SortOrder = s.SortOrder,
             IsActiveInBlock = s.IsActiveInBlock ?? true
@@ -2926,7 +2955,8 @@ public static class RoadmapEndpoints
             .Where(kv => Guid.TryParse(kv.Key, out _))
             .ToDictionary(kv => Guid.Parse(kv.Key), kv => kv.Value);
 
-        var computed = ComputeSprintPlan(nodes, blocks, dates, loggedBefore, [.. snap.RelaxDays]);
+        var computed = ComputeSprintPlan(nodes, blocks, dates, loggedBefore, [.. snap.RelaxDays],
+            await LoadCompletionBoundariesAsync(db, sprint.RoadmapId), stopsClose: true);
         // The rate a session was priced at is decided by the planner — an item's own for a
         // per-item session, the pool's frozen average for a block one — so it comes straight out.
         return computed.Select(c => new BaselineEntry(c.NodeId, c.BlockId, c.Date, c.DurationMinutes,
@@ -3140,15 +3170,27 @@ public static class RoadmapEndpoints
     }
 
     /// <summary>
-    /// The last day each completed item still occupies the schedule: its completion date,
-    /// extended to its last logged work day when that came later.
+    /// The last day each closed item still occupies the schedule: the day it was closed, extended
+    /// to its last logged work day when that came later.
+    ///
+    /// Stops and pauses are recorded alongside completions because the sprint's commitment needs
+    /// to know when an item left the queue, not only that it did — see <c>stopsClose</c> on
+    /// <see cref="ComputeSprintPlan"/>. The daily schedule loads the same map and simply never
+    /// asks about those two.
     /// </summary>
     private static async Task<Dictionary<Guid, DateOnly>> LoadCompletionBoundariesAsync(RoadmapDbContext db, Guid roadmapId)
     {
-        var completions = await db.StatusChanges.AsNoTracking()
-            .Where(s => s.RoadmapId == roadmapId && s.NewStatus == ActionItemStatus.Completed)
-            .Select(s => new { s.NodeId, s.ChangedAt }).ToListAsync();
-        var boundaries = completions.GroupBy(s => s.NodeId)
+        var closing = new[] { ActionItemStatus.Completed, ActionItemStatus.Stopped, ActionItemStatus.Paused };
+        var closures = await db.StatusChanges.AsNoTracking()
+            .Where(s => s.RoadmapId == roadmapId && closing.Contains(s.NewStatus))
+            .Select(s => new { s.NodeId, s.NewStatus, s.ChangedAt }).ToListAsync();
+        // Only the status an item actually holds now counts: something stopped and then restarted
+        // is open again, and its old stop day must not keep holding sessions.
+        var current = await db.Nodes.AsNoTracking().Where(n => n.RoadmapId == roadmapId)
+            .Select(n => new { n.Id, n.Status }).ToDictionaryAsync(n => n.Id, n => n.Status);
+        var boundaries = closures
+            .Where(c => current.TryGetValue(c.NodeId, out var st) && st == c.NewStatus)
+            .GroupBy(s => s.NodeId)
             .ToDictionary(g => g.Key, g => AppClock.ToLocalDate(g.Max(x => x.ChangedAt)));
 
         var lastLogged = await db.WorkLogs.AsNoTracking().Where(w => w.RoadmapId == roadmapId)
