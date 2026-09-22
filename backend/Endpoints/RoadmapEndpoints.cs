@@ -2276,7 +2276,8 @@ public static class RoadmapEndpoints
         });
 
         // ===== Job scouting (global — postings imported from the Finder pipeline) =====
-        // Read-only: writes happen through the MCP tools, which is how the scout feeds in.
+        // Imports happen through the MCP tools, which is how the scout feeds in; what lives here
+        // is reading a day, the per-posting CV and application writes, and deleting a day.
         var jobs = app.MapGroup("/api/job-runs").WithTags("JobRuns").RequireAuthorization();
 
         // Day list for the tab's date picker — no posting bodies, just the summaries.
@@ -2304,6 +2305,21 @@ public static class RoadmapEndpoints
             var run = await db.JobRuns.AsNoTracking().Include(r => r.Postings)
                 .FirstOrDefaultAsync(r => r.RunDate == d);
             return run is null ? Results.NotFound() : Results.Ok(ToJobRunDto(run));
+        });
+
+        // Drop a whole day. import_job_run can only replace a date, never remove one, which
+        // leaves a run created by mistake with no way out. Deleting takes the postings with it —
+        // including their tailored CVs and any application outcomes recorded against them, which
+        // are the one thing here the user typed rather than the pipeline.
+        jobs.MapDelete("/{date}", async (string date, RoadmapDbContext db) =>
+        {
+            if (!DateOnly.TryParse(date, out var d)) return Results.BadRequest("Invalid date. Use YYYY-MM-DD.");
+            var run = await db.JobRuns.Include(r => r.Postings).FirstOrDefaultAsync(r => r.RunDate == d);
+            if (run is null) return Results.NotFound();
+            db.JobPostings.RemoveRange(run.Postings); // cascade would too, but be explicit
+            db.JobRuns.Remove(run);
+            await db.SaveChangesAsync();
+            return Results.NoContent();
         });
 
         // Binary download for a posting's tailored CV PDF. Kept out of the list JSON
