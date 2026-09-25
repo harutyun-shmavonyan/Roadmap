@@ -390,9 +390,14 @@ export function ArticlesPage() {
 
   const loadList = useCallback(async (selectId?: string | null) => {
     const d = await api.getArticles();
-    setList(d);
+    // What is still to read comes first; anything ticked read sinks to the bottom, where it stays
+    // reachable without being in the way. Within each half the server's own order is untouched —
+    // sort order, then newest first — because Array.sort is stable.
+    const ordered = [...d].sort((a, b) => Number(a.isRead) - Number(b.isRead));
+    setList(ordered);
     setSelId(prev => {
-      const next = selectId !== undefined ? selectId : (prev && d.some(a => a.id === prev) ? prev : (d[0]?.id ?? null));
+      const next = selectId !== undefined ? selectId
+        : (prev && ordered.some(a => a.id === prev) ? prev : (ordered[0]?.id ?? null));
       return next;
     });
   }, []);
