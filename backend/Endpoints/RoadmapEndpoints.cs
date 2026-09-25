@@ -3032,26 +3032,51 @@ public static class RoadmapEndpoints
         }
     }
 
-    /// <summary>The weight an item carries once <paramref name="progress"/> (0 = untouched,
-    /// 1 = its whole sprint commitment done, 2 = double that) of it is behind it:
-    /// 1.0 → 0.5 → 0, linearly.</summary>
-    private static double WeightAt(double progress) => Math.Clamp(1 - progress / 2, 0, 1);
+    /// <summary>The narrowest and widest a day's price can be stretched from its nominal rate.</summary>
+    private const double MinWeight = 0.3, MaxWeight = 3.0;
+
+    /// <summary>
+    /// How much an item is owed, measured against the plan rather than against the finish line:
+    /// <paramref name="due"/> is everything the plan asked of it before today,
+    /// <paramref name="done"/> everything logged against it in that time.
+    ///
+    /// Exactly on plan is 1. Half of what was asked is 2, double is 0.5, and the ends are
+    /// clamped to <see cref="MinWeight"/> and <see cref="MaxWeight"/> — the reciprocal keeps it
+    /// symmetric on the ratio, so falling twice behind and running twice ahead pull the same
+    /// distance in opposite directions. An item the plan has not asked for yet weighs 1, since
+    /// it can be neither ahead nor behind; one asked for and untouched weighs the maximum.
+    ///
+    /// Measuring against the plan-to-date rather than the whole commitment is what lets an item
+    /// that is keeping pace stay at 1 all sprint. Against the commitment it drifted downwards
+    /// simply by being worked, so doing exactly what was asked slowly devalued the asking.
+    /// </summary>
+    private static double WeightAt(double due, double done) =>
+        due <= 0 ? 1
+        : done <= 0 ? MaxWeight
+        : Math.Clamp(due / done, MinWeight, MaxWeight);
 
     /// <summary>
     /// Price every sprint day of a Weighted sprint.
     ///
     /// The invariant is the one the mode is named for: each day's preplanned point total is
     /// untouched. What moves is how that total is split. At the start of each day every
-    /// committed key gets a weight from how much of its whole-sprint commitment is already
-    /// done (see <see cref="WeightAt"/>), and the day's budget is re-split in proportion to
-    /// weight × the key's nominal planned points that day. Doing exactly the day's plan
-    /// therefore always earns exactly the day's budget; a day spent grinding an already-
-    /// overdone item captures only part of it. Weights are evaluated once per day — before
-    /// that day's logs — so prices are stable while the day is being lived, which is also
-    /// what makes a "best value today" ranking meaningful.
+    /// committed key gets a weight from how it stands against the plan so far (see
+    /// <see cref="WeightAt"/>), and the day's budget is re-split in proportion to weight × the
+    /// key's nominal planned points that day. Doing exactly the day's plan therefore always
+    /// earns exactly the day's budget, whatever the weights are — they only decide who gets
+    /// which share of it. A day spent grinding an item that is already ahead of its plan
+    /// captures less of the budget; a day spent on one that has fallen behind captures more.
+    /// Weights are evaluated once per day, before that day's logs, so prices are stable while
+    /// the day is being lived, which is also what makes a "best value today" ranking
+    /// meaningful.
     ///
-    /// Committed keys keep an off-plan price too (weight × nominal rate) so mid-sprint work
-    /// outside the planned day is discounted the same way rather than escaping the rule.
+    /// Committed keys keep an off-plan price too, capped at their nominal rate, so mid-sprint
+    /// work outside the planned day is discounted when it is running ahead without ever paying
+    /// more than the scheduled day could.
+    ///
+    /// None of this touches what was planned: the budget, the day plans and the sprint's
+    /// planned total all come from the frozen commitment at nominal rates. Weights move only
+    /// what earned work is worth.
     ///
     /// Returns null for anything but a started Weighted sprint.
     /// </summary>
@@ -3078,13 +3103,13 @@ public static class RoadmapEndpoints
             .ToListAsync();
 
         // Everything below is in "commitment units": an item's own unit, a pool's hours.
-        var committedTotal = new Dictionary<Guid, double>();
+        var committedKeys = new HashSet<Guid>();
         var nominalPpu = new Dictionary<Guid, double>();
         var plannedOnDay = new Dictionary<(Guid, DateOnly), double>();
         foreach (var c in commitment)
         {
             if ((c.NodeId ?? c.BlockId) is not Guid key) continue;
-            committedTotal[key] = committedTotal.GetValueOrDefault(key) + c.PlannedUnits;
+            committedKeys.Add(key);
             nominalPpu[key] = c.PointsPerUnit;
             plannedOnDay[(key, c.Date)] = plannedOnDay.GetValueOrDefault((key, c.Date)) + c.PlannedUnits;
         }
@@ -3105,35 +3130,42 @@ public static class RoadmapEndpoints
         }
 
         var prices = new Dictionary<(Guid, DateOnly), (double Price, double Weight)>();
-        var doneSoFar = committedTotal.Keys.ToDictionary(k => k, _ => 0.0);
+        var doneSoFar = committedKeys.ToDictionary(k => k, _ => 0.0);
+        // What the plan had asked of each key before the day being priced — the yardstick the
+        // weight is measured against. Both run to the end of the previous day, so a day's prices
+        // never move in response to that day's own logs.
+        var dueSoFar = committedKeys.ToDictionary(k => k, _ => 0.0);
 
         for (var d = sprint.StartDate; d <= sprint.EndDate; d = d.AddDays(1))
         {
             var weight = new Dictionary<Guid, double>();
-            foreach (var key in committedTotal.Keys)
-            {
-                var total = committedTotal[key];
-                weight[key] = total > 0 ? WeightAt(doneSoFar[key] / total) : 1;
-            }
+            foreach (var key in committedKeys)
+                weight[key] = WeightAt(dueSoFar[key], doneSoFar[key]);
 
             // Re-split the day's budget among the keys planned today.
-            var dayKeys = committedTotal.Keys.Where(k => plannedOnDay.GetValueOrDefault((k, d)) > 0).ToList();
+            var dayKeys = committedKeys.Where(k => plannedOnDay.GetValueOrDefault((k, d)) > 0).ToList();
             var budget = dayKeys.Sum(k => plannedOnDay[(k, d)] * nominalPpu[k]);
             var denom = dayKeys.Sum(k => weight[k] * plannedOnDay[(k, d)] * nominalPpu[k]);
 
-            foreach (var key in committedTotal.Keys)
+            foreach (var key in committedKeys)
             {
                 var planned = plannedOnDay.GetValueOrDefault((key, d));
                 var price = planned > 0
                     ? (denom > 0 ? budget * weight[key] * nominalPpu[key] / denom : 0)
-                    // Committed but not planned today: no share to draw from, so plain
-                    // weight-discounted nominal.
-                    : weight[key] * nominalPpu[key];
+                    // Committed but not planned today: no day's budget to draw a share from, so
+                    // its own rate, discounted if it is ahead of the plan. Capped at nominal
+                    // rather than allowed the full weight: an item that is behind would
+                    // otherwise be worth more off its schedule than it could ever earn on it,
+                    // since the re-split is bounded by the day's budget and this is not.
+                    : Math.Min(weight[key], 1) * nominalPpu[key];
                 prices[(key, d)] = (price, weight[key]);
             }
 
-            foreach (var key in committedTotal.Keys)
+            foreach (var key in committedKeys)
+            {
                 doneSoFar[key] += logUnitsOnDay.GetValueOrDefault((key, d));
+                dueSoFar[key] += plannedOnDay.GetValueOrDefault((key, d));
+            }
         }
 
         return new WeightedPricing { Prices = prices, PoolOfNode = poolOfNode, MemberUnitsPerHour = memberUph, NominalPpu = nominalPpu };
