@@ -261,7 +261,7 @@ public static class CourseStructure
         lesson.Status = to;
         lesson.UpdatedAt = DateTime.UtcNow;
         CourseLogic.Event(db, course.Id, ProgressEventType.StatusChanged, actor,
-            new { from = from.ToString(), to = to.ToString(), forced = force ? true : (bool?)null },
+            new { from = from.Wire(), to = to.Wire(), forced = force ? true : (bool?)null },
             lesson.StageId, lesson.Id);
     }
 
@@ -273,7 +273,7 @@ public static class CourseStructure
         stage.Status = to;
         stage.UpdatedAt = DateTime.UtcNow;
         CourseLogic.Event(db, course.Id, ProgressEventType.StatusChanged, actor,
-            new { from = from.ToString(), to = to.ToString() }, stage.Id);
+            new { from = from.Wire(), to = to.Wire() }, stage.Id);
     }
 
     public static void SetCourseStatus(RoadmapDbContext db, Course course, CourseStatus to, string actor)
@@ -286,6 +286,6 @@ public static class CourseStructure
         if (to == CourseStatus.Active && course.StartedAt is null) course.StartedAt = DateTime.UtcNow;
         if (to == CourseStatus.Completed) course.CompletedAt = DateTime.UtcNow;
         CourseLogic.Event(db, course.Id, ProgressEventType.StatusChanged, actor,
-            new { from = from.ToString(), to = to.ToString() });
+            new { from = from.Wire(), to = to.Wire() });
     }
 }

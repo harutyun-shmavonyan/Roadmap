@@ -228,21 +228,21 @@ public static class CourseLogic
     {
         if (from == to) return;
         if (!CourseMoves[from].Contains(to))
-            throw CourseException.Transition(from.ToString(), to.ToString(), CourseMoves[from].Select(x => x.ToString()));
+            throw CourseException.Transition(from.Wire(), to.Wire(), CourseMoves[from].Select(x => x.Wire()));
     }
 
     public static void CheckStageMove(StageStatus from, StageStatus to)
     {
         if (from == to) return;
         if (!StageMoves[from].Contains(to))
-            throw CourseException.Transition(from.ToString(), to.ToString(), StageMoves[from].Select(x => x.ToString()));
+            throw CourseException.Transition(from.Wire(), to.Wire(), StageMoves[from].Select(x => x.Wire()));
     }
 
     public static void CheckLessonMove(LessonStatus from, LessonStatus to)
     {
         if (from == to) return;
         if (!LessonMoves[from].Contains(to))
-            throw CourseException.Transition(from.ToString(), to.ToString(), LessonMoves[from].Select(x => x.ToString()));
+            throw CourseException.Transition(from.Wire(), to.Wire(), LessonMoves[from].Select(x => x.Wire()));
     }
 
     /// <summary>
@@ -309,14 +309,18 @@ public static class CourseLogic
             lesson.Status = target;
             lesson.UpdatedAt = DateTime.UtcNow;
             Event(db, courseId, ProgressEventType.StatusChanged, "system",
-                new { from = from.ToString(), to = target.ToString() }, lesson.StageId, lesson.Id);
+                new { from = from.Wire(), to = target.Wire() }, lesson.StageId, lesson.Id);
         }
 
         var stage = await db.Stages.FirstOrDefaultAsync(s => s.Id == lesson.StageId);
         if (stage is null) return;
 
-        var siblings = await db.Lessons.AsNoTracking().Where(l => l.StageId == stage.Id)
+        // Every sibling but this one, because the lesson we may have just moved is not saved yet:
+        // reading it back would hand the stage the status the lesson had a moment ago and leave the
+        // stage a call behind its own lessons.
+        var siblings = await db.Lessons.AsNoTracking().Where(l => l.StageId == stage.Id && l.Id != lesson.Id)
             .Select(l => l.Status).ToListAsync();
+        siblings.Add(lesson.Status);
         var live = siblings.Where(st => st != LessonStatus.Skipped).ToList();
 
         var stageTarget = stage.Status;
@@ -332,7 +336,7 @@ public static class CourseLogic
             stage.Status = stageTarget;
             stage.UpdatedAt = DateTime.UtcNow;
             Event(db, courseId, ProgressEventType.StatusChanged, "system",
-                new { from = from.ToString(), to = stageTarget.ToString() }, stage.Id);
+                new { from = from.Wire(), to = stageTarget.Wire() }, stage.Id);
         }
     }
 }

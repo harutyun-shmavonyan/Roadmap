@@ -162,28 +162,9 @@ public sealed class CourseMcpTools(RoadmapDbContext db)
         "and what is currently in focus. Optionally filter by status (draft|active|paused|completed|archived).")]
     public async Task<string> ListCourses(
         [Description("Only courses in this status")] string? status = null) => await Run(async () =>
-    {
-        var q = db.Courses.AsNoTracking();
-        if (status is not null && Enum.TryParse<CourseStatus>(status, true, out var st))
-            q = q.Where(c => c.Status == st);
-        var courses = await q.OrderByDescending(c => c.UpdatedAt).ToListAsync();
-
-        var list = new List<object>();
-        foreach (var c in courses)
-        {
-            var p = await CourseProgress.ComputeAsync(db, c.Id);
-            list.Add(new
-            {
-                id = c.Id, slug = c.Slug, title = c.Title, subtitle = c.Subtitle, status = c.Status.Wire(),
-                progress = p.Progress, definedFraction = p.DefinedFraction, hoursLogged = p.HoursLogged,
-                estimatedHoursRemaining = p.EstimatedHoursRemaining,
-                currentLesson = p.CurrentLesson is null ? null
-                    : new { p.CurrentLesson.Code, p.CurrentLesson.Title, p.CurrentLesson.Status },
-                updatedAt = c.UpdatedAt,
-            });
-        }
-        return list;
-    });
+        await CourseViews.SummariesAsync(db,
+            status is not null && Enum.TryParse<CourseStatus>(status.Replace("_", ""), true, out var st)
+                ? st : null));
 
     [McpServerTool(Name = "get_course"), Description(
         "Get a course as a tree. depth='stages' returns stages only; 'lessons' adds each stage's lessons with " +
@@ -193,52 +174,7 @@ public sealed class CourseMcpTools(RoadmapDbContext db)
         [Description("Course id")] Guid? id = null,
         [Description("Course slug")] string? slug = null,
         [Description("'stages' | 'lessons' | 'full' (default 'lessons')")] string depth = "lessons")
-        => await Run(async () =>
-    {
-        var course = await CourseRef(id, slug);
-        var template = await CourseLogic.TemplateAsync(db, course.TemplateId);
-        var tree = await CourseProgress.ComputeAsync(db, course.Id);
-        var full = depth == "full";
-        var withLessons = full || depth == "lessons";
-
-        var sections = full
-            ? await db.LessonSections.AsNoTracking()
-                .Where(s => s.Lesson.Stage.CourseId == course.Id).ToListAsync()
-            : [];
-        var exercises = full
-            ? await db.Exercises.AsNoTracking()
-                .Where(x => x.Lesson.Stage.CourseId == course.Id).ToListAsync()
-            : [];
-
-        return new
-        {
-            id = course.Id, slug = course.Slug, title = course.Title, subtitle = course.Subtitle,
-            status = course.Status.Wire(), descriptionMd = course.DescriptionMd,
-            capstoneMd = course.CapstoneMd, targetHoursPerWeek = course.TargetHoursPerWeek,
-            metadata = JsonSerializer.Deserialize<JsonElement>(course.Metadata),
-            template = new { template.Id, template.Name, sections = JsonSerializer.Deserialize<JsonElement>(template.Sections) },
-            progress = tree.Progress, definedFraction = tree.DefinedFraction,
-            hoursLogged = tree.HoursLogged, estimatedHoursRemaining = tree.EstimatedHoursRemaining,
-            stages = tree.Stages.Select(s => new
-            {
-                s.Code, s.Title, s.Status, s.Position, s.TargetWeeks, s.Progress,
-                s.DefinedFraction, s.LessonsDefined, s.LessonsTotal,
-                lessons = withLessons ? s.Lessons.Select(l => new
-                {
-                    l.Code, l.Title, l.Status, l.Position, l.Progress, l.Score, l.EstimatedHours,
-                    sections = full
-                        ? sections.Where(x => x.LessonId == l.Id).OrderBy(x => x.Position)
-                            .Select(x => new { x.Kind, x.Title, x.ContentMd }).ToList<object>()
-                        : null,
-                    exercises = full
-                        ? exercises.Where(x => x.LessonId == l.Id).OrderBy(x => x.Position)
-                            .Select(x => new { x.Kind, x.SectionKind, x.Title, x.PromptMd, x.ReferenceMd, x.MaxScore, x.Weight, x.Required })
-                            .ToList<object>()
-                        : null,
-                }).ToList<object>() : null,
-            }).ToList(),
-        };
-    });
+        => await Run(async () => await CourseViews.DetailAsync(db, await CourseRef(id, slug), depth));
 
     [McpServerTool(Name = "create_course"), Description(
         "Create a course. IDEMPOTENT ON SLUG: an existing course with this slug is returned with created=false " +
@@ -973,63 +909,8 @@ public sealed class CourseMcpTools(RoadmapDbContext db)
         => await Run(async () =>
     {
         var course = await CourseRef(null, courseSlug);
-        var template = await CourseLogic.TemplateAsync(db, course.TemplateId);
         var lesson = await CourseLogic.LessonByCodeAsync(db, course.Id, lessonCode);
-        var want = (include is { Length: > 0 } ? include : ["sections", "exercises"])
-            .Select(s => s.ToLowerInvariant()).ToHashSet();
-
-        var order = CourseLogic.Sections(template).Select((s, i) => (s.Kind, i))
-            .ToDictionary(x => x.Kind, x => x.i);
-        var sections = want.Contains("sections")
-            ? (await db.LessonSections.AsNoTracking().Where(s => s.LessonId == lesson.Id).ToListAsync())
-                .OrderBy(s => order.GetValueOrDefault(s.Kind, 999))
-                .Select(s => new { s.Kind, s.Title, s.ContentMd }).ToList<object>()
-            : null; // absent, not empty: an omitted include should not read as "this lesson has none"
-
-        List<object>? exercises = null;
-        if (want.Contains("exercises"))
-        {
-            exercises = [];
-            var rows = await db.Exercises.AsNoTracking()
-                .Include(x => x.Submissions).ThenInclude(s => s.Grades)
-                .Where(x => x.LessonId == lesson.Id).OrderBy(x => x.Position).ToListAsync();
-            foreach (var x in rows)
-                exercises.Add(new
-                {
-                    id = x.Id, kind = x.Kind, sectionKind = x.SectionKind, title = x.Title,
-                    promptMd = x.PromptMd, referenceMd = x.ReferenceMd, maxScore = x.MaxScore,
-                    weight = x.Weight, required = x.Required, attempts = x.Submissions.Count,
-                    submissions = want.Contains("submissions")
-                        ? x.Submissions.OrderBy(s => s.AttemptNo).Select(s => new
-                        {
-                            id = s.Id, attemptNo = s.AttemptNo, contentMd = s.ContentMd,
-                            links = JsonSerializer.Deserialize<JsonElement>(s.Links),
-                            submittedBy = s.SubmittedBy, submittedAt = s.SubmittedAt,
-                            grades = want.Contains("grades")
-                                ? s.Grades.OrderByDescending(g => g.GradedAt).Select(g => new
-                                {
-                                    id = g.Id, score = g.Score, maxScore = g.MaxScore, feedbackMd = g.FeedbackMd,
-                                    gradedBy = g.GradedBy, gradedAt = g.GradedAt, supersedes = g.SupersedesGradeId,
-                                }).ToList<object>() : null,
-                        }).ToList<object>() : null,
-                });
-        }
-
-        var tree = await CourseProgress.ComputeAsync(db, course.Id);
-        var lp = tree.Stages.SelectMany(s => s.Lessons).FirstOrDefault(l => l.Code == lessonCode);
-        var stage = await db.Stages.AsNoTracking().FirstAsync(s => s.Id == lesson.StageId);
-        return new
-        {
-            code = lesson.Code, title = lesson.Title, status = lesson.Status.Wire(),
-            summaryMd = lesson.SummaryMd, estimatedHours = lesson.EstimatedHours,
-            stage = new { stage.Code, stage.Title },
-            progress = lp?.Progress, score = lp?.Score,
-            templateSections = CourseLogic.Sections(template).Select(s => new { s.Kind, s.Title, s.Required }),
-            sections, exercises,
-            resources = await db.CourseResources.AsNoTracking()
-                .Where(r => r.LessonId == lesson.Id)
-                .Select(r => new { r.Title, r.Url, r.Kind, r.NoteMd }).ToListAsync(),
-        };
+        return await CourseViews.LessonDetailAsync(db, course, lesson, CourseViews.LessonInclude(include));
     });
 
     [McpServerTool(Name = "get_course_timeline"), Description(
