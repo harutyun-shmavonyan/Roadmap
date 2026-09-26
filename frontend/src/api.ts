@@ -7,7 +7,9 @@ import type { RoadmapSummary, RoadmapTree, NodeDto, CreateNodeRequest, Actionabl
   NewsletterSummaryDto, NewsletterCursorDto,
   JobRunDto, JobRunSummaryDto,
   VocabEntryDto, VocabStatsDto,
-  MealDto, MealSlot, SaveMealRequest } from './types';
+  MealDto, MealSlot, SaveMealRequest,
+  CourseSummaryDto, CourseDetailDto, LessonDetailDto, CourseEventDto, CourseResumeDto,
+  CourseStatus, LessonStatus } from './types';
 
 const B = '/api/roadmaps';
 
@@ -307,4 +309,33 @@ export const api = {
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
   },
+
+  // Courses (global — written by the authoring agent over MCP, read here). A course and a lesson
+  // are addressed by slug and code rather than by id: they are what the URL shows, and they are
+  // what the agent and the person both call things.
+  getCourses: (status?: CourseStatus) =>
+    req<CourseSummaryDto[]>(`/api/courses${status ? `?status=${status}` : ''}`),
+  getCourse: (slug: string, depth: 'stages' | 'lessons' | 'full' = 'lessons') =>
+    req<CourseDetailDto>(`/api/courses/${encodeURIComponent(slug)}?depth=${depth}`),
+  getCourseLesson: (slug: string, code: string) =>
+    req<LessonDetailDto>(`/api/courses/${encodeURIComponent(slug)}/lessons/${encodeURIComponent(code)}`),
+  getCourseTimeline: (slug: string, limit = 50, cursor?: number) =>
+    req<CourseEventDto[]>(`/api/courses/${encodeURIComponent(slug)}/timeline?limit=${limit}${cursor ? `&cursor=${cursor}` : ''}`),
+  getCourseResume: (slug: string) =>
+    req<CourseResumeDto>(`/api/courses/${encodeURIComponent(slug)}/resume`),
+
+  setCourseStatus: (slug: string, status: CourseStatus) =>
+    req<CourseDetailDto>(`/api/courses/${encodeURIComponent(slug)}/status`, {
+      method: 'PATCH', body: JSON.stringify({ status }),
+    }),
+  // force completes a lesson whose required exercises are not all graded; the override is
+  // recorded in the timeline, which is why the tab asks before sending it.
+  setLessonStatus: (slug: string, code: string, status: LessonStatus, force?: boolean) =>
+    req<LessonDetailDto>(`/api/courses/${encodeURIComponent(slug)}/lessons/${encodeURIComponent(code)}/status`, {
+      method: 'PATCH', body: JSON.stringify({ status, force }),
+    }),
+  logCourseEvent: (slug: string, type: 'note' | 'time_logged', payload: unknown, lessonCode?: string) =>
+    req<{ id: number; type: string; createdAt: string }>(`/api/courses/${encodeURIComponent(slug)}/events`, {
+      method: 'POST', body: JSON.stringify({ type, payload, lessonCode }),
+    }),
 };

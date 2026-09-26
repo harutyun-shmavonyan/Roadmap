@@ -81,6 +81,17 @@ export const NAV_ICON: Record<string, ReactNode> = {
       <rect x="11.2" y="5.5" width="1.6" height="14.5" rx=".8" fill="#fff" opacity=".55" />
     </S>
   ),
+  // Courses — a stack of lessons with the one you are on lifted out of it.
+  courses: (
+    <S>
+      <rect x="3" y="4" width="18" height="4.2" rx="1.6" fill="var(--ic-courses)" />
+      <rect x="3" y="9.9" width="18" height="4.2" rx="1.6" fill="var(--ic-courses)" opacity=".78" />
+      <rect x="3" y="15.8" width="18" height="4.2" rx="1.6" fill="var(--ic-courses)" opacity=".56" />
+      <path d="M8.2 11.2l1.6 1.7 3.4-3.6" fill="none" stroke="#fff" strokeWidth="1.9"
+        strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="6" y="5.4" width="7" height="1.4" rx=".7" fill="#fff" opacity=".8" />
+    </S>
+  ),
   // Newsletter — a folded paper with a headline.
   newsletter: (
     <S>

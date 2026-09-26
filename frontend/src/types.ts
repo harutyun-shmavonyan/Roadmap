@@ -202,3 +202,79 @@ export type MealSlot = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack';
 // /api/meals/{id}/image, and imageUpdatedAt is the cache key that busts a replaced photo.
 export interface MealDto { id: string; slot: MealSlot; name: string; summary: string | null; ingredients: string[]; steps: string[]; calories: number | null; proteinG: number | null; carbsG: number | null; fatG: number | null; prepMinutes: number | null; tags: string[]; isFavorite: boolean; sortOrder: number; hasImage: boolean; imageContentType: string | null; imageUpdatedAt: string | null; createdAt: string; updatedAt: string; }
 export interface SaveMealRequest { slot: MealSlot; name: string; summary?: string | null; ingredients: string[]; steps: string[]; calories?: number | null; proteinG?: number | null; carbsG?: number | null; fatG?: number | null; prepMinutes?: number | null; tags: string[]; isFavorite?: boolean; }
+
+// Courses (a taught course: stages of lessons, each lesson a template's sections plus graded
+// exercises). The agent writes them over MCP; the tab reads. Statuses arrive as the same
+// snake_case strings the write side takes, so one read straight back into a write is safe.
+export type CourseStatus = 'draft' | 'active' | 'paused' | 'completed' | 'archived';
+export type StageStatus = 'planned' | 'defined' | 'in_progress' | 'completed' | 'skipped';
+export type LessonStatus = 'placeholder' | 'draft' | 'ready' | 'in_progress' | 'submitted' | 'completed' | 'skipped';
+
+export interface CourseFocusDto { code: string; title: string; status: LessonStatus; }
+export interface CourseSummaryDto {
+  id: string; slug: string; title: string; subtitle: string | null; status: CourseStatus;
+  progress: number; definedFraction: number; hoursLogged: number; estimatedHoursRemaining: number;
+  currentLesson: CourseFocusDto | null; updatedAt: string;
+}
+
+export interface TemplateSectionDto { kind: string; title: string | null; required: boolean; hasExercises?: boolean; }
+export interface CourseResourceDto { id: string; kind: string; title: string; url: string | null; noteMd: string | null; }
+
+export interface CourseLessonDto {
+  id: string; code: string; title: string; status: LessonStatus; position: number;
+  progress: number; score: number | null; estimatedHours: number | null; exerciseCount: number;
+}
+export interface CourseStageDto {
+  id: string; code: string; title: string; status: StageStatus; position: number;
+  targetWeeks: number | null; progress: number; definedFraction: number;
+  lessonsDefined: number; lessonsTotal: number; lessons: CourseLessonDto[] | null;
+}
+export interface CourseDetailDto {
+  id: string; slug: string; title: string; subtitle: string | null; status: CourseStatus;
+  descriptionMd: string | null; capstoneMd: string | null; targetHoursPerWeek: number | null;
+  template: { id: string; name: string; sections: TemplateSectionDto[] };
+  progress: number; definedFraction: number; hoursLogged: number; estimatedHoursRemaining: number;
+  startedAt: string | null; completedAt: string | null; updatedAt: string;
+  stages: CourseStageDto[]; resources: CourseResourceDto[];
+}
+
+export interface GradeDto {
+  id: string; score: number; maxScore: number; feedbackMd: string | null;
+  gradedBy: string; gradedAt: string; supersedes: string | null;
+}
+export interface SubmissionDto {
+  id: string; attemptNo: number; contentMd: string | null; links: { label?: string; url: string; kind?: string }[];
+  submittedBy: string; submittedAt: string; grades: GradeDto[] | null;
+}
+export interface ExerciseDto {
+  id: string; kind: string; sectionKind: string; title: string; promptMd: string;
+  referenceMd: string | null; maxScore: number; weight: number; required: boolean;
+  attempts: number; submissions: SubmissionDto[] | null;
+}
+export interface LessonSectionDto { kind: string; title: string | null; contentMd: string; }
+export interface LessonDetailDto {
+  id: string; code: string; title: string; status: LessonStatus; summaryMd: string | null;
+  estimatedHours: number | null; stage: { id: string; code: string; title: string };
+  progress: number | null; score: number | null;
+  gradedFraction: number | null; submittedFraction: number | null;
+  templateSections: TemplateSectionDto[];
+  sections: LessonSectionDto[] | null; exercises: ExerciseDto[] | null;
+  resources: CourseResourceDto[];
+}
+
+export interface CourseEventDto {
+  id: number; type: string; actor: string; createdAt: string;
+  stageId: string | null; lessonId: string | null; exerciseId: string | null;
+  payload: Record<string, unknown>;
+}
+export interface CourseResumeDto {
+  course: { slug: string; title: string; status: string; progress: number; definedFraction: number;
+    hoursLogged: number; estimatedHoursRemaining: number };
+  currentStage: { code: string; title: string; status: StageStatus; progress: number } | null;
+  currentLesson: { code: string; title: string; status: LessonStatus; progress: number; score: number | null } | null;
+  pendingExercises: { id: string; kind: string; title: string; hasSubmission: boolean; hasGrade: boolean }[];
+  latestHandoff: { md: string | null; createdAt: string; actor: string } | null;
+  recentGrades: { lessonCode: string; exerciseTitle: string; score: number; maxScore: number; gradedAt: string }[];
+  nextUndefinedStage: { code: string; title: string; placeholderLessons: number } | null;
+  recentEvents: CourseEventDto[];
+}

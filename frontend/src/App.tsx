@@ -14,6 +14,7 @@ import { NAV_ICON } from './NavIcons';
 import { JobsPage } from './JobsPage';
 import { EnglishPage } from './EnglishPage';
 import { NutritionPage } from './NutritionPage';
+import { CoursesPage } from './CoursesPage';
 
 /* ─── Navigation model ───
    Scoped pages belong to the selected roadmap and take a roadmapId; global pages
@@ -21,11 +22,11 @@ import { NutritionPage } from './NutritionPage';
    #/r/{roadmapId}/{page} for scoped, #/{page} for global, #/roadmaps for the picker. */
 
 type ScopedPage = 'schedule' | 'weekplan' | 'roadmap' | 'tasks' | 'performance' | 'habits';
-type GlobalPage = 'articles' | 'newsletter' | 'english' | 'notes' | 'nutrition' | 'jobs';
+type GlobalPage = 'articles' | 'courses' | 'newsletter' | 'english' | 'notes' | 'nutrition' | 'jobs';
 type PageId = ScopedPage | GlobalPage;
 
 const SCOPED_PAGES: ScopedPage[] = ['schedule', 'weekplan', 'roadmap', 'tasks', 'performance', 'habits'];
-const GLOBAL_PAGES: GlobalPage[] = ['articles', 'newsletter', 'english', 'notes', 'nutrition', 'jobs'];
+const GLOBAL_PAGES: GlobalPage[] = ['articles', 'courses', 'newsletter', 'english', 'notes', 'nutrition', 'jobs'];
 
 const isScoped = (id: PageId): id is ScopedPage => (SCOPED_PAGES as string[]).includes(id);
 
@@ -46,6 +47,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Learn', scoped: false, items: [
       { id: 'articles', label: 'Articles' },
+      { id: 'courses', label: 'Courses' },
       { id: 'newsletter', label: 'Newsletter' },
       { id: 'english', label: 'English' },
     ],
@@ -72,7 +74,10 @@ const BOTTOM_BAR: PageId[] = ['schedule', 'weekplan', 'newsletter', 'articles'];
 type Route =
   | { kind: 'picker' }
   | { kind: 'scoped'; roadmapId: string; page: ScopedPage }
-  | { kind: 'global'; page: GlobalPage };
+  // `sub` is whatever followed the page in the hash. Most global pages ignore it; Courses uses it
+  // to address a course and a lesson (#/courses/{slug}/lessons/{code}), because the thing you were
+  // reading should survive a reload and be linkable.
+  | { kind: 'global'; page: GlobalPage; sub: string[] };
 
 function parseHash(): Route {
   const parts = window.location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
@@ -80,8 +85,8 @@ function parseHash(): Route {
     const page = parts[2] as ScopedPage;
     return { kind: 'scoped', roadmapId: parts[1], page: SCOPED_PAGES.includes(page) ? page : 'schedule' };
   }
-  if (parts.length === 1 && GLOBAL_PAGES.includes(parts[0] as GlobalPage)) {
-    return { kind: 'global', page: parts[0] as GlobalPage };
+  if (parts.length >= 1 && GLOBAL_PAGES.includes(parts[0] as GlobalPage)) {
+    return { kind: 'global', page: parts[0] as GlobalPage, sub: parts.slice(1) };
   }
   return { kind: 'picker' };
 }
@@ -330,6 +335,7 @@ function AuthedApp({ theme, toggleTheme, onLogout }: { theme: string; toggleThem
         case 'jobs': return <JobsPage />;
         case 'english': return <EnglishPage />;
         case 'nutrition': return <NutritionPage />;
+        case 'courses': return <CoursesPage sub={route.sub} go={go} />;
       }
     }
     if (route.kind === 'scoped') {

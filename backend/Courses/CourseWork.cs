@@ -134,12 +134,12 @@ public static class CourseWork
             currentStage = tree.CurrentStage is null ? null : new
             {
                 code = tree.CurrentStage.Code, title = tree.CurrentStage.Title,
-                status = tree.CurrentStage.Status, progress = tree.CurrentStage.Progress,
+                status = tree.CurrentStage.Status.Wire(), progress = tree.CurrentStage.Progress,
             },
             currentLesson = tree.CurrentLesson is null ? null : new
             {
                 code = tree.CurrentLesson.Code, title = tree.CurrentLesson.Title,
-                status = tree.CurrentLesson.Status, progress = tree.CurrentLesson.Progress,
+                status = tree.CurrentLesson.Status.Wire(), progress = tree.CurrentLesson.Progress,
                 score = tree.CurrentLesson.Score,
             },
             pendingExercises = pending ?? [],
