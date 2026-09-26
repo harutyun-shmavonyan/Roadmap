@@ -776,7 +776,7 @@ function LessonView({ slug, code, onBack }: { slug: string; code: string; onBack
   </div>;
 
   if (!lesson) return (
-    <div style={{ padding: 24, display: 'grid', gap: 16, maxWidth: 880 }}>
+    <div style={{ padding: 24, display: 'grid', gap: 16, maxWidth: 720, margin: '0 auto' }}>
       <Skel w={190} h={28} />
       <div className="crs-hero" style={{ display: 'grid', gap: 12 }}><Skel w="55%" h={26} /><Skel w="70%" h={19} /></div>
       <div style={{ display: 'flex', gap: 8 }}>{[0, 1, 2, 3, 4].map(i => <Skel key={i} w={122} h={33} style={{ borderRadius: 999 }} />)}</div>
@@ -814,7 +814,7 @@ function LessonView({ slug, code, onBack }: { slug: string; code: string; onBack
   };
 
   return (
-    <div style={{ padding: 24, display: 'grid', gap: 18, maxWidth: 880 }}>
+    <div style={{ padding: '24px 24px 72px', display: 'grid', gap: 18, maxWidth: 720, margin: '0 auto' }}>
       <button className="btn btn-sm" onClick={onBack} style={{ justifySelf: 'start' }}>
         ← {lesson.stage.code} {lesson.stage.title}
       </button>
@@ -867,7 +867,7 @@ function LessonView({ slug, code, onBack }: { slug: string; code: string; onBack
         const xs = exercisesFor(t.kind);
         return (
           <div key={t.kind} ref={el => { refs.current[t.kind] = el; }} style={{ display: 'grid', gap: 12 }}>
-            <h3 className="crs-sec-h" style={{ ['--edge' as string]: kindHue(sectionKinds, t.kind) }}>
+            <h3 className="crs-sec-h crs-read" style={{ ['--edge' as string]: kindHue(sectionKinds, t.kind) }}>
               <SectionIcon kind={t.kind} color={kindHue(sectionKinds, t.kind)} />
               {t.title ?? words(t.kind)}
               {!t.required && <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500,
