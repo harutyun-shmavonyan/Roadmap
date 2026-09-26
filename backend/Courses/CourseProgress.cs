@@ -8,15 +8,15 @@ namespace Roadmap.Api.Courses;
 public sealed record ExerciseProgress(Guid Id, string Kind, string SectionKind, string Title, bool Required,
     double Weight, double MaxScore, int Attempts, bool HasSubmission, bool HasGrade, double? Fraction);
 
-public sealed record LessonProgress(Guid Id, string Code, string Title, string Status, int Position,
+public sealed record LessonProgress(Guid Id, string Code, string Title, LessonStatus Status, int Position,
     double Progress, double? Score, double GradedFraction, double SubmittedFraction,
     double? EstimatedHours, bool Defined, List<ExerciseProgress> Exercises);
 
-public sealed record StageProgress(Guid Id, string Code, string Title, string Status, int Position,
+public sealed record StageProgress(Guid Id, string Code, string Title, StageStatus Status, int Position,
     double Progress, double DefinedFraction, int LessonsDefined, int LessonsTotal, double? TargetWeeks,
     List<LessonProgress> Lessons);
 
-public sealed record CourseProgressTree(Guid Id, string Slug, string Title, string Status,
+public sealed record CourseProgressTree(Guid Id, string Slug, string Title, CourseStatus Status,
     double Progress, double DefinedFraction, double HoursLogged, double EstimatedHoursRemaining,
     LessonProgress? CurrentLesson, StageProgress? CurrentStage, StageProgress? NextUndefinedStage,
     List<StageProgress> Stages);
@@ -105,7 +105,7 @@ public static class CourseProgress
                     ? null
                     : Math.Round(graded.Sum(x => x.Weight * x.Fraction!.Value) / weight * 100, 1);
 
-                lessons.Add(new LessonProgress(l.Id, l.Code, l.Title, l.Status.ToString(), l.Position,
+                lessons.Add(new LessonProgress(l.Id, l.Code, l.Title, l.Status, l.Position,
                     Math.Round(LessonProgressValue(l.Status, submittedFraction, gradedFraction), 4), score,
                     Math.Round(gradedFraction, 4), Math.Round(submittedFraction, 4), l.EstimatedHours,
                     l.Status != LessonStatus.Placeholder, exercises));
@@ -113,15 +113,15 @@ public static class CourseProgress
 
             // A placeholder has nothing to be part-done, and a skipped lesson was taken off the
             // table, so neither drags the stage down; both still show in "x of y defined".
-            var counted = lessons.Where(x => x.Status is not ("Placeholder" or "Skipped")).ToList();
+            var counted = lessons.Where(x => x.Status is not (LessonStatus.Placeholder or LessonStatus.Skipped)).ToList();
             var defined = lessons.Count(x => x.Defined);
-            stages.Add(new StageProgress(st.Id, st.Code, st.Title, st.Status.ToString(), st.Position,
+            stages.Add(new StageProgress(st.Id, st.Code, st.Title, st.Status, st.Position,
                 counted.Count == 0 ? 0 : Math.Round(counted.Average(x => x.Progress), 4),
                 lessons.Count == 0 ? 0 : Math.Round((double)defined / lessons.Count, 4),
                 defined, lessons.Count, st.TargetWeeks, lessons));
         }
 
-        var live = stages.Where(s => s.Status != "Skipped").ToList();
+        var live = stages.Where(s => s.Status != StageStatus.Skipped).ToList();
         var totalWeight = live.Sum(s => s.TargetWeeks ?? 1);
         var progress = totalWeight <= 0 ? 0
             : Math.Round(live.Sum(s => (s.TargetWeeks ?? 1) * s.Progress) / totalWeight, 4);
@@ -130,24 +130,24 @@ public static class CourseProgress
         var definedFraction = allLessons.Count == 0 ? 0
             : Math.Round((double)allLessons.Count(l => l.Defined) / allLessons.Count, 4);
         var remaining = stages.SelectMany(s => s.Lessons)
-            .Where(l => l.Status is not ("Completed" or "Skipped"))
+            .Where(l => l.Status is not (LessonStatus.Completed or LessonStatus.Skipped))
             .Sum(l => l.EstimatedHours ?? 0);
 
         // Where to sit down: whatever is already open, else the first thing ready to start.
-        var (currentStage, currentLesson) = FirstMatch(stages, l => l.Status is "InProgress" or "Submitted")
-            ?? FirstMatch(stages, l => l.Status == "Ready")
+        var (currentStage, currentLesson) = FirstMatch(stages, l => l.Status is LessonStatus.InProgress or LessonStatus.Submitted)
+            ?? FirstMatch(stages, l => l.Status == LessonStatus.Ready)
             ?? (null, null);
 
         // And if nothing is ready, the first stage still waiting to be written.
         var nextUndefined = currentLesson is not null ? null
-            : stages.FirstOrDefault(s => s.Status == "Planned" || s.Lessons.Any(l => !l.Defined));
+            : stages.FirstOrDefault(s => s.Status == StageStatus.Planned || s.Lessons.Any(l => !l.Defined));
 
-        return new CourseProgressTree(course.Id, course.Slug, course.Title, course.Status.ToString(),
+        return new CourseProgressTree(course.Id, course.Slug, course.Title, course.Status,
             progress, definedFraction, Math.Round(hoursLogged, 2), Math.Round(remaining, 2),
             currentLesson, currentStage, nextUndefined, stages);
     }
 
-    private static (StageProgress, LessonProgress)? FirstMatch(List<StageProgress> stages, Func<LessonProgress, bool> pred)
+    private static (StageProgress?, LessonProgress?)? FirstMatch(List<StageProgress> stages, Func<LessonProgress, bool> pred)
     {
         foreach (var s in stages.OrderBy(x => x.Position))
             foreach (var l in s.Lessons.OrderBy(x => x.Position))

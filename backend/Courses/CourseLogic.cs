@@ -45,7 +45,55 @@ public static class CourseLogic
         PropertyNameCaseInsensitive = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
     };
+
+    /// <summary>
+    /// A status goes out in the same snake_case the tools take it in, so a status read from one
+    /// call can be handed straight back to the next without the caller translating it.
+    /// </summary>
+    public static string Wire<TEnum>(this TEnum value) where TEnum : struct, Enum =>
+        JsonNamingPolicy.SnakeCaseLower.ConvertName(value.ToString()!);
+
+    /// <summary>
+    /// jsonb does not store the bytes we hand it — it reformats, and may reorder an object's keys —
+    /// so two raw JSON strings are compared by what they mean, not by how they were written.
+    /// Without this, every re-import would call the same document changed.
+    /// </summary>
+    public static bool JsonEquivalent(string? a, string? b)
+    {
+        if (a is null || b is null) return a == b;
+        try
+        {
+            using var da = JsonDocument.Parse(a);
+            using var dbb = JsonDocument.Parse(b);
+            return SameJson(da.RootElement, dbb.RootElement);
+        }
+        catch { return string.Equals(a, b, StringComparison.Ordinal); }
+    }
+
+    private static bool SameJson(JsonElement a, JsonElement b)
+    {
+        if (a.ValueKind != b.ValueKind) return false;
+        switch (a.ValueKind)
+        {
+            case JsonValueKind.Object:
+                var pa = a.EnumerateObject().ToDictionary(p => p.Name, p => p.Value);
+                var pb = b.EnumerateObject().ToDictionary(p => p.Name, p => p.Value);
+                return pa.Count == pb.Count
+                    && pa.All(kv => pb.TryGetValue(kv.Key, out var v) && SameJson(kv.Value, v));
+            case JsonValueKind.Array:
+                var xa = a.EnumerateArray().ToList();
+                var xb = b.EnumerateArray().ToList();
+                return xa.Count == xb.Count && !xa.Where((x, i) => !SameJson(x, xb[i])).Any();
+            case JsonValueKind.Number:
+                return a.GetDouble().Equals(b.GetDouble());
+            case JsonValueKind.String:
+                return a.GetString() == b.GetString();
+            default:
+                return true; // true / false / null: the kind alone settles it
+        }
+    }
 
     /// <summary>A Markdown field this big is a mistake, not a lesson.</summary>
     public const int MaxMarkdownBytes = 200 * 1024;
