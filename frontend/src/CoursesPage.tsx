@@ -358,6 +358,11 @@ function CourseList({ onOpen }: { onOpen: (slug: string) => void }) {
               <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 12.5,
                 color: 'var(--text-secondary)', marginTop: 2 }}>
                 <span><b style={{ color: 'var(--text-primary)' }}><Pct value={c.definedFraction} /></b> written</span>
+                {c.score != null && (
+                  <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                    scored <b style={{ color: ink(scoreLook(c.score)) }}>{c.score}%</b>
+                  </span>
+                )}
                 {c.currentLesson && (
                   <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
                     <span className="crs-dot" style={{ background: ink(look(c.currentLesson.status)) }} />
@@ -392,7 +397,9 @@ function CourseArc({ stages, activeId, onPick }:
           return (
             <button key={s.id} className={`crs-arc-seg ${s.id === activeId ? 'active' : ''}`}
               onClick={() => onPick(s.id)}
-              title={`${s.code} · ${s.title} — ${words(s.status)}, ${Math.round(s.progress * 100)}% done, ${s.lessonsDefined}/${s.lessonsTotal} written`}
+              title={`${s.code} · ${s.title} — ${words(s.status)}, ${Math.round(s.progress * 100)}% done, `
+                + `${s.lessonsDefined}/${s.lessonsTotal} written`
+                + (s.score != null ? `, scored ${s.score}%` : '')}
               aria-label={`${s.code} ${s.title}, ${words(s.status)}, ${Math.round(s.progress * 100)} percent done, ${s.lessonsDefined} of ${s.lessonsTotal} lessons written`}
               style={{ flex: `${(s.targetWeeks ?? 1) / total} 1 0`, ['--edge' as string]: ink(tone) }}>
               {/* Two depths in one segment: how much of the stage is written, and how much of it is
@@ -439,6 +446,9 @@ function StageRail({ stages, activeId, onPick }:
               <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
                 {words(s.status)} · {s.lessonsDefined}/{s.lessonsTotal} written
                 {s.targetWeeks != null ? ` · ${s.targetWeeks}w` : ''}
+                {s.score != null && <>
+                  {' · '}<b style={{ color: ink(scoreLook(s.score)) }}>{s.score}%</b>
+                </>}
               </span>
             </span>
           </button>
@@ -522,6 +532,9 @@ function CourseDetail({ slug, onOpenLesson, onBack }:
             )}
             <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap', marginTop: 6 }}>
               <Stat label="Written"><Pct value={course.definedFraction} /></Stat>
+              <Stat label="Score" tone={course.score != null ? scoreLook(course.score) : undefined}>
+                {course.score != null ? `${course.score}%` : '—'}
+              </Stat>
               {course.targetHoursPerWeek != null && <Stat label="Per week">{course.targetHoursPerWeek}</Stat>}
             </div>
           </div>
@@ -585,6 +598,7 @@ function CourseDetail({ slug, onOpenLesson, onBack }:
             <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
               <h3 style={{ margin: 0, fontSize: 17, color: 'var(--text-primary)' }}>{active.code} · {active.title}</h3>
               <StatusPill status={active.status} />
+              {active.score != null && <ScoreChip score={active.score} />}
               {active.targetWeeks != null && (
                 <span style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
                   {active.targetWeeks} week{active.targetWeeks === 1 ? '' : 's'} planned

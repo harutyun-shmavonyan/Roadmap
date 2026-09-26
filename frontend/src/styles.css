@@ -1107,10 +1107,14 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
    measure, justified text, a drop cap — and a lesson's sections are not essays. They are short
    technical prose with code, tables and instructions, read next to the exercise they describe, so
    they take the app's own font at the app's own size and stay left-aligned and full-width. */
-.crs-md { font-size: 14.5px; line-height: 1.68; color: var(--text-primary); }
+/* Reading size, not UI size. A lesson's theory section and the questions under it are the two
+   things in this tab you actually sit and read, and they were set at the size of a label. 16px is
+   where continuous prose stops being a caption — the chrome around it stays small so the contrast
+   in weight does the work. Everything inside is em-relative, so code, tables and headings follow. */
+.crs-md { font-size: 16px; line-height: 1.72; color: var(--text-primary); }
 .crs-md > :first-child { margin-top: 0; }
 .crs-md > :last-child { margin-bottom: 0; }
-.crs-md p { margin: 0 0 0.9em; overflow-wrap: break-word; }
+.crs-md p { margin: 0 0 0.95em; overflow-wrap: break-word; }
 .crs-md h1, .crs-md h2, .crs-md h3, .crs-md h4 {
   font-weight: 700; color: var(--text-primary); line-height: 1.3; letter-spacing: -0.01em;
 }

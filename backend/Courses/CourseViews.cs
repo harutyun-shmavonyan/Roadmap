@@ -31,7 +31,7 @@ public static class CourseViews
             list.Add(new
             {
                 id = c.Id, slug = c.Slug, title = c.Title, subtitle = c.Subtitle, status = c.Status.Wire(),
-                progress = p.Progress, definedFraction = p.DefinedFraction,
+                progress = p.Progress, score = p.Score, definedFraction = p.DefinedFraction,
                 currentLesson = p.CurrentLesson is null ? null : new
                 {
                     code = p.CurrentLesson.Code, title = p.CurrentLesson.Title,
@@ -75,12 +75,13 @@ public static class CourseViews
                 sections = JsonSerializer.Deserialize<JsonElement>(template.Sections),
                 exerciseKinds = JsonSerializer.Deserialize<JsonElement>(template.ExerciseKinds),
             },
-            progress = tree.Progress, definedFraction = tree.DefinedFraction,
+            progress = tree.Progress, score = tree.Score, definedFraction = tree.DefinedFraction,
             startedAt = course.StartedAt, completedAt = course.CompletedAt, updatedAt = course.UpdatedAt,
             stages = tree.Stages.Select(s => new
             {
                 id = s.Id, code = s.Code, title = s.Title, status = s.Status.Wire(), position = s.Position,
-                targetWeeks = s.TargetWeeks, progress = s.Progress, definedFraction = s.DefinedFraction,
+                targetWeeks = s.TargetWeeks, progress = s.Progress, score = s.Score,
+                definedFraction = s.DefinedFraction,
                 lessonsDefined = s.LessonsDefined, lessonsTotal = s.LessonsTotal,
                 lessons = withLessons ? s.Lessons.Select(l => new
                 {

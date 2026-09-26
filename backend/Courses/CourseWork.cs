@@ -128,7 +128,7 @@ public static class CourseWork
             course = new
             {
                 slug = course.Slug, title = course.Title, status = course.Status.Wire(),
-                progress = tree.Progress, definedFraction = tree.DefinedFraction,
+                progress = tree.Progress, score = tree.Score, definedFraction = tree.DefinedFraction,
             },
             // The course's instructions.md, in full, first thing. A session that has to go and ask
             // for the house rules is a session that will sometimes forget to — so resume carries
@@ -138,6 +138,7 @@ public static class CourseWork
             {
                 code = tree.CurrentStage.Code, title = tree.CurrentStage.Title,
                 status = tree.CurrentStage.Status.Wire(), progress = tree.CurrentStage.Progress,
+                score = tree.CurrentStage.Score,
             },
             currentLesson = tree.CurrentLesson is null ? null : new
             {

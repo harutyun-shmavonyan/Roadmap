@@ -13,11 +13,11 @@ public sealed record LessonProgress(Guid Id, string Code, string Title, LessonSt
     double? EstimatedHours, bool Defined, List<ExerciseProgress> Exercises);
 
 public sealed record StageProgress(Guid Id, string Code, string Title, StageStatus Status, int Position,
-    double Progress, double DefinedFraction, int LessonsDefined, int LessonsTotal, double? TargetWeeks,
-    List<LessonProgress> Lessons);
+    double Progress, double? Score, double DefinedFraction, int LessonsDefined, int LessonsTotal,
+    double? TargetWeeks, List<LessonProgress> Lessons);
 
 public sealed record CourseProgressTree(Guid Id, string Slug, string Title, CourseStatus Status,
-    double Progress, double DefinedFraction,
+    double Progress, double? Score, double DefinedFraction,
     LessonProgress? CurrentLesson, StageProgress? CurrentStage, StageProgress? NextUndefinedStage,
     List<StageProgress> Stages);
 
@@ -113,8 +113,13 @@ public static class CourseProgress
             // table, so neither drags the stage down; both still show in "x of y defined".
             var counted = lessons.Where(x => x.Status is not (LessonStatus.Placeholder or LessonStatus.Skipped)).ToList();
             var defined = lessons.Count(x => x.Defined);
+            // The stage's mark is the plain mean of the marks its lessons actually have. A lesson
+            // with nothing graded yet has no mark, and counting it as zero would say the work went
+            // badly when it simply has not been looked at.
+            var lessonMarks = counted.Where(x => x.Score is not null).Select(x => x.Score!.Value).ToList();
             stages.Add(new StageProgress(st.Id, st.Code, st.Title, st.Status, st.Position,
                 counted.Count == 0 ? 0 : Math.Round(counted.Average(x => x.Progress), 4),
+                lessonMarks.Count == 0 ? null : Math.Round(lessonMarks.Average(), 1),
                 lessons.Count == 0 ? 0 : Math.Round((double)defined / lessons.Count, 4),
                 defined, lessons.Count, st.TargetWeeks, lessons));
         }
@@ -123,6 +128,12 @@ public static class CourseProgress
         var totalWeight = live.Sum(s => s.TargetWeeks ?? 1);
         var progress = totalWeight <= 0 ? 0
             : Math.Round(live.Sum(s => (s.TargetWeeks ?? 1) * s.Progress) / totalWeight, 4);
+
+        // Unweighted on purpose: progress is weighted by targetWeeks because a four-week stage is
+        // four weeks of the course, but a mark is how well the work was done, and a long stage is
+        // not a better-understood one.
+        var stageMarks = live.Where(s => s.Score is not null).Select(s => s.Score!.Value).ToList();
+        var courseScore = stageMarks.Count == 0 ? (double?)null : Math.Round(stageMarks.Average(), 1);
 
         var allLessons = stages.SelectMany(s => s.Lessons).ToList();
         var definedFraction = allLessons.Count == 0 ? 0
@@ -138,7 +149,7 @@ public static class CourseProgress
             : stages.FirstOrDefault(s => s.Status == StageStatus.Planned || s.Lessons.Any(l => !l.Defined));
 
         return new CourseProgressTree(course.Id, course.Slug, course.Title, course.Status,
-            progress, definedFraction,
+            progress, courseScore, definedFraction,
             currentLesson, currentStage, nextUndefined, stages);
     }
 
