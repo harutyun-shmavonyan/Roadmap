@@ -176,6 +176,11 @@ public static class CourseViews
             // which steps are still blank, so a half-written lesson looks unfinished rather than short.
             templateSections = CourseLogic.Sections(template)
                 .Select(s => new { kind = s.Kind, title = s.Title, required = s.Required }),
+            // The template's exercise kinds too, in its own order. The tab colours an exercise by
+            // its kind, and the hue has to come from a fixed order the course owns — not from the
+            // order exercises happen to be rendered in, which changes as work is added.
+            templateExerciseKinds = CourseLogic.ExerciseKinds(template)
+                .Select(k => new { kind = k.Kind, label = k.Label }),
             sections, exercises,
             resources = await db.CourseResources.AsNoTracking()
                 .Where(r => r.LessonId == lesson.Id).OrderBy(r => r.Position)

@@ -258,6 +258,9 @@ export interface LessonDetailDto {
   progress: number | null; score: number | null;
   gradedFraction: number | null; submittedFraction: number | null;
   templateSections: TemplateSectionDto[];
+  // The template's own order for both — a kind's colour comes from its place here, not from the
+  // order things happen to be rendered in, so a kind keeps its hue as work is added.
+  templateExerciseKinds: { kind: string; label: string | null }[];
   sections: LessonSectionDto[] | null; exercises: ExerciseDto[] | null;
   resources: CourseResourceDto[];
 }

@@ -883,36 +883,97 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
   --ic-active-ink:  #5cc46f;
   --ic-active-bg:   rgba(0, 131, 0, 0.26);
 }
-
 /* ─── Courses ───
-   The tab reads a course the agent wrote: a ring for the whole thing, a rail of stages, and a
-   lesson laid out as the steps its template prescribes.
+   A course is thirteen stages, seven kinds of section and five kinds of exercise. The tab's job
+   is to make that legible at a glance, so colour is spent deliberately and only three ways:
 
-   Motion is CSS transitions, not a library. Acceptance asks that the ring and the counters tween
-   from their previous value to the new one on refetch and update instantly under
-   prefers-reduced-motion — a transition on one property does exactly that, and the reduced-motion
-   query switches it off in one rule. Framer Motion would have to be code-split to stay off every
-   other tab's bundle, which the build does not do today; this needs no bundle at all. */
+   1. STATUS — the state a course, stage or lesson is in. A small reserved scale (idle, ready,
+      live, done, set aside) that never doubles as an identity colour, always beside its own word.
+   2. KIND — which section or which exercise. Eight hues from the app's categorical palette, taken
+      in the order the *template* lists its kinds, so a kind keeps its hue no matter what is on
+      screen. Validated: all eight clear ΔE 8 adjacent under protanopia and deuteranopia, and each
+      chip's ink clears 4.5:1 on its own tint in both themes.
+   3. SCORE — a mark is good or bad, so it wears the status scale rather than a hue of its own.
 
-.crs-ring-arc {
-  transition: stroke-dashoffset 620ms cubic-bezier(.22, .61, .36, 1);
+   Stages get no hue at all. M0 → M10 is an order, not a set of identities, and a rainbow over an
+   ordered thing tells the reader something untrue. Their colour is their status; their identity is
+   their number.
+
+   Motion is CSS transitions and one rAF hook, no animation library: the ring, the bars and the
+   counters tween from their previous value to the new one on refetch, and prefers-reduced-motion
+   turns all of it off in one rule at the bottom of this block. */
+
+:root {
+  /* Status — reserved, never an identity colour. Ink measured against its own tint. */
+  --crs-idle-ink: #6b6a66;  --crs-idle-bg: rgba(107, 106, 102, 0.12);
+  --crs-ready-ink: #2568ba; --crs-ready-bg: rgba(42, 120, 214, 0.13);
+  --crs-live-ink: #966000;  --crs-live-bg: rgba(237, 161, 0, 0.16);
+  --crs-done-ink: #0a6b1f;  --crs-done-bg: rgba(0, 131, 0, 0.13);
+  --crs-skip-ink: #826637;  --crs-skip-bg: rgba(138, 109, 59, 0.11);
+
+  /* Kind — the categorical palette. `hue` paints marks (dots, edges, rules); `ink` is for the
+     label inside `bg`, which is the one place text may sit on its own hue. */
+  --k1-hue: #d95926; --k1-ink: #b0481f; --k1-bg: #fae8e1;
+  --k2-hue: #2a78d6; --k2-ink: #2568ba; --k2-bg: #e1ecf9;
+  --k3-hue: #008300; --k3-ink: #007900; --k3-bg: #dbeedb;
+  --k4-hue: #e87ba4; --k4-ink: #9e5470; --k4-bg: #fcedf2;
+  --k5-hue: #eda100; --k5-ink: #936400; --k5-bg: #fcf2db;
+  --k6-hue: #1baf7a; --k6-ink: #137a55; --k6-bg: #dff4ec;
+  --k7-hue: #4a3aa7; --k7-ink: #4a3aa7; --k7-bg: #e6e3f3;
+  --k8-hue: #e34948; --k8-ink: #ba3c3b; --k8-bg: #fbe6e5;
+
+  --crs-hero: linear-gradient(135deg, rgba(237,161,0,.10) 0%, rgba(237,161,0,.03) 42%, transparent 78%);
+  --crs-shadow: 0 1px 2px rgba(16,16,20,.05), 0 8px 20px -12px rgba(16,16,20,.18);
+  --crs-shadow-lift: 0 2px 4px rgba(16,16,20,.06), 0 14px 28px -14px rgba(16,16,20,.26);
 }
-.crs-bar-fill {
-  transition: width 620ms cubic-bezier(.22, .61, .36, 1);
+[data-theme="dark"] {
+  --crs-idle-ink: #a9a89f;  --crs-idle-bg: rgba(169, 168, 159, 0.15);
+  --crs-ready-ink: #74aef2; --crs-ready-bg: rgba(57, 135, 229, 0.18);
+  --crs-live-ink: #e8ae3c;  --crs-live-bg: rgba(201, 133, 0, 0.2);
+  --crs-done-ink: #5cc46f;  --crs-done-bg: rgba(0, 131, 0, 0.24);
+  --crs-skip-ink: #c0a679;  --crs-skip-bg: rgba(192, 166, 121, 0.14);
+
+  --k1-hue: #d95926; --k1-ink: #e17a51; --k1-bg: #42261e;
+  --k2-hue: #3987e5; --k2-ink: #5b9be9; --k2-bg: #1f3048;
+  --k3-hue: #008300; --k3-ink: #47a647; --k3-bg: #133016;
+  --k4-hue: #d55181; --k4-ink: #de769b; --k4-bg: #422532;
+  --k5-hue: #c98500; --k5-ink: #ce9017; --k5-bg: #3f3016;
+  --k6-hue: #199e70; --k6-ink: #37ab83; --k6-bg: #18352e;
+  --k7-hue: #9085e9; --k7-ink: #9b91eb; --k7-bg: #323049;
+  --k8-hue: #e66767; --k8-ink: #e97878; --k8-bg: #45292c;
+
+  --crs-hero: linear-gradient(135deg, rgba(201,133,0,.16) 0%, rgba(201,133,0,.05) 42%, transparent 78%);
+  --crs-shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 20px -12px rgba(0,0,0,.6);
+  --crs-shadow-lift: 0 2px 4px rgba(0,0,0,.4), 0 14px 28px -14px rgba(0,0,0,.7);
 }
 
-/* A card, a stage row, a lesson row: the same surface, so the three depths of the tab read as
-   one place rather than three screens. */
+/* ── surfaces ── */
+
+.crs-hero {
+  background: var(--crs-hero), var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 20px 22px;
+}
+
 .crs-card {
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   padding: 16px 18px;
-  transition: border-color 140ms ease, background 140ms ease;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 .crs-card-link { cursor: pointer; }
-.crs-card-link:hover { border-color: var(--border); background: var(--bg-hover); }
+.crs-card-link:hover {
+  border-color: var(--border); box-shadow: var(--crs-shadow-lift); transform: translateY(-1px);
+}
 .crs-card-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* A lesson or exercise card wears a 3px edge in its status or kind colour — identity and state at
+   the left margin, where the eye already is when it scans a list. */
+.crs-edge { border-left: 3px solid var(--edge, var(--border)); }
+
+/* ── chips ── */
 
 .crs-pill {
   display: inline-flex; align-items: center; gap: 5px;
@@ -920,34 +981,102 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
   padding: 2px 9px; border-radius: 999px; white-space: nowrap;
   border: 1px solid transparent;
 }
+.crs-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
 
-/* The stage rail. On a phone it turns into a scrollable row above the lessons, because a vertical
-   rail plus a lesson list does not fit a narrow screen without one of them becoming a sliver. */
-.crs-rail { display: grid; gap: 8px; align-content: start; }
+/* ── the course arc ──
+   One segment per stage, width in proportion to the weeks it is planned to take, filled by how
+   far through it is. Thirteen stages in a rail is a list you scroll; thirteen stages in a strip is
+   a shape you read. Segments are separated by a 2px gap in the surface colour, never a border. */
+.crs-arc { display: flex; gap: 2px; align-items: stretch; width: 100%; }
+.crs-arc-seg {
+  position: relative; min-width: 10px; height: 26px; padding: 0; border: none; cursor: pointer;
+  background: var(--progress-track); border-radius: 3px; overflow: hidden;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+.crs-arc-seg:first-child { border-radius: 6px 3px 3px 6px; }
+.crs-arc-seg:last-child { border-radius: 3px 6px 6px 3px; }
+.crs-arc-seg > i {
+  position: absolute; inset: 0 auto 0 0; display: block; background: var(--edge);
+  transition: width 620ms cubic-bezier(.22, .61, .36, 1);
+}
+/* The "written" layer sits behind the "done" one: same hue, a wash rather than a fill, so the two
+   depths read as one measure at two stages rather than as two competing series. */
+.crs-arc-seg > i.crs-arc-written { opacity: .26; }
+.crs-arc-seg:hover { transform: translateY(-2px); }
+.crs-arc-seg.active { box-shadow: inset 0 0 0 2px var(--edge); }
+.crs-arc-seg:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* ── the stage rail ──
+   Thirteen rows have to stay compact, so each is one line plus a hairline bar, strung on a
+   vertical thread that makes the column read as an order rather than as a pile. */
+.crs-rail { position: relative; display: grid; gap: 2px; align-content: start; }
+.crs-rail::before {
+  content: ''; position: absolute; left: 15px; top: 14px; bottom: 14px; width: 2px;
+  background: var(--border-subtle); border-radius: 2px;
+}
 .crs-rail-item {
-  display: grid; gap: 6px; width: 100%; text-align: left;
-  padding: 10px 12px; border-radius: var(--radius-md);
-  border: 1px solid transparent; background: transparent; cursor: pointer;
-  font: inherit; color: inherit;
+  position: relative; display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: center;
+  width: 100%; text-align: left; padding: 7px 10px 7px 4px; border-radius: var(--radius-md);
+  border: 1px solid transparent; background: transparent; cursor: pointer; font: inherit; color: inherit;
+  transition: background 140ms ease;
 }
 .crs-rail-item:hover { background: var(--bg-hover); }
-.crs-rail-item.active { background: var(--bg-elevated); border-color: var(--border); }
+.crs-rail-item.active { background: var(--bg-elevated); border-color: var(--border); box-shadow: var(--crs-shadow); }
 .crs-rail-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.crs-rail-num {
+  width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 10.5px; font-weight: 800; letter-spacing: -.02em;
+  background: var(--bg-primary); border: 2px solid var(--edge, var(--border));
+  color: var(--text-secondary); z-index: 1;
+}
+.crs-rail-item.active .crs-rail-num { background: var(--edge); color: #fff; border-color: var(--edge); }
 
-/* The lesson's rhythm: one step per section kind the template prescribes, written or not. */
+/* ── the lesson's rhythm ──
+   One step per section kind the template prescribes, in the template's order, written or not. The
+   icon carries identity; the hue reinforces it. A blank step keeps its shape and loses its colour,
+   which is what makes a half-written lesson look unfinished rather than short. */
 .crs-step {
   display: inline-flex; align-items: center; gap: 7px;
-  padding: 7px 12px; border-radius: 999px; cursor: pointer;
+  padding: 6px 12px 6px 9px; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--border-subtle); background: var(--bg-elevated);
-  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--text-secondary);
-  white-space: nowrap;
+  font: inherit; font-size: 12.5px; font-weight: 650; color: var(--text-secondary);
+  white-space: nowrap; transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
-.crs-step:hover { border-color: var(--border); }
-.crs-step.active { border-color: var(--accent); color: var(--text-primary); }
-.crs-step.blank { opacity: .55; }
+.crs-step:hover { border-color: var(--edge); transform: translateY(-1px); box-shadow: var(--crs-shadow); }
+.crs-step.blank { opacity: .5; }
+.crs-step.blank .crs-step-ico { filter: grayscale(1); }
 .crs-step:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.crs-step-ico { display: grid; place-items: center; width: 18px; height: 18px; }
+.crs-step-n {
+  font-size: 10.5px; font-weight: 800; color: var(--text-muted);
+  background: var(--bg-secondary); border-radius: 999px; padding: 1px 6px;
+}
 
-/* Skeletons are sized like the thing they stand in for, so nothing jumps when the data lands. */
+/* A section heading carries its kind's colour as a short rule under the label — colour near the
+   text rather than on it, so the heading itself keeps a text token. */
+.crs-sec-h {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 12.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-secondary); margin: 18px 0 0;
+}
+.crs-sec-h::after {
+  content: ''; flex: 1; height: 2px; border-radius: 2px;
+  background: linear-gradient(to right, var(--edge), transparent 68%);
+}
+
+/* ── timeline ── */
+.crs-tl { position: relative; display: grid; gap: 10px; padding-left: 4px; }
+.crs-tl::before {
+  content: ''; position: absolute; left: 8px; top: 8px; bottom: 8px; width: 2px;
+  background: var(--border-subtle); border-radius: 2px;
+}
+.crs-tl-row { display: grid; grid-template-columns: 18px 76px 1fr auto; gap: 10px; align-items: baseline; font-size: 13px; }
+.crs-tl-dot {
+  width: 9px; height: 9px; border-radius: 50%; margin-left: 4px; align-self: center;
+  background: var(--edge); box-shadow: 0 0 0 2px var(--bg-primary); z-index: 1;
+}
+
+/* ── skeletons ── sized like the thing they stand in for, so nothing jumps when data lands. */
 .crs-skel {
   background: linear-gradient(90deg, var(--bg-elevated) 0%, var(--bg-hover) 50%, var(--bg-elevated) 100%);
   background-size: 200% 100%;
@@ -956,39 +1085,23 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 }
 @keyframes crs-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
+/* ── motion ── */
+.crs-ring-arc { transition: stroke-dashoffset 620ms cubic-bezier(.22, .61, .36, 1); }
+.crs-bar-fill { transition: width 620ms cubic-bezier(.22, .61, .36, 1); }
+
 @media (prefers-reduced-motion: reduce) {
-  .crs-ring-arc, .crs-bar-fill { transition: none; }
+  .crs-ring-arc, .crs-bar-fill, .crs-arc-seg > i { transition: none; }
   .crs-skel { animation: none; }
+  .crs-card-link:hover, .crs-arc-seg:hover, .crs-step:hover { transform: none; }
 }
 
 @media (max-width: 860px) {
   .crs-split { grid-template-columns: 1fr !important; }
-  .crs-rail { grid-auto-flow: column; grid-auto-columns: minmax(180px, 1fr); overflow-x: auto; }
+  .crs-rail { grid-auto-flow: column; grid-auto-columns: minmax(190px, 1fr); overflow-x: auto; padding-bottom: 6px; }
+  .crs-rail::before { display: none; }
+  .crs-tl-row { grid-template-columns: 18px 1fr; row-gap: 2px; }
 }
 
-/* Status colours for courses. Five states, not fifteen: idle (nothing written yet), ready, live,
-   done, and set aside. The vocabulary has more words than that — placeholder, draft, planned,
-   submitted, paused — but they collapse into these five as far as "how should this look" goes, and
-   five distinguishable chips is a design a person can read at a glance. Ink is checked against its
-   own background, not against the page. */
-:root {
-  /* Each ink is checked against its own tinted background, not against the page: measured with
-     axe, the five clear 4.5:1 there (4.62, 4.71, 4.68, 5.58, 4.69). The blue, amber and brown had
-     to come down a step to get there — a chip is small type, and small type is where a palette
-     that "looks fine" stops being readable. */
-  --crs-idle-ink: #6b6a66;  --crs-idle-bg: rgba(107, 106, 102, 0.12);
-  --crs-ready-ink: #2568ba; --crs-ready-bg: rgba(42, 120, 214, 0.13);
-  --crs-live-ink: #966000;  --crs-live-bg: rgba(237, 161, 0, 0.16);
-  --crs-done-ink: #0a6b1f;  --crs-done-bg: rgba(0, 131, 0, 0.13);
-  --crs-skip-ink: #826637;  --crs-skip-bg: rgba(138, 109, 59, 0.11);
-}
-[data-theme="dark"] {
-  --crs-idle-ink: #a9a89f;  --crs-idle-bg: rgba(169, 168, 159, 0.15);
-  --crs-ready-ink: #74aef2; --crs-ready-bg: rgba(57, 135, 229, 0.18);
-  --crs-live-ink: #e8ae3c;  --crs-live-bg: rgba(201, 133, 0, 0.2);
-  --crs-done-ink: #5cc46f;  --crs-done-bg: rgba(0, 131, 0, 0.24);
-  --crs-skip-ink: #c0a679;  --crs-skip-bg: rgba(192, 166, 121, 0.14);
-}
 
 /* Markdown inside a course. Not `.article-body`: that is long-form essay typography — a serif
    measure, justified text, a drop cap — and a lesson's sections are not essays. They are short
