@@ -213,7 +213,7 @@ export type LessonStatus = 'placeholder' | 'draft' | 'ready' | 'in_progress' | '
 export interface CourseFocusDto { code: string; title: string; status: LessonStatus; }
 export interface CourseSummaryDto {
   id: string; slug: string; title: string; subtitle: string | null; status: CourseStatus;
-  progress: number; definedFraction: number; hoursLogged: number; estimatedHoursRemaining: number;
+  progress: number; definedFraction: number;
   currentLesson: CourseFocusDto | null; updatedAt: string;
 }
 
@@ -237,7 +237,7 @@ export interface CourseDetailDto {
   instructionsMd: string | null;
   targetHoursPerWeek: number | null;
   template: { id: string; name: string; sections: TemplateSectionDto[] };
-  progress: number; definedFraction: number; hoursLogged: number; estimatedHoursRemaining: number;
+  progress: number; definedFraction: number;
   startedAt: string | null; completedAt: string | null; updatedAt: string;
   stages: CourseStageDto[]; resources: CourseResourceDto[];
 }
@@ -275,8 +275,7 @@ export interface CourseEventDto {
   payload: Record<string, unknown>;
 }
 export interface CourseResumeDto {
-  course: { slug: string; title: string; status: string; progress: number; definedFraction: number;
-    hoursLogged: number; estimatedHoursRemaining: number };
+  course: { slug: string; title: string; status: string; progress: number; definedFraction: number };
   currentStage: { code: string; title: string; status: StageStatus; progress: number } | null;
   currentLesson: { code: string; title: string; status: LessonStatus; progress: number; score: number | null } | null;
   pendingExercises: { id: string; kind: string; title: string; hasSubmission: boolean; hasGrade: boolean }[];

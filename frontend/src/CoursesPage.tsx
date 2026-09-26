@@ -358,8 +358,6 @@ function CourseList({ onOpen }: { onOpen: (slug: string) => void }) {
               <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 12.5,
                 color: 'var(--text-secondary)', marginTop: 2 }}>
                 <span><b style={{ color: 'var(--text-primary)' }}><Pct value={c.definedFraction} /></b> written</span>
-                <span><b style={{ color: 'var(--text-primary)' }}><Num value={c.hoursLogged} /></b> h logged</span>
-                <span><b style={{ color: 'var(--text-primary)' }}><Num value={c.estimatedHoursRemaining} /></b> h left</span>
                 {c.currentLesson && (
                   <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
                     <span className="crs-dot" style={{ background: ink(look(c.currentLesson.status)) }} />
@@ -524,8 +522,6 @@ function CourseDetail({ slug, onOpenLesson, onBack }:
             )}
             <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap', marginTop: 6 }}>
               <Stat label="Written"><Pct value={course.definedFraction} /></Stat>
-              <Stat label="Hours logged" tone="done"><Num value={course.hoursLogged} /></Stat>
-              <Stat label="Hours left"><Num value={course.estimatedHoursRemaining} /></Stat>
               {course.targetHoursPerWeek != null && <Stat label="Per week">{course.targetHoursPerWeek}</Stat>}
             </div>
           </div>
@@ -752,7 +748,6 @@ function LessonView({ slug, code, onBack }: { slug: string; code: string; onBack
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
-  const [minutes, setMinutes] = useState('');
   const [said, setSaid] = useState<string | null>(null);
   const refs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -793,16 +788,6 @@ function LessonView({ slug, code, onBack }: { slug: string; code: string; onBack
     try { setLesson(await api.setLessonStatus(slug, code, to, needsForce)); }
     catch (e) { setSaid(String(e)); }
     finally { setBusy(false); }
-  };
-
-  const logTime = async () => {
-    const m = Number(minutes);
-    if (!Number.isFinite(m) || m <= 0) return;
-    setBusy(true);
-    try {
-      await api.logCourseEvent(slug, 'time_logged', { minutes: m }, code);
-      setMinutes(''); setSaid(`Logged ${m} min.`);
-    } finally { setBusy(false); }
   };
 
   const addNote = async () => {
@@ -894,7 +879,7 @@ function LessonView({ slug, code, onBack }: { slug: string; code: string; onBack
         </Fold>
       )}
 
-      {/* The three things a person writes here. Everything else about a lesson is the agent's. */}
+      {/* The two things a person writes here. Everything else about a lesson is the agent's. */}
       <div className="crs-card" style={{ display: 'grid', gap: 12 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-secondary)',
@@ -902,12 +887,6 @@ function LessonView({ slug, code, onBack }: { slug: string; code: string; onBack
           {LESSON_MOVES[lesson.status].map(to => (
             <button key={to} className="btn btn-sm" disabled={busy} onClick={() => move(to)}>{words(to)}</button>
           ))}
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input className="inline-input" style={{ width: 92, minWidth: 0, flex: '0 0 auto' }}
-            inputMode="numeric" placeholder="minutes"
-            value={minutes} onChange={e => setMinutes(e.target.value)} aria-label="Minutes spent" />
-          <button className="btn btn-sm" disabled={busy || !minutes} onClick={logTime}>Log time</button>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <textarea className="inline-input" rows={2} placeholder="A note on this lesson…"

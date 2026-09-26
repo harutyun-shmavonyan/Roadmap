@@ -79,15 +79,15 @@ public static class CourseEndpoints
                 CourseViews.LessonInclude(null)));
         }));
 
-        // The only user-originated write besides the two statuses: a note, or time spent.
+        // The only user-originated write besides the two statuses.
         courses.MapPost("/{course}/events", async (string course, CourseEventRequest req,
             RoadmapDbContext db) => await Guard(async () =>
         {
             var c = await Resolve(db, course);
             var type = CourseWork.ParseType(req.Type)
                 ?? throw CourseException.Validation($"unknown event type '{req.Type}'.");
-            if (type is not (ProgressEventType.Note or ProgressEventType.TimeLogged))
-                throw CourseException.Validation("only 'note' and 'time_logged' may be posted from the app.");
+            if (type is not ProgressEventType.Note)
+                throw CourseException.Validation("only 'note' may be posted from the app.");
 
             Guid? stageId = null, lessonId = null;
             if (!string.IsNullOrWhiteSpace(req.LessonCode))

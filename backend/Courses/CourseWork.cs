@@ -129,7 +129,6 @@ public static class CourseWork
             {
                 slug = course.Slug, title = course.Title, status = course.Status.Wire(),
                 progress = tree.Progress, definedFraction = tree.DefinedFraction,
-                hoursLogged = tree.HoursLogged, estimatedHoursRemaining = tree.EstimatedHoursRemaining,
             },
             // The course's instructions.md, in full, first thing. A session that has to go and ask
             // for the house rules is a session that will sometimes forget to — so resume carries
@@ -198,6 +197,8 @@ public static class CourseWork
         ProgressEventType.StatusChanged => "status_changed",
         ProgressEventType.SubmissionAdded => "submission_added",
         ProgressEventType.GradeAdded => "grade_added",
+        // Nothing writes this any more; kept so a row written before hours logging was removed
+        // still reads back rather than throwing on a string the enum no longer knows.
         ProgressEventType.TimeLogged => "time_logged",
         ProgressEventType.StructureChanged => "structure_changed",
         ProgressEventType.Handoff => "handoff",

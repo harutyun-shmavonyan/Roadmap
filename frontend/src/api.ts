@@ -334,7 +334,7 @@ export const api = {
     req<LessonDetailDto>(`/api/courses/${encodeURIComponent(slug)}/lessons/${encodeURIComponent(code)}/status`, {
       method: 'PATCH', body: JSON.stringify({ status, force }),
     }),
-  logCourseEvent: (slug: string, type: 'note' | 'time_logged', payload: unknown, lessonCode?: string) =>
+  logCourseEvent: (slug: string, type: 'note', payload: unknown, lessonCode?: string) =>
     req<{ id: number; type: string; createdAt: string }>(`/api/courses/${encodeURIComponent(slug)}/events`, {
       method: 'POST', body: JSON.stringify({ type, payload, lessonCode }),
     }),

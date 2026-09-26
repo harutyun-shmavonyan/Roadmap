@@ -31,8 +31,7 @@ public static class CourseViews
             list.Add(new
             {
                 id = c.Id, slug = c.Slug, title = c.Title, subtitle = c.Subtitle, status = c.Status.Wire(),
-                progress = p.Progress, definedFraction = p.DefinedFraction, hoursLogged = p.HoursLogged,
-                estimatedHoursRemaining = p.EstimatedHoursRemaining,
+                progress = p.Progress, definedFraction = p.DefinedFraction,
                 currentLesson = p.CurrentLesson is null ? null : new
                 {
                     code = p.CurrentLesson.Code, title = p.CurrentLesson.Title,
@@ -77,7 +76,6 @@ public static class CourseViews
                 exerciseKinds = JsonSerializer.Deserialize<JsonElement>(template.ExerciseKinds),
             },
             progress = tree.Progress, definedFraction = tree.DefinedFraction,
-            hoursLogged = tree.HoursLogged, estimatedHoursRemaining = tree.EstimatedHoursRemaining,
             startedAt = course.StartedAt, completedAt = course.CompletedAt, updatedAt = course.UpdatedAt,
             stages = tree.Stages.Select(s => new
             {

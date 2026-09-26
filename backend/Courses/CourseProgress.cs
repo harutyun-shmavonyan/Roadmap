@@ -17,7 +17,7 @@ public sealed record StageProgress(Guid Id, string Code, string Title, StageStat
     List<LessonProgress> Lessons);
 
 public sealed record CourseProgressTree(Guid Id, string Slug, string Title, CourseStatus Status,
-    double Progress, double DefinedFraction, double HoursLogged, double EstimatedHoursRemaining,
+    double Progress, double DefinedFraction,
     LessonProgress? CurrentLesson, StageProgress? CurrentStage, StageProgress? NextUndefinedStage,
     List<StageProgress> Stages);
 
@@ -80,8 +80,6 @@ public static class CourseProgress
         var course = await LoadTreeAsync(db, courseId) ?? throw CourseException.NotFound("course");
         var latest = ScoringIsLatest(course);
 
-        var hoursLogged = await MinutesLoggedAsync(db, courseId) / 60.0;
-
         var stages = new List<StageProgress>();
         foreach (var st in course.Stages.OrderBy(s => s.Position))
         {
@@ -129,9 +127,6 @@ public static class CourseProgress
         var allLessons = stages.SelectMany(s => s.Lessons).ToList();
         var definedFraction = allLessons.Count == 0 ? 0
             : Math.Round((double)allLessons.Count(l => l.Defined) / allLessons.Count, 4);
-        var remaining = stages.SelectMany(s => s.Lessons)
-            .Where(l => l.Status is not (LessonStatus.Completed or LessonStatus.Skipped))
-            .Sum(l => l.EstimatedHours ?? 0);
 
         // Where to sit down: whatever is already open, else the first thing ready to start.
         var (currentStage, currentLesson) = FirstMatch(stages, l => l.Status is LessonStatus.InProgress or LessonStatus.Submitted)
@@ -143,7 +138,7 @@ public static class CourseProgress
             : stages.FirstOrDefault(s => s.Status == StageStatus.Planned || s.Lessons.Any(l => !l.Defined));
 
         return new CourseProgressTree(course.Id, course.Slug, course.Title, course.Status,
-            progress, definedFraction, Math.Round(hoursLogged, 2), Math.Round(remaining, 2),
+            progress, definedFraction,
             currentLesson, currentStage, nextUndefined, stages);
     }
 
@@ -155,22 +150,4 @@ public static class CourseProgress
         return null;
     }
 
-    /// <summary>Minutes across every <c>time_logged</c> event on the course.</summary>
-    public static async Task<double> MinutesLoggedAsync(RoadmapDbContext db, Guid courseId)
-    {
-        var payloads = await db.ProgressEvents.AsNoTracking()
-            .Where(e => e.CourseId == courseId && e.Type == ProgressEventType.TimeLogged)
-            .Select(e => e.Payload).ToListAsync();
-        double total = 0;
-        foreach (var p in payloads)
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(p);
-                if (doc.RootElement.TryGetProperty("minutes", out var m) && m.TryGetDouble(out var v)) total += v;
-            }
-            catch { /* a malformed payload is not worth failing a page load over */ }
-        }
-        return total;
-    }
 }

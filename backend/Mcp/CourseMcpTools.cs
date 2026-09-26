@@ -911,23 +911,22 @@ public sealed class CourseMcpTools(RoadmapDbContext db)
     });
 
     [McpServerTool(Name = "log_course_event"), Description(
-        "Write a note, a handoff or logged time onto the course timeline.\n\n" +
+        "Write a note or a handoff onto the course timeline.\n\n" +
         "type='handoff' with payload {md} is THE ONE TO WRITE AT THE END OF A SESSION: it is what " +
         "get_course_resume hands back first, so say what you stopped in the middle of and what comes next " +
         "('stopped after break-it #2; next: capstone increment').\n" +
-        "type='note' with payload {md} is an ordinary remark. type='time_logged' with payload {minutes, note?} " +
-        "feeds the course's hours-logged total.")]
+        "type='note' with payload {md} is an ordinary remark.")]
     public async Task<string> LogCourseEvent(
         [Description("Course slug")] string courseSlug,
-        [Description("note | handoff | time_logged")] string type,
-        [Description("{md} for note/handoff, {minutes, note?} for time_logged")] JsonElement payload,
+        [Description("note | handoff")] string type,
+        [Description("{md}")] JsonElement payload,
         [Description("Attach it to a lesson")] string? lessonCode = null,
         [Description("'agent:claude-code' or 'user'")] string actor = "agent:claude-code") => await Run(async () =>
     {
         var course = await CourseRef(null, courseSlug);
         var t = CourseWork.ParseType(type) ?? throw CourseException.Validation($"unknown event type '{type}'.");
-        if (t is not (ProgressEventType.Note or ProgressEventType.Handoff or ProgressEventType.TimeLogged))
-            throw CourseException.Validation("type must be note, handoff or time_logged; the rest are written by the app.");
+        if (t is not (ProgressEventType.Note or ProgressEventType.Handoff))
+            throw CourseException.Validation("type must be note or handoff; the rest are written by the app.");
 
         Guid? stageId = null, lessonId = null;
         if (lessonCode is not null)
@@ -976,7 +975,7 @@ public sealed class CourseMcpTools(RoadmapDbContext db)
 
     [McpServerTool(Name = "get_course_timeline"), Description(
         "The course's timeline, newest first. Cursor-paginate by passing the id of the last event you saw. " +
-        "types filters to any of status_changed, submission_added, grade_added, note, handoff, time_logged, " +
+        "types filters to any of status_changed, submission_added, grade_added, note, handoff, " +
         "structure_changed.")]
     public async Task<string> GetCourseTimeline(
         [Description("Course slug")] string courseSlug,
