@@ -13,8 +13,13 @@ docker push h317280/roadmap-app:latest
 ```
 
 - A `git push` alone does **not** deploy. The image push is what ships the change.
-- Railway auto-redeploys once the new `:latest` is pushed (~1 min). Verify by hard-refreshing
-  the deployed app.
+- **The image push alone does not deploy either** — Railway does not watch the tag. After pushing,
+  trigger a redeploy (dashboard, or the Railway MCP `redeploy` tool with project
+  `66371d0b-1c97-49f4-90b8-1f33106deb75`, service `9271cb87-e63a-45e9-aa3c-74324561f4d3`,
+  environment `43921fe0-f892-4f9e-97bd-bd3fd9b6e67f`); it re-pulls `:latest`. It takes ~15 s.
+- **Verify, do not assume.** `https://roadmap-app.up.railway.app/mcp` needs no secret, so
+  `tools/list` over JSON-RPC is the cheapest proof of what is actually running. On 2026-09-26 an
+  image push looked done while production was still a day-old build.
 - Docs-only changes (this file, `README.md`) are not in the image, so they don't need a rebuild.
 - The Docker build compiles the frontend (`npm run build`) and backend (`dotnet publish`) inside
   the image, so a clean working tree isn't required — but note the build ships the **entire
