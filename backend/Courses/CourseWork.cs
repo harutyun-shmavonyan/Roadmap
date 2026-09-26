@@ -131,6 +131,10 @@ public static class CourseWork
                 progress = tree.Progress, definedFraction = tree.DefinedFraction,
                 hoursLogged = tree.HoursLogged, estimatedHoursRemaining = tree.EstimatedHoursRemaining,
             },
+            // The course's instructions.md, in full, first thing. A session that has to go and ask
+            // for the house rules is a session that will sometimes forget to — so resume carries
+            // them whether or not anyone asked, the way a repository's CLAUDE.md is simply there.
+            instructionsMd = course.InstructionsMd,
             currentStage = tree.CurrentStage is null ? null : new
             {
                 code = tree.CurrentStage.Code, title = tree.CurrentStage.Title,

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
@@ -189,6 +190,8 @@ public sealed class CourseMcpTools(RoadmapDbContext db)
         [Description("One-line subtitle")] string? subtitle = null,
         [Description("What the course is, in Markdown")] string? descriptionMd = null,
         [Description("The long-running piece of work it builds towards, in Markdown")] string? capstoneMd = null,
+        [Description("The course's instructions.md — how it is to be taught, graded and written. Handed back by get_course_resume every session.")]
+        string? instructionsMd = null,
         [Description("Study budget in hours per week")] double? targetHoursPerWeek = null,
         [Description("Free JSON. 'scoring' ('best'|'latest', default 'best') decides which grade counts.")]
         JsonElement? metadata = null) => await Run(async () =>
@@ -207,6 +210,7 @@ public sealed class CourseMcpTools(RoadmapDbContext db)
             Id = Guid.NewGuid(), Slug = slug, Title = title, Subtitle = subtitle,
             DescriptionMd = CourseLogic.Md(descriptionMd, "descriptionMd"),
             CapstoneMd = CourseLogic.Md(capstoneMd, "capstoneMd"),
+            InstructionsMd = CourseLogic.Md(instructionsMd, "instructionsMd"),
             TemplateId = template.Id, TargetHoursPerWeek = targetHoursPerWeek,
             Metadata = metadata is JsonElement m && m.ValueKind == JsonValueKind.Object ? m.GetRawText() : "{}",
         };
@@ -218,8 +222,9 @@ public sealed class CourseMcpTools(RoadmapDbContext db)
     });
 
     [McpServerTool(Name = "update_course"), Description(
-        "Change a course's title, subtitle, description, capstone, weekly budget or metadata. Omitted arguments " +
-        "are left unchanged. Use set_course_status for status.")]
+        "Change a course's title, subtitle, description, capstone, instructions, weekly budget or metadata. " +
+        "Omitted arguments are left unchanged. Use set_course_status for status, and set_course_instructions " +
+        "if instructions.md is the only thing you are writing.")]
     public async Task<string> UpdateCourse(
         [Description("Course id")] Guid? id = null,
         [Description("Course slug")] string? slug = null,
@@ -227,6 +232,7 @@ public sealed class CourseMcpTools(RoadmapDbContext db)
         [Description("New subtitle")] string? subtitle = null,
         [Description("New description Markdown")] string? descriptionMd = null,
         [Description("New capstone Markdown")] string? capstoneMd = null,
+        [Description("Replacement instructions.md, in Markdown")] string? instructionsMd = null,
         [Description("New weekly hours budget")] double? targetHoursPerWeek = null,
         [Description("Replacement metadata object")] JsonElement? metadata = null) => await Run(async () =>
     {
@@ -235,11 +241,66 @@ public sealed class CourseMcpTools(RoadmapDbContext db)
         if (subtitle is not null) course.Subtitle = subtitle;
         if (descriptionMd is not null) course.DescriptionMd = CourseLogic.Md(descriptionMd, "descriptionMd");
         if (capstoneMd is not null) course.CapstoneMd = CourseLogic.Md(capstoneMd, "capstoneMd");
+        if (instructionsMd is not null) course.InstructionsMd = CourseLogic.Md(instructionsMd, "instructionsMd");
         if (targetHoursPerWeek is not null) course.TargetHoursPerWeek = targetHoursPerWeek;
         if (metadata is JsonElement m && m.ValueKind == JsonValueKind.Object) course.Metadata = m.GetRawText();
         course.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         return new { id = course.Id, slug = course.Slug, updated = true };
+    });
+
+    [McpServerTool(Name = "get_course_instructions"), Description(
+        "Read a course's instructions.md — the house rules for how this course is taught, graded and written. " +
+        "get_course_resume already returns it, so this is for when you want it on its own (to review it, or to " +
+        "edit it and write it back). Returns { slug, instructionsMd, bytes, updatedAt }; instructionsMd is null " +
+        "when the course has none.")]
+    public async Task<string> GetCourseInstructions(
+        [Description("Course slug")] string? slug = null,
+        [Description("Course id")] Guid? id = null) => await Run(async () =>
+    {
+        var course = await CourseRef(id, slug);
+        return new
+        {
+            slug = course.Slug, instructionsMd = course.InstructionsMd,
+            bytes = course.InstructionsMd is null ? 0 : Encoding.UTF8.GetByteCount(course.InstructionsMd),
+            updatedAt = course.UpdatedAt,
+        };
+    });
+
+    [McpServerTool(Name = "set_course_instructions"), Description(
+        "Write a course's instructions.md. REPLACES the whole document — read it first if you mean to amend it " +
+        "rather than start it over; pass append=true to add to the end instead. This is the file a session reads " +
+        "before it touches the course: how to write a lesson for it, how to mark the work, what the course's " +
+        "conventions are. Pass an empty string to clear it. Capped at 200 KB like every Markdown field.")]
+    public async Task<string> SetCourseInstructions(
+        [Description("The instructions.md content, in Markdown")] string instructionsMd,
+        [Description("Course slug")] string? slug = null,
+        [Description("Course id")] Guid? id = null,
+        [Description("Add to the end of the existing document instead of replacing it")] bool append = false)
+        => await Run(async () =>
+    {
+        var course = await CourseRef(id, slug, track: true);
+        var next = append && !string.IsNullOrEmpty(course.InstructionsMd)
+            ? course.InstructionsMd!.TrimEnd() + "\n\n" + instructionsMd.TrimStart()
+            : instructionsMd;
+        var had = course.InstructionsMd;
+        course.InstructionsMd = string.IsNullOrWhiteSpace(next) ? null : CourseLogic.Md(next, "instructionsMd");
+        course.UpdatedAt = DateTime.UtcNow;
+        // Instructions change how everything after them is written, so the change is on the record
+        // rather than silent — a lesson graded under the old rules should be explainable later.
+        CourseLogic.Event(db, course.Id, ProgressEventType.StructureChanged, "agent:mcp", new
+        {
+            summary = course.InstructionsMd is null ? "instructions.md cleared"
+                : had is null ? "instructions.md written"
+                : append ? "instructions.md appended to" : "instructions.md replaced",
+            bytes = course.InstructionsMd is null ? 0 : Encoding.UTF8.GetByteCount(course.InstructionsMd),
+        });
+        await db.SaveChangesAsync();
+        return new
+        {
+            slug = course.Slug, saved = true,
+            bytes = course.InstructionsMd is null ? 0 : Encoding.UTF8.GetByteCount(course.InstructionsMd),
+        };
     });
 
     [McpServerTool(Name = "set_course_status"), Description(

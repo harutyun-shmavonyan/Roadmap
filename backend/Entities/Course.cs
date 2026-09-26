@@ -21,6 +21,14 @@ public class Course
     /// <summary>The long-running piece of work the course builds towards, if it has one.</summary>
     public string? CapstoneMd { get; set; }
 
+    /// <summary>
+    /// The course's own instructions.md: how this course is to be taught, graded and written —
+    /// house rules that outlive any one session. It is handed back by <c>get_course_resume</c>, so
+    /// the agent picking the course up reads it before it does anything, the way it would read a
+    /// CLAUDE.md on entering a repository. Markdown, capped like every other Markdown field.
+    /// </summary>
+    public string? InstructionsMd { get; set; }
+
     public Guid TemplateId { get; set; }
     public LessonTemplate Template { get; set; } = null!;
 

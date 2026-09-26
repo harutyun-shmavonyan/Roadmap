@@ -67,7 +67,8 @@ public static class CourseViews
         {
             id = course.Id, slug = course.Slug, title = course.Title, subtitle = course.Subtitle,
             status = course.Status.Wire(), descriptionMd = course.DescriptionMd,
-            capstoneMd = course.CapstoneMd, targetHoursPerWeek = course.TargetHoursPerWeek,
+            capstoneMd = course.CapstoneMd, instructionsMd = course.InstructionsMd,
+            targetHoursPerWeek = course.TargetHoursPerWeek,
             metadata = JsonSerializer.Deserialize<JsonElement>(course.Metadata),
             template = new
             {

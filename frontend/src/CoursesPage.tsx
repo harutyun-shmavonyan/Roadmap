@@ -203,6 +203,15 @@ function Md({ src }: { src: string }) {
   return <div className="crs-md" dangerouslySetInnerHTML={{ __html: marked.parse(src) as string }} />;
 }
 
+/** Hand the document over as a real file, since that is what it is called. */
+function downloadMd(name: string, body: string) {
+  const url = URL.createObjectURL(new Blob([body], { type: 'text/markdown;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
 function Resources({ items }: { items: CourseResourceDto[] }) {
   if (items.length === 0) return null;
   return (
@@ -618,6 +627,21 @@ function CourseDetail({ slug, onOpenLesson, onBack }:
         </div>
       </div>
 
+      {course.instructionsMd && (
+        <Fold title="instructions.md">
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
+              How this course is taught, graded and written. The agent reads this before every
+              session; change it by asking the agent, not here.
+            </div>
+            <Md src={course.instructionsMd} />
+            <button className="btn btn-sm" style={{ justifySelf: 'start' }}
+              onClick={() => downloadMd(`${course.slug}-instructions.md`, course.instructionsMd!)}>
+              Download instructions.md ↓
+            </button>
+          </div>
+        </Fold>
+      )}
       {course.capstoneMd && <Fold title="Capstone"><Md src={course.capstoneMd} /></Fold>}
       {course.descriptionMd && <Fold title="About this course"><Md src={course.descriptionMd} /></Fold>}
       {course.resources.length > 0 && (

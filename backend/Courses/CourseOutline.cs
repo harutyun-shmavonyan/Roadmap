@@ -85,6 +85,7 @@ public static class CourseOutline
         if (Has(courseEl, "subtitle")) courseChanged |= Set(course.Subtitle, Str(courseEl, "subtitle"), v => course.Subtitle = v);
         if (Has(courseEl, "descriptionMd")) courseChanged |= Set(course.DescriptionMd, CourseLogic.Md(Str(courseEl, "descriptionMd"), "descriptionMd"), v => course.DescriptionMd = v);
         if (Has(courseEl, "capstoneMd")) courseChanged |= Set(course.CapstoneMd, CourseLogic.Md(Str(courseEl, "capstoneMd"), "capstoneMd"), v => course.CapstoneMd = v);
+        if (Has(courseEl, "instructionsMd")) courseChanged |= Set(course.InstructionsMd, CourseLogic.Md(Str(courseEl, "instructionsMd"), "instructionsMd"), v => course.InstructionsMd = v);
         if (Has(courseEl, "targetHoursPerWeek")) courseChanged |= Set(course.TargetHoursPerWeek, Num(courseEl, "targetHoursPerWeek"), v => course.TargetHoursPerWeek = v);
         if (Has(courseEl, "metadata")) courseChanged |= SetJson(course.Metadata,
             courseEl.GetProperty("metadata").GetRawText(), v => course.Metadata = v);

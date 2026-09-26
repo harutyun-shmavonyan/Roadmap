@@ -549,6 +549,7 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.Property(c => c.Subtitle).HasMaxLength(512);
             e.Property(c => c.Status).HasConversion<string>().HasMaxLength(16);
             e.Property(c => c.Metadata).HasColumnType("jsonb").IsRequired();
+            e.Property(c => c.InstructionsMd).HasColumnType("text");
             // One user, so the slug is unique outright rather than per owner.
             e.HasIndex(c => c.Slug).IsUnique();
             e.HasOne(c => c.Template).WithMany()

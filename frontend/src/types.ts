@@ -231,7 +231,11 @@ export interface CourseStageDto {
 }
 export interface CourseDetailDto {
   id: string; slug: string; title: string; subtitle: string | null; status: CourseStatus;
-  descriptionMd: string | null; capstoneMd: string | null; targetHoursPerWeek: number | null;
+  descriptionMd: string | null; capstoneMd: string | null;
+  // The course's instructions.md — how it is taught, graded and written. Read-only here: it is the
+  // agent's brief, and the agent is what writes it.
+  instructionsMd: string | null;
+  targetHoursPerWeek: number | null;
   template: { id: string; name: string; sections: TemplateSectionDto[] };
   progress: number; definedFraction: number; hoursLogged: number; estimatedHoursRemaining: number;
   startedAt: string | null; completedAt: string | null; updatedAt: string;
