@@ -34,6 +34,18 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
     public DbSet<JobPosting> JobPostings => Set<JobPosting>();
     public DbSet<Article> Articles => Set<Article>();
     public DbSet<NewsletterIssue> NewsletterIssues => Set<NewsletterIssue>();
+
+    // --- Courses ---
+    public DbSet<LessonTemplate> LessonTemplates => Set<LessonTemplate>();
+    public DbSet<Course> Courses => Set<Course>();
+    public DbSet<Stage> Stages => Set<Stage>();
+    public DbSet<Lesson> Lessons => Set<Lesson>();
+    public DbSet<LessonSection> LessonSections => Set<LessonSection>();
+    public DbSet<Exercise> Exercises => Set<Exercise>();
+    public DbSet<Submission> Submissions => Set<Submission>();
+    public DbSet<Grade> Grades => Set<Grade>();
+    public DbSet<CourseResource> CourseResources => Set<CourseResource>();
+    public DbSet<ProgressEvent> ProgressEvents => Set<ProgressEvent>();
     public DbSet<ArticleImage> ArticleImages => Set<ArticleImage>();
     public DbSet<Meal> Meals => Set<Meal>();
     public DbSet<MealImage> MealImages => Set<MealImage>();
@@ -511,6 +523,157 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.HasOne(r => r.VocabEntry).WithMany(v => v.Reviews)
                 .HasForeignKey(r => r.VocabEntryId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(r => new { r.VocabEntryId, r.ReviewedAt });
+        });
+
+        // ===== Courses =====
+        // Soft delete is a query filter on the four entities that carry history (course, stage,
+        // lesson, exercise). Sections and resources are hard-deleted: they are cheap to recreate
+        // and nothing points at them.
+
+        modelBuilder.Entity<LessonTemplate>(e =>
+        {
+            e.ToTable("lesson_templates");
+            e.HasKey(t => t.Id);
+            e.Property(t => t.Name).HasMaxLength(128).IsRequired();
+            e.HasIndex(t => t.Name).IsUnique();
+            e.Property(t => t.Sections).HasColumnType("jsonb").IsRequired();
+            e.Property(t => t.ExerciseKinds).HasColumnType("jsonb").IsRequired();
+        });
+
+        modelBuilder.Entity<Course>(e =>
+        {
+            e.ToTable("courses");
+            e.HasKey(c => c.Id);
+            e.Property(c => c.Slug).HasMaxLength(128).IsRequired();
+            e.Property(c => c.Title).HasMaxLength(256).IsRequired();
+            e.Property(c => c.Subtitle).HasMaxLength(512);
+            e.Property(c => c.Status).HasConversion<string>().HasMaxLength(16);
+            e.Property(c => c.Metadata).HasColumnType("jsonb").IsRequired();
+            // One user, so the slug is unique outright rather than per owner.
+            e.HasIndex(c => c.Slug).IsUnique();
+            e.HasOne(c => c.Template).WithMany()
+                .HasForeignKey(c => c.TemplateId).OnDelete(DeleteBehavior.Restrict);
+            e.HasQueryFilter(c => c.DeletedAt == null);
+        });
+
+        modelBuilder.Entity<Stage>(e =>
+        {
+            e.ToTable("stages");
+            e.HasKey(st => st.Id);
+            e.Property(st => st.Code).HasMaxLength(32).IsRequired();
+            e.Property(st => st.Title).HasMaxLength(256).IsRequired();
+            e.Property(st => st.Status).HasConversion<string>().HasMaxLength(16);
+            e.Property(st => st.Metadata).HasColumnType("jsonb").IsRequired();
+            e.HasOne(st => st.Course).WithMany(c => c.Stages)
+                .HasForeignKey(st => st.CourseId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(st => new { st.CourseId, st.Code }).IsUnique();
+            e.HasIndex(st => new { st.CourseId, st.Position });
+            e.HasQueryFilter(st => st.DeletedAt == null && st.Course.DeletedAt == null);
+        });
+
+        modelBuilder.Entity<Lesson>(e =>
+        {
+            e.ToTable("lessons");
+            e.HasKey(l => l.Id);
+            e.Property(l => l.Code).HasMaxLength(32).IsRequired();
+            e.Property(l => l.Title).HasMaxLength(256).IsRequired();
+            e.Property(l => l.Status).HasConversion<string>().HasMaxLength(16);
+            e.Property(l => l.Metadata).HasColumnType("jsonb").IsRequired();
+            e.HasOne(l => l.Stage).WithMany(st => st.Lessons)
+                .HasForeignKey(l => l.StageId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(l => new { l.StageId, l.Position });
+            // Codes are unique per COURSE, which needs a join — enforced in the service.
+            e.HasQueryFilter(l => l.DeletedAt == null && l.Stage.DeletedAt == null
+                && l.Stage.Course.DeletedAt == null);
+        });
+
+        modelBuilder.Entity<LessonSection>(e =>
+        {
+            e.ToTable("lesson_sections");
+            e.HasKey(s => s.Id);
+            e.Property(s => s.Kind).HasMaxLength(64).IsRequired();
+            e.Property(s => s.Title).HasMaxLength(256);
+            e.Property(s => s.ContentMd).IsRequired();
+            e.HasOne(s => s.Lesson).WithMany(l => l.Sections)
+                .HasForeignKey(s => s.LessonId).OnDelete(DeleteBehavior.Cascade);
+            // One section per kind per lesson — what makes upsert_lesson_section idempotent.
+            e.HasIndex(s => new { s.LessonId, s.Kind }).IsUnique();
+            e.HasQueryFilter(s => s.Lesson.DeletedAt == null && s.Lesson.Stage.DeletedAt == null
+                && s.Lesson.Stage.Course.DeletedAt == null);
+        });
+
+        modelBuilder.Entity<Exercise>(e =>
+        {
+            e.ToTable("exercises");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.SectionKind).HasMaxLength(64).IsRequired();
+            e.Property(x => x.Kind).HasMaxLength(64).IsRequired();
+            e.Property(x => x.Title).HasMaxLength(256).IsRequired();
+            e.Property(x => x.PromptMd).IsRequired();
+            e.HasOne(x => x.Lesson).WithMany(l => l.Exercises)
+                .HasForeignKey(x => x.LessonId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.LessonId, x.Position });
+            e.HasQueryFilter(x => x.DeletedAt == null && x.Lesson.DeletedAt == null
+                && x.Lesson.Stage.DeletedAt == null && x.Lesson.Stage.Course.DeletedAt == null);
+        });
+
+        modelBuilder.Entity<Submission>(e =>
+        {
+            e.ToTable("submissions");
+            e.HasKey(s => s.Id);
+            e.Property(s => s.Links).HasColumnType("jsonb").IsRequired();
+            e.Property(s => s.SubmittedBy).HasMaxLength(64).IsRequired();
+            e.Property(s => s.IdempotencyKey).HasMaxLength(128);
+            e.HasOne(s => s.Exercise).WithMany(x => x.Submissions)
+                .HasForeignKey(s => s.ExerciseId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(s => new { s.ExerciseId, s.AttemptNo }).IsUnique();
+            e.HasIndex(s => s.IdempotencyKey);
+            e.HasQueryFilter(s => s.Exercise.DeletedAt == null && s.Exercise.Lesson.DeletedAt == null
+                && s.Exercise.Lesson.Stage.DeletedAt == null
+                && s.Exercise.Lesson.Stage.Course.DeletedAt == null);
+        });
+
+        modelBuilder.Entity<Grade>(e =>
+        {
+            e.ToTable("grades");
+            e.HasKey(g => g.Id);
+            e.Property(g => g.Rubric).HasColumnType("jsonb");
+            e.Property(g => g.GradedBy).HasMaxLength(64).IsRequired();
+            e.Property(g => g.IdempotencyKey).HasMaxLength(128);
+            e.HasOne(g => g.Submission).WithMany(s => s.Grades)
+                .HasForeignKey(g => g.SubmissionId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(g => new { g.SubmissionId, g.GradedAt });
+            e.HasIndex(g => g.IdempotencyKey);
+            e.HasQueryFilter(g => g.Submission.Exercise.DeletedAt == null
+                && g.Submission.Exercise.Lesson.DeletedAt == null
+                && g.Submission.Exercise.Lesson.Stage.DeletedAt == null
+                && g.Submission.Exercise.Lesson.Stage.Course.DeletedAt == null);
+        });
+
+        modelBuilder.Entity<CourseResource>(e =>
+        {
+            e.ToTable("course_resources");
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Title).HasMaxLength(256).IsRequired();
+            e.Property(r => r.Url).HasMaxLength(1024).IsRequired();
+            e.Property(r => r.Kind).HasMaxLength(32).IsRequired();
+            e.HasOne(r => r.Course).WithMany(c => c.Resources)
+                .HasForeignKey(r => r.CourseId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(r => new { r.CourseId, r.LessonId });
+            e.HasQueryFilter(r => r.Course.DeletedAt == null);
+        });
+
+        modelBuilder.Entity<ProgressEvent>(e =>
+        {
+            e.ToTable("progress_events");
+            e.HasKey(ev => ev.Id);
+            e.Property(ev => ev.Type).HasConversion<string>().HasMaxLength(32);
+            e.Property(ev => ev.Payload).HasColumnType("jsonb").IsRequired();
+            e.Property(ev => ev.Actor).HasMaxLength(64).IsRequired();
+            e.HasOne(ev => ev.Course).WithMany()
+                .HasForeignKey(ev => ev.CourseId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(ev => new { ev.CourseId, ev.CreatedAt });
+            e.HasQueryFilter(ev => ev.Course.DeletedAt == null);
         });
     }
 }
