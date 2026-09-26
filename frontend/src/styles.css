@@ -24,6 +24,10 @@
   --radius-md: 12px;
   --radius-lg: 16px;
   --font-body: 'DM Sans', 'Google Sans', system-ui, sans-serif;
+  /* The reading face, for course lessons. Loaded rather than hoped for: the old stack named
+     Charter and Iowan Old Style, which exist on a Mac and nowhere else, so most machines fell all
+     the way through to Times. Georgia sits behind it as the one system serif worth landing on. */
+  --font-read: 'Literata', 'Source Serif 4', Georgia, Cambria, 'Times New Roman', serif;
   --font-mono: 'JetBrains Mono', monospace;
   --transition: 150ms ease;
   --shadow-sm: 0 1px 2px rgba(60,64,67,0.1);
@@ -1121,13 +1125,13 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 .crs-read { max-width: var(--crs-measure, 680px); }
 
 .crs-md {
-  font-family: Charter, 'Iowan Old Style', 'Palatino Linotype', Georgia, Cambria, 'Times New Roman', serif;
+  font-family: var(--font-read);
   font-size: 19px;
-  line-height: 1.72;
+  line-height: 1.7;
   letter-spacing: -0.003em;
   color: var(--text-primary);
-  /* The app thins its type globally; long-form serif needs the weight back. */
-  font-weight: 450;
+  /* The app thins its type globally; a reading face needs the weight back. */
+  font-weight: 400;
   -webkit-font-smoothing: auto;
   -moz-osx-font-smoothing: auto;
   max-width: var(--crs-measure, 680px);
