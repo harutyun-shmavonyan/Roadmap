@@ -136,6 +136,14 @@ export const NAV_ICON: Record<string, ReactNode> = {
       <rect x="10.4" y="10.6" width="3.2" height="3.6" rx="1" fill="#fff" />
     </S>
   ),
+  // Experiences — a peak with the sun over it: somewhere to go.
+  experiences: (
+    <S>
+      <circle cx="17" cy="7" r="3" fill="var(--ic-experiences)" opacity=".6" />
+      <path d="M2.5 20 9.5 8.5l4.2 6.4 2.3-3.1L21.5 20z" fill="var(--ic-experiences)" />
+      <path d="M9.5 8.5 11.6 11.9 10.2 11.4 8.7 12.7 7.9 11.1z" fill="#fff" opacity=".85" />
+    </S>
+  ),
   // Delay — a clock badged with the nudge forward. A clock alone reads as "when" and an arrow
   // alone as "next"; the pair is the only way the glyph says "later" at 18px.
   delay: (

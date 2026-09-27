@@ -134,6 +134,7 @@ app.MapGet("/api/auth/check", (HttpContext ctx) =>
 // All roadmap endpoints require auth
 app.MapRoadmapEndpoints();
 app.MapCourseEndpoints();
+app.MapExperienceEndpoints();
 
 // MCP endpoint — protected by MCP_SECRET if configured
 app.MapMcp("/mcp").AddEndpointFilter(async (ctx, next) =>

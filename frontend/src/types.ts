@@ -285,3 +285,21 @@ export interface CourseResumeDto {
   nextUndefinedStage: { code: string; title: string; placeholderLessons: number } | null;
   recentEvents: CourseEventDto[];
 }
+
+// Experiences (global — the list of things planned and the record of things done, with pictures).
+// Dates are yyyy-MM-dd; only the title is required, since a plan is worth saving before it has
+// a place, a date or a picture.
+export type ExperienceStatus = 'planned' | 'done';
+export interface ExperienceImageDto {
+  id: string; contentType: string; caption: string | null; fileName: string | null;
+  sortOrder: number; createdAt: string;
+}
+export interface ExperienceDto {
+  id: string; title: string; category: string | null; status: ExperienceStatus; location: string | null;
+  startDate: string | null; endDate: string | null; descriptionMd: string | null;
+  images: ExperienceImageDto[]; createdAt: string; updatedAt: string;
+}
+export interface SaveExperienceRequest {
+  title: string; category: string | null; status: ExperienceStatus; location: string | null;
+  startDate: string | null; endDate: string | null; descriptionMd: string | null;
+}

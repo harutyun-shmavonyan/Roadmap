@@ -853,6 +853,9 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
   --ic-notes:       #2a78d6;  /* blue    */
   --ic-nutrition:   #e34948;  /* red     */
   --ic-jobs:        #4a3aa7;  /* violet  */
+  /* Experiences sits at the foot of Track, under Notes (blue), Nutrition (red) and Jobs (violet),
+     so it takes the orange: Schedule is its only other user, a dozen rows away at the top. */
+  --ic-experiences: #d95926;  /* orange  */
 
   /* Delay acts on a task, so it borrows the task hue and badges it with the yellow. */
   --ic-delay:       #e87ba4;
@@ -879,6 +882,7 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
   --ic-notes:       #3987e5;
   --ic-nutrition:   #e66767;
   --ic-jobs:        #9085e9;
+  --ic-experiences: #d95926;
 
   --ic-delay:       #d55181;
   --ic-delay-badge: #c98500;
@@ -1126,7 +1130,7 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 
 .crs-md {
   font-family: var(--font-read);
-  font-size: 19px;
+  font-size: 18px;
   line-height: 1.7;
   letter-spacing: -0.003em;
   color: var(--text-primary);
@@ -1181,5 +1185,105 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 .crs-md hr { border: none; border-top: 1px solid var(--border-subtle); margin: 1.7em 0; }
 
 @media (max-width: 720px) {
-  .crs-md { font-size: 17.5px; line-height: 1.68; }
+  .crs-md { font-size: 17px; line-height: 1.68; }
+}
+
+
+/* ─── Experiences ───
+   A grid of cards led by a picture, because that is how a person thinks of a place they want to
+   go: by what it looks like. An experience with no picture yet gets its category's initial on a
+   warm wash rather than a grey box, so a young list of plans still looks like a list of plans. */
+
+.xp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
+
+.xp-card {
+  background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 14px;
+  overflow: hidden; cursor: pointer; display: flex; flex-direction: column;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+.xp-card:hover { border-color: var(--border); box-shadow: var(--crs-shadow-lift); transform: translateY(-2px); }
+.xp-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.xp-cover { position: relative; aspect-ratio: 16 / 10; background: var(--bg-secondary); overflow: hidden; }
+.xp-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.xp-cover-empty {
+  width: 100%; height: 100%; display: grid; place-items: center;
+  font: 700 46px/1 var(--font-read); color: color-mix(in srgb, var(--ic-experiences) 70%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--ic-experiences) 16%, var(--bg-elevated)),
+                                      color-mix(in srgb, var(--ic-experiences) 4%, var(--bg-elevated)));
+}
+.xp-count {
+  position: absolute; right: 8px; bottom: 8px; font-size: 11px; font-weight: 700;
+  color: #fff; background: rgba(0, 0, 0, .55); padding: 2px 8px; border-radius: 999px;
+  backdrop-filter: blur(4px);
+}
+
+.xp-card-body { padding: 13px 15px 15px; display: grid; gap: 6px; }
+.xp-title { font-size: 16px; font-weight: 700; line-height: 1.3; color: var(--text-primary); letter-spacing: -.01em; }
+.xp-meta {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px;
+  color: var(--text-secondary); min-width: 0;
+}
+.xp-soon { color: var(--text-secondary); font-weight: 600; }
+
+/* A category is free text and unbounded, so it cannot own a hue without the palette cycling —
+   it gets a neutral chip, and colour stays with status. */
+.xp-cat {
+  font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--text-secondary); background: var(--bg-secondary);
+  padding: 2px 8px; border-radius: 999px;
+}
+
+.xp-h {
+  margin: 4px 0 0; font-size: 12px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--text-secondary); display: flex; gap: 8px; align-items: center;
+}
+.xp-h span { font-weight: 700; color: var(--text-secondary); background: var(--bg-secondary);
+  padding: 1px 8px; border-radius: 999px; letter-spacing: 0; }
+
+/* segmented control and filter chips */
+.xp-seg { display: inline-flex; background: var(--bg-secondary); border-radius: 999px; padding: 3px; gap: 2px; }
+.xp-seg button {
+  border: none; background: transparent; font: inherit; font-size: 13px; font-weight: 600;
+  color: var(--text-secondary); padding: 5px 13px; border-radius: 999px; cursor: pointer;
+}
+.xp-seg button.on { background: var(--bg-primary); color: var(--text-primary); box-shadow: var(--crs-shadow); }
+.xp-seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.xp-chip {
+  border: 1px solid var(--border-subtle); background: var(--bg-elevated); font: inherit; font-size: 12.5px;
+  font-weight: 600; color: var(--text-secondary); padding: 4px 12px; border-radius: 999px; cursor: pointer;
+}
+.xp-chip:hover { border-color: var(--border); }
+.xp-chip.on { border-color: var(--ic-experiences); color: var(--text-primary);
+  background: color-mix(in srgb, var(--ic-experiences) 10%, var(--bg-elevated)); }
+
+/* detail + form */
+.modal.xp-modal { max-width: 680px; display: grid; gap: 16px; }
+.xp-md { max-width: none; }
+.xp-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.modal .xp-field, .xp-field {
+  display: grid; gap: 6px; margin: 0; text-transform: none; letter-spacing: 0; font-weight: 400;
+  font-size: 14px; color: var(--text-primary); min-width: 0;
+}
+.xp-field > span {
+  font-size: 11.5px; font-weight: 700; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: .05em;
+}
+.xp-field .inline-input { min-width: 0; width: 100%; box-sizing: border-box; }
+
+.xp-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.xp-figure { margin: 0; display: grid; gap: 5px; }
+.xp-figure-img { position: relative; aspect-ratio: 4 / 3; border-radius: 10px; overflow: hidden; background: var(--bg-secondary); }
+.xp-figure-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.xp-figure figcaption { font-size: 12.5px; color: var(--text-secondary); line-height: 1.4; }
+.xp-figure-actions { display: flex; gap: 2px; flex-wrap: wrap; }
+/* .btn-ghost inherits --text-muted, which is 3.68:1 app-wide; these are the only way to act on a
+   photo, so they take the secondary ink instead (6.05:1) rather than being hard to read. */
+.xp-figure-actions .btn-ghost { font-size: 12px; padding: 2px 6px; color: var(--text-secondary); }
+.xp-figure-actions .btn-ghost:hover { color: var(--text-primary); }
+
+@media (prefers-reduced-motion: reduce) { .xp-card:hover { transform: none; } }
+@media (max-width: 620px) {
+  .xp-row { grid-template-columns: 1fr; }
+  .xp-grid { grid-template-columns: 1fr; }
 }

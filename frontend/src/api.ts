@@ -9,7 +9,8 @@ import type { RoadmapSummary, RoadmapTree, NodeDto, CreateNodeRequest, Actionabl
   VocabEntryDto, VocabStatsDto,
   MealDto, MealSlot, SaveMealRequest,
   CourseSummaryDto, CourseDetailDto, LessonDetailDto, CourseEventDto, CourseResumeDto,
-  CourseStatus, LessonStatus } from './types';
+  CourseStatus, LessonStatus,
+  ExperienceDto, ExperienceImageDto, ExperienceStatus, SaveExperienceRequest } from './types';
 
 const B = '/api/roadmaps';
 
@@ -338,4 +339,42 @@ export const api = {
     req<{ id: number; type: string; createdAt: string }>(`/api/courses/${encodeURIComponent(slug)}/events`, {
       method: 'POST', body: JSON.stringify({ type, payload, lessonCode }),
     }),
+
+  // Experiences (global — written from the tab as readily as by an agent, so full CRUD here).
+  getExperiences: (status?: ExperienceStatus) =>
+    req<ExperienceDto[]>(`/api/experiences${status ? `?status=${status}` : ''}`),
+  getExperienceCategories: () => req<{ category: string; count: number }[]>('/api/experiences/categories'),
+  createExperience: (body: SaveExperienceRequest) =>
+    req<ExperienceDto>('/api/experiences', { method: 'POST', body: JSON.stringify(body) }),
+  // PUT replaces the whole experience — the form always sends every field.
+  updateExperience: (id: string, body: SaveExperienceRequest) =>
+    req<ExperienceDto>(`/api/experiences/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  setExperienceStatus: (id: string, status: ExperienceStatus) =>
+    req<ExperienceDto>(`/api/experiences/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  deleteExperience: (id: string) => req<void>(`/api/experiences/${id}`, { method: 'DELETE' }),
+
+  // Pictures sit behind the bearer token, so they are fetched as blobs and shown from object URLs,
+  // and uploaded as multipart — several at once, the way a phone's photo picker hands them over.
+  uploadExperienceImages: async (id: string, files: File[]): Promise<ExperienceDto> => {
+    const token = getToken();
+    const fd = new FormData();
+    for (const f of files) fd.append('file', f, f.name);
+    const r = await fetch(`/api/experiences/${id}/images`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: fd,
+    });
+    if (!r.ok) throw new Error(`Upload failed: ${r.status} ${await r.text()}`);
+    return r.json();
+  },
+  fetchExperienceImageUrl: async (imageId: string): Promise<string> => {
+    const token = getToken();
+    const r = await fetch(`/api/experiences/images/${imageId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!r.ok) throw new Error(`Picture fetch failed: ${r.status}`);
+    return URL.createObjectURL(await r.blob());
+  },
+  updateExperienceImage: (imageId: string, patch: { caption?: string; sortOrder?: number }) =>
+    req<ExperienceImageDto>(`/api/experiences/images/${imageId}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteExperienceImage: (imageId: string) =>
+    req<void>(`/api/experiences/images/${imageId}`, { method: 'DELETE' }),
 };

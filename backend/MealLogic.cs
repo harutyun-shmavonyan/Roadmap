@@ -13,9 +13,9 @@ namespace Roadmap.Api;
 public static class MealLogic
 {
     /// <summary>Photos are pictures of food, not archives: generous for a phone shot, far under Kestrel's cap.</summary>
-    public const long MaxImageBytes = 20L * 1024 * 1024;
+    public const long MaxImageBytes = ImageLogic.MaxImageBytes;
 
-    public const string MaxImageHelp = "20 MB";
+    public const string MaxImageHelp = ImageLogic.MaxImageHelp;
 
     /// <summary>
     /// Protein per calorie — the density the meal book is ordered by. Null when either number is
@@ -76,35 +76,11 @@ public static class MealLogic
     /// "image", which is the signal to reject the upload — the tab renders these in an
     /// &lt;img&gt;, so a PDF here helps nobody.
     /// </summary>
-    public static string? ResolveImageContentType(string? declared, string? fileName, byte[]? bytes = null)
-    {
-        var ct = declared?.Trim();
-        if (IsImageType(ct)) return ct!.ToLowerInvariant();
-        // The bytes are more trustworthy than a name: an assistant often has neither a type nor a
-        // filename to offer, and a phone upload often declares application/octet-stream.
-        if (bytes is not null && SniffImageType(bytes) is string sniffed) return sniffed;
-        var guessed = string.IsNullOrWhiteSpace(fileName) ? null : ArticleLogic.GuessContentType(fileName!);
-        return IsImageType(guessed) ? guessed : null;
-    }
+    public static string? ResolveImageContentType(string? declared, string? fileName, byte[]? bytes = null) =>
+        ImageLogic.ResolveContentType(declared, fileName, bytes);
 
     /// <summary>The image type the bytes themselves declare, by magic number, or null.</summary>
-    public static string? SniffImageType(byte[] b)
-    {
-        static bool Ascii(byte[] b, int at, string tag) =>
-            b.Length >= at + tag.Length && !tag.Where((c, i) => b[at + i] != (byte)c).Any();
-
-        if (b.Length >= 8 && b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47
-            && b[4] == 0x0D && b[5] == 0x0A && b[6] == 0x1A && b[7] == 0x0A) return "image/png";
-        if (b.Length >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF) return "image/jpeg";
-        if (Ascii(b, 0, "GIF8")) return "image/gif";
-        if (Ascii(b, 0, "RIFF") && Ascii(b, 8, "WEBP")) return "image/webp";
-        if (Ascii(b, 4, "ftyp") && (Ascii(b, 8, "avif") || Ascii(b, 8, "avis"))) return "image/avif";
-        if (Ascii(b, 0, "BM")) return "image/bmp";
-        return null;
-    }
-
-    private static bool IsImageType(string? ct) =>
-        !string.IsNullOrWhiteSpace(ct) && ct.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
+    public static string? SniffImageType(byte[] b) => ImageLogic.SniffType(b);
 
     /// <summary>
     /// Store (or replace) a meal's photo. The caller has already validated the bytes and type;

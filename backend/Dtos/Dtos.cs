@@ -378,3 +378,24 @@ public record SaveMealRequest(string? Slot, string Name, string? Summary,
     List<string>? Ingredients, List<string>? Steps,
     int? Calories, int? ProteinG, int? CarbsG, int? FatG, int? PrepMinutes,
     List<string>? Tags, bool? IsFavorite);
+
+// ===== Experiences (global — the plan of things to do, and the record of things done) =====
+
+/// <summary>A picture's metadata. The bytes come from /api/experiences/images/{id}.</summary>
+public record ExperienceImageDto(Guid Id, string ContentType, string? Caption, string? FileName,
+    int SortOrder, DateTime CreatedAt);
+
+/// <summary>Dates are "yyyy-MM-dd" strings, status is "planned" | "done".</summary>
+public record ExperienceDto(Guid Id, string Title, string? Category, string Status, string? Location,
+    string? StartDate, string? EndDate, string? DescriptionMd, List<ExperienceImageDto> Images,
+    DateTime CreatedAt, DateTime UpdatedAt);
+
+/// <summary>
+/// A whole experience, as the tab's form sends it: PUT replaces, so a missing field clears.
+/// (The MCP tools patch instead — an assistant rarely restates what it is not changing.)
+/// </summary>
+public record SaveExperienceRequest(string? Title, string? Category, string? Status, string? Location,
+    string? StartDate, string? EndDate, string? DescriptionMd);
+
+public record SetExperienceStatusRequest(string? Status);
+public record UpdateExperienceImageRequest(string? Caption, int? SortOrder);

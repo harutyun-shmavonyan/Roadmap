@@ -49,6 +49,8 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
     public DbSet<ArticleImage> ArticleImages => Set<ArticleImage>();
     public DbSet<Meal> Meals => Set<Meal>();
     public DbSet<MealImage> MealImages => Set<MealImage>();
+    public DbSet<Experience> Experiences => Set<Experience>();
+    public DbSet<ExperienceImage> ExperienceImages => Set<ExperienceImage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -514,6 +516,32 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
                 .WithOne(m => m.Image!)
                 .HasForeignKey<MealImage>(i => i.MealId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Experience>(e =>
+        {
+            e.ToTable("experiences");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Category).HasMaxLength(64);
+            e.Property(x => x.Status).HasConversion<string>().HasMaxLength(16);
+            e.Property(x => x.Location).HasMaxLength(256);
+            e.Property(x => x.DescriptionMd).HasColumnType("text");
+            // The tab reads by status and orders by date within it.
+            e.HasIndex(x => new { x.Status, x.StartDate });
+            e.HasIndex(x => x.Category);
+        });
+
+        modelBuilder.Entity<ExperienceImage>(e =>
+        {
+            e.ToTable("experience_images");
+            e.HasKey(i => i.Id);
+            e.Property(i => i.ContentType).HasMaxLength(100).IsRequired();
+            e.Property(i => i.FileName).HasMaxLength(255);
+            e.Property(i => i.Caption).HasMaxLength(512);
+            e.HasOne(i => i.Experience).WithMany(x => x.Images)
+                .HasForeignKey(i => i.ExperienceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(i => new { i.ExperienceId, i.SortOrder });
         });
 
         modelBuilder.Entity<VocabReview>(e =>

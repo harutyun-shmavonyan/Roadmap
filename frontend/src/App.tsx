@@ -15,6 +15,7 @@ import { JobsPage } from './JobsPage';
 import { EnglishPage } from './EnglishPage';
 import { NutritionPage } from './NutritionPage';
 import { CoursesPage } from './CoursesPage';
+import { ExperiencesPage } from './ExperiencesPage';
 
 /* ─── Navigation model ───
    Scoped pages belong to the selected roadmap and take a roadmapId; global pages
@@ -22,11 +23,11 @@ import { CoursesPage } from './CoursesPage';
    #/r/{roadmapId}/{page} for scoped, #/{page} for global, #/roadmaps for the picker. */
 
 type ScopedPage = 'schedule' | 'weekplan' | 'roadmap' | 'tasks' | 'performance' | 'habits';
-type GlobalPage = 'articles' | 'courses' | 'newsletter' | 'english' | 'notes' | 'nutrition' | 'jobs';
+type GlobalPage = 'articles' | 'courses' | 'newsletter' | 'english' | 'notes' | 'nutrition' | 'jobs' | 'experiences';
 type PageId = ScopedPage | GlobalPage;
 
 const SCOPED_PAGES: ScopedPage[] = ['schedule', 'weekplan', 'roadmap', 'tasks', 'performance', 'habits'];
-const GLOBAL_PAGES: GlobalPage[] = ['articles', 'courses', 'newsletter', 'english', 'notes', 'nutrition', 'jobs'];
+const GLOBAL_PAGES: GlobalPage[] = ['articles', 'courses', 'newsletter', 'english', 'notes', 'nutrition', 'jobs', 'experiences'];
 
 const isScoped = (id: PageId): id is ScopedPage => (SCOPED_PAGES as string[]).includes(id);
 
@@ -57,6 +58,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'notes', label: 'Notes' },
       { id: 'nutrition', label: 'Nutrition' },
       { id: 'jobs', label: 'Jobs' },
+      { id: 'experiences', label: 'Experiences' },
     ],
   },
 ];
@@ -336,6 +338,7 @@ function AuthedApp({ theme, toggleTheme, onLogout }: { theme: string; toggleThem
         case 'english': return <EnglishPage />;
         case 'nutrition': return <NutritionPage />;
         case 'courses': return <CoursesPage sub={route.sub} go={go} />;
+        case 'experiences': return <ExperiencesPage />;
       }
     }
     if (route.kind === 'scoped') {

@@ -67,3 +67,24 @@ endpoints and the MCP tools cannot drift.
 The edition is rendered in a sandboxed iframe that auto-sizes to its content (same reason as the
 Articles reader: the pane scrolls, not the frame), and "Open in new tab" hands it over as a blob so
 it stays behind the app's auth.
+
+## Experiences tab
+
+Things planned and things done, with photos — one list split by `Status` (`planned` | `done`),
+because an experience moves from one half to the other rather than being copied. Only the title is
+required: a plan is worth saving before it has a place, a date or a picture.
+
+- **Categories are free text, folded on write.** `ExperienceLogic.ResolveCategoryAsync` matches a
+  new category case-insensitively against the ones in use and stores the existing spelling, so
+  "travel" lands on "Travel" instead of beside it. Free text so the vocabulary can grow without a
+  migration; folded so it does not drift. `list_experience_categories` exists for the agent to
+  reuse rather than invent.
+- **REST PUT replaces, MCP `update_experience` patches.** Same split as the meal book: the tab's
+  form always sends every field, an assistant rarely restates what it is not changing. In the MCP
+  tool a null argument keeps the stored value and an empty string clears it.
+- **Photos live in `experience_images`**, many per experience, bytes never loaded by a list query.
+  The lowest `SortOrder` is the cover. They are fetched with the bearer token and shown from
+  object URLs, like meal photos.
+- **`ImageLogic` is the shared image code** — type sniffing, base64/data-URI decoding, and the
+  guarded server-side URL download. Meals and experiences both go through it; `MealLogic` keeps
+  its old method names as forwards.
