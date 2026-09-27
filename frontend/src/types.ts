@@ -295,11 +295,11 @@ export interface ExperienceImageDto {
   sortOrder: number; createdAt: string;
 }
 export interface ExperienceDto {
-  id: string; title: string; category: string | null; status: ExperienceStatus; location: string | null;
+  id: string; title: string; category: string | null; tags: string[]; status: ExperienceStatus; location: string | null;
   startDate: string | null; endDate: string | null; descriptionMd: string | null;
   images: ExperienceImageDto[]; createdAt: string; updatedAt: string;
 }
 export interface SaveExperienceRequest {
-  title: string; category: string | null; status: ExperienceStatus; location: string | null;
+  title: string; category: string | null; tags: string[]; status: ExperienceStatus; location: string | null;
   startDate: string | null; endDate: string | null; descriptionMd: string | null;
 }

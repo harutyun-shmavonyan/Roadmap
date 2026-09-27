@@ -17,7 +17,7 @@ public static class ExperienceEndpoints
     {
         var xp = app.MapGroup("/api/experiences").WithTags("Experiences").RequireAuthorization();
 
-        xp.MapGet("/", async (string? status, string? category, RoadmapDbContext db) =>
+        xp.MapGet("/", async (string? status, string? category, string? tag, RoadmapDbContext db) =>
         {
             ExperienceStatus? st = null;
             if (!string.IsNullOrWhiteSpace(status))
@@ -26,13 +26,16 @@ public static class ExperienceEndpoints
                     return Results.BadRequest("status must be planned or done.");
                 st = s;
             }
-            var rows = await ExperienceLogic.LoadAsync(db, st, category);
+            var rows = await ExperienceLogic.LoadAsync(db, st, category, tag: tag);
             return Results.Ok(rows.Select(ExperienceLogic.ToDto));
         });
 
         xp.MapGet("/categories", async (RoadmapDbContext db) =>
             Results.Ok((await ExperienceLogic.CategoriesAsync(db))
                 .Select(c => new { category = c.Category, count = c.Count })));
+
+        xp.MapGet("/tags", async (RoadmapDbContext db) =>
+            Results.Ok((await ExperienceLogic.TagsAsync(db)).Select(t => new { tag = t.Tag, count = t.Count })));
 
         xp.MapGet("/{id:guid}", async (Guid id, RoadmapDbContext db) =>
         {
@@ -154,6 +157,8 @@ public static class ExperienceEndpoints
         if (!ExperienceLogic.TryParseDate(req.StartDate, out var start)) errors.Add("start_date must be yyyy-MM-dd");
         if (!ExperienceLogic.TryParseDate(req.EndDate, out var end)) errors.Add("end_date must be yyyy-MM-dd");
         errors.AddRange(ExperienceLogic.Validate(req.Title, start, end, req.DescriptionMd));
+        var (tags, tagError) = await ExperienceLogic.ResolveTagsAsync(db, req.Tags, x.Id);
+        if (tagError is not null) errors.Add(tagError);
         if (errors.Count > 0) return Results.BadRequest(new { error = "validation", details = errors });
 
         x.Title = req.Title!.Trim();
@@ -163,6 +168,7 @@ public static class ExperienceEndpoints
         x.StartDate = start;
         x.EndDate = end;
         x.DescriptionMd = string.IsNullOrWhiteSpace(req.DescriptionMd) ? null : req.DescriptionMd;
+        x.Tags = tags; // PUT replaces: a form that sends no tags clears them, like every other field
         return null;
     }
 }

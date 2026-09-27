@@ -36,11 +36,13 @@ public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory h
     [McpServerTool(Name = "list_experiences"), Description(
         "List experiences from the Experiences tab: planned ones first, soonest first (undated plans after " +
         "the dated ones), then done ones, most recent first. Each carries its category, status, location, " +
-        "dates, Markdown description and the metadata of its pictures (not the bytes). Filter by status " +
-        "(" + StatusHelp + ") and/or category (case-insensitive).")]
+        "tags, dates, Markdown description and the metadata of its pictures (not the bytes). Filter by " +
+        "status (" + StatusHelp + "), category and/or one tag — all case-insensitive, and a leading '#' on " +
+        "the tag is ignored.")]
     public async Task<string> ListExperiences(
         [Description(StatusHelp + " — omit for both")] string? status = null,
-        [Description("Only this category, e.g. 'Travel' (case-insensitive)")] string? category = null)
+        [Description("Only this category, e.g. 'Travel' (case-insensitive)")] string? category = null,
+        [Description("Only experiences carrying this tag, e.g. 'winter'")] string? tag = null)
     {
         ExperienceStatus? st = null;
         if (!string.IsNullOrWhiteSpace(status))
@@ -48,7 +50,7 @@ public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory h
             if (!ExperienceLogic.TryParseStatus(status, out var s)) return J(new { error = "status must be " + StatusHelp });
             st = s;
         }
-        var rows = await ExperienceLogic.LoadAsync(db, st, category);
+        var rows = await ExperienceLogic.LoadAsync(db, st, category, tag: tag);
         return J(rows.Select(ExperienceLogic.ToDto));
     }
 
@@ -66,16 +68,26 @@ public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory h
     public async Task<string> ListExperienceCategories() =>
         J((await ExperienceLogic.CategoriesAsync(db)).Select(c => new { category = c.Category, count = c.Count }));
 
+    [McpServerTool(Name = "list_experience_tags"), Description(
+        "The tags already in use across all experiences, most used first, with a count each. Check this " +
+        "before tagging: reuse 'with-family' rather than adding 'family'. Writes fold case, so 'Winter' " +
+        "lands on an existing 'winter' — but they cannot fold two different words into one.")]
+    public async Task<string> ListExperienceTags() =>
+        J((await ExperienceLogic.TagsAsync(db)).Select(t => new { tag = t.Tag, count = t.Count }));
+
     // ===== Write =====
 
     [McpServerTool(Name = "create_experience"), Description(
         "Add an experience — something planned, or something already had. Only the title is required: " +
         "a plan is worth saving the moment it exists, long before it has a place, date or picture. Dates " +
         "are yyyy-MM-dd; an end date needs a start date and cannot precede it. description_md is Markdown. " +
+        "The category says what kind of thing it is (one); tags say everything else (up to " +
+        "20 — see list_experience_tags and reuse what is there). " +
         "Pictures are added afterwards with add_experience_image or add_experience_image_from_url.")]
     public async Task<string> CreateExperience(
         [Description("What it is, e.g. 'See the northern lights in Tromsø'")] string title,
         [Description("Category, e.g. 'Travel', 'Food', 'Music' — see list_experience_categories")] string? category = null,
+        [Description("Tags, e.g. ['winter', 'bucket-list'] — see list_experience_tags")] string[]? tags = null,
         [Description(StatusHelp + " (default planned)")] string? status = null,
         [Description("Where, as you would write it, e.g. 'Tromsø, Norway'")] string? location = null,
         [Description("yyyy-MM-dd")] string? start_date = null,
@@ -87,12 +99,15 @@ public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory h
         if (!ExperienceLogic.TryParseDate(start_date, out var start)) errors.Add("start_date must be yyyy-MM-dd");
         if (!ExperienceLogic.TryParseDate(end_date, out var end)) errors.Add("end_date must be yyyy-MM-dd");
         errors.AddRange(ExperienceLogic.Validate(title, start, end, description_md));
+        var (resolvedTags, tagError) = await ExperienceLogic.ResolveTagsAsync(db, tags);
+        if (tagError is not null) errors.Add(tagError);
         if (errors.Count > 0) return J(new { error = "validation", details = errors });
 
         var x = new Experience
         {
             Id = Guid.NewGuid(), Title = title.Trim(),
             Category = await ExperienceLogic.ResolveCategoryAsync(db, category),
+            Tags = resolvedTags,
             Status = st,
             Location = string.IsNullOrWhiteSpace(location) ? null : location.Trim(),
             StartDate = start, EndDate = end,
@@ -107,11 +122,13 @@ public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory h
         "Change an experience. PATCH semantics: an argument you leave out keeps what is stored; an empty " +
         "string clears that field (category, location, a date, the description). The title cannot be " +
         "cleared. Dates are yyyy-MM-dd and are checked together, so moving only the start past the stored " +
-        "end is refused.")]
+        "end is refused. tags REPLACES the whole list when given — pass the full set you want, or [] to " +
+        "clear; leave it out to keep the tags as they are.")]
     public async Task<string> UpdateExperience(
         [Description("Experience UUID")] Guid experience_id,
         [Description("New title")] string? title = null,
         [Description("New category, or '' to clear")] string? category = null,
+        [Description("The full new tag list, or [] to clear; omit to keep")] string[]? tags = null,
         [Description(StatusHelp)] string? status = null,
         [Description("New location, or '' to clear")] string? location = null,
         [Description("yyyy-MM-dd, or '' to clear")] string? start_date = null,
@@ -130,10 +147,17 @@ public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory h
         if (end_date is not null && !ExperienceLogic.TryParseDate(end_date, out end)) errors.Add("end_date must be yyyy-MM-dd");
         var newTitle = title ?? x.Title;
         errors.AddRange(ExperienceLogic.Validate(newTitle, start, end, description_md ?? x.DescriptionMd));
+        List<string>? newTags = null;
+        if (tags is not null)
+        {
+            var (resolved, tagError) = await ExperienceLogic.ResolveTagsAsync(db, tags, x.Id);
+            if (tagError is not null) errors.Add(tagError); else newTags = resolved;
+        }
         if (errors.Count > 0) return J(new { error = "validation", details = errors });
 
         x.Title = newTitle.Trim();
         if (category is not null) x.Category = await ExperienceLogic.ResolveCategoryAsync(db, category);
+        if (newTags is not null) x.Tags = newTags;
         x.Status = st;
         if (location is not null) x.Location = string.IsNullOrWhiteSpace(location) ? null : location.Trim();
         x.StartDate = start;

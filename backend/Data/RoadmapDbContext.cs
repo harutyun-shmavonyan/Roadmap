@@ -527,6 +527,12 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(16);
             e.Property(x => x.Location).HasMaxLength(256);
             e.Property(x => x.DescriptionMd).HasColumnType("text");
+            // text[] like the meal book's tags: read and replaced whole, never joined against.
+            // GIN so "every experience tagged X" is an index lookup rather than a scan.
+            // Defaulted to an empty array so the column can be added to a table that already has
+            // rows — NOT NULL with no default would fail the migration on the first real one.
+            e.Property(x => x.Tags).HasColumnType("text[]").HasDefaultValueSql("'{}'::text[]");
+            e.HasIndex(x => x.Tags).HasMethod("gin");
             // The tab reads by status and orders by date within it.
             e.HasIndex(x => new { x.Status, x.StartDate });
             e.HasIndex(x => x.Category);

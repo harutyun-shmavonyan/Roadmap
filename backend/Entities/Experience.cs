@@ -34,6 +34,13 @@ public class Experience
 
     public ExperienceStatus Status { get; set; } = ExperienceStatus.Planned;
 
+    /// <summary>
+    /// Free labels, as many as it needs — "winter", "with-family", "bucket-list". The category says
+    /// what kind of thing an experience is; tags say everything else, because one word cannot.
+    /// Folded on write the same way categories are, so the set grows without drifting.
+    /// </summary>
+    public List<string> Tags { get; set; } = [];
+
     /// <summary>Where, as a person would write it — "Kyoto, Japan", not coordinates.</summary>
     public string? Location { get; set; }
 

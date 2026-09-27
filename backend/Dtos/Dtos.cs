@@ -386,8 +386,8 @@ public record ExperienceImageDto(Guid Id, string ContentType, string? Caption, s
     int SortOrder, DateTime CreatedAt);
 
 /// <summary>Dates are "yyyy-MM-dd" strings, status is "planned" | "done".</summary>
-public record ExperienceDto(Guid Id, string Title, string? Category, string Status, string? Location,
-    string? StartDate, string? EndDate, string? DescriptionMd, List<ExperienceImageDto> Images,
+public record ExperienceDto(Guid Id, string Title, string? Category, List<string> Tags, string Status,
+    string? Location, string? StartDate, string? EndDate, string? DescriptionMd, List<ExperienceImageDto> Images,
     DateTime CreatedAt, DateTime UpdatedAt);
 
 /// <summary>
@@ -395,7 +395,7 @@ public record ExperienceDto(Guid Id, string Title, string? Category, string Stat
 /// (The MCP tools patch instead — an assistant rarely restates what it is not changing.)
 /// </summary>
 public record SaveExperienceRequest(string? Title, string? Category, string? Status, string? Location,
-    string? StartDate, string? EndDate, string? DescriptionMd);
+    string? StartDate, string? EndDate, string? DescriptionMd, List<string>? Tags = null);
 
 public record SetExperienceStatusRequest(string? Status);
 public record UpdateExperienceImageRequest(string? Caption, int? SortOrder);

@@ -80,6 +80,48 @@ public static partial class ExperienceLogic
         return existing ?? clean;
     }
 
+    public const int MaxTags = 20;
+    public const int MaxTagLength = 40;
+
+    /// <summary>
+    /// Tags as they will be stored: each trimmed, a leading '#' dropped (people type "#winter"),
+    /// inner whitespace collapsed, blanks and duplicates removed case-insensitively, and each one
+    /// spelled the way it is already spelled on any other experience. Order is kept as given.
+    /// Returns an error instead of truncating silently when there are too many.
+    /// </summary>
+    public static async Task<(List<string> Tags, string? Error)> ResolveTagsAsync(
+        RoadmapDbContext db, IEnumerable<string>? raw, Guid? excluding = null)
+    {
+        var cleaned = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in raw ?? [])
+        {
+            var c = Spaces().Replace((t ?? "").Trim().TrimStart('#').Trim(), " ");
+            if (c.Length == 0) continue;
+            if (c.Length > MaxTagLength) return ([], $"tag '{c[..20]}…' is longer than {MaxTagLength} characters");
+            if (seen.Add(c)) cleaned.Add(c);
+        }
+        if (cleaned.Count > MaxTags) return ([], $"at most {MaxTags} tags");
+        if (cleaned.Count == 0) return ([], null);
+
+        // Tag arrays are small and so is the table; folding in memory keeps this one query.
+        var known = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var others = await db.Experiences.AsNoTracking()
+            .Where(x => excluding == null || x.Id != excluding).Select(x => x.Tags).ToListAsync();
+        foreach (var arr in others) foreach (var t in arr) known.TryAdd(t, t);
+        return ([.. cleaned.Select(c => known.TryGetValue(c, out var existing) ? existing : c)], null);
+    }
+
+    /// <summary>Tags in use, most used first — what the form suggests and an agent should reuse.</summary>
+    public static async Task<List<(string Tag, int Count)>> TagsAsync(RoadmapDbContext db)
+    {
+        var arrays = await db.Experiences.AsNoTracking().Select(x => x.Tags).ToListAsync();
+        return [.. arrays.SelectMany(a => a)
+            .GroupBy(t => t, StringComparer.OrdinalIgnoreCase)
+            .Select(g => (Tag: g.First(), Count: g.Count()))
+            .OrderByDescending(g => g.Count).ThenBy(g => g.Tag, StringComparer.OrdinalIgnoreCase)];
+    }
+
     /// <summary>Categories in use, most used first — what a form offers and an agent should reuse.</summary>
     public static async Task<List<(string Category, int Count)>> CategoriesAsync(RoadmapDbContext db)
     {
@@ -95,7 +137,7 @@ public static partial class ExperienceLogic
 
     /// <summary>The images must be loaded without their bytes — see <see cref="LoadAsync"/>.</summary>
     public static ExperienceDto ToDto(Experience x) => new(
-        x.Id, x.Title, x.Category, Wire(x.Status), x.Location,
+        x.Id, x.Title, x.Category, x.Tags, Wire(x.Status), x.Location,
         x.StartDate?.ToString("yyyy-MM-dd"), x.EndDate?.ToString("yyyy-MM-dd"), x.DescriptionMd,
         [.. x.Images.OrderBy(i => i.SortOrder).ThenBy(i => i.CreatedAt).Select(ToDto)],
         x.CreatedAt, x.UpdatedAt);
@@ -105,7 +147,7 @@ public static partial class ExperienceLogic
     /// and are only ever wanted one at a time.
     /// </summary>
     public static async Task<List<Experience>> LoadAsync(RoadmapDbContext db,
-        ExperienceStatus? status = null, string? category = null, Guid? id = null)
+        ExperienceStatus? status = null, string? category = null, Guid? id = null, string? tag = null)
     {
         var q = db.Experiences.AsNoTracking().AsQueryable();
         if (id is Guid one) q = q.Where(x => x.Id == one);
@@ -116,6 +158,12 @@ public static partial class ExperienceLogic
             q = q.Where(x => x.Category != null && x.Category.ToLower() == lower);
         }
         var rows = await q.ToListAsync();
+        // Case-insensitive, and after the "#" people type — so "#Winter" finds "winter".
+        if (!string.IsNullOrWhiteSpace(tag))
+        {
+            var want = tag.Trim().TrimStart('#').Trim();
+            rows = [.. rows.Where(r => r.Tags.Any(t => string.Equals(t, want, StringComparison.OrdinalIgnoreCase)))];
+        }
         var ids = rows.Select(r => r.Id).ToList();
         var images = await db.ExperienceImages.AsNoTracking().Where(i => ids.Contains(i.ExperienceId))
             .Select(i => new ExperienceImage

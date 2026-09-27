@@ -110,15 +110,79 @@ function Cal() {
   );
 }
 
+function Tags({ tags, onPick }: { tags: string[]; onPick?: (t: string) => void }) {
+  if (tags.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+      {tags.map(t => onPick
+        ? <button key={t} type="button" className="xp-tag" onClick={e => { e.stopPropagation(); onPick(t); }}
+            title={`Show everything tagged ${t}`}>#{t}</button>
+        : <span key={t} className="xp-tag">#{t}</span>)}
+    </div>
+  );
+}
+
+/**
+ * Tags as chips: type and press Enter or a comma to add one, Backspace on an empty field to take
+ * the last back, × to remove any. Tags already in use are offered underneath, so reusing
+ * "with-family" is one tap and inventing "family" beside it takes effort. The server folds case
+ * as well; this is what keeps two *different* words from both getting used.
+ */
+function TagInput({ value, onChange, known }: { value: string[]; onChange: (v: string[]) => void; known: string[] }) {
+  const [draft, setDraft] = useState('');
+  const has = (t: string) => value.some(v => v.toLowerCase() === t.toLowerCase());
+  const add = (raw: string) => {
+    const t = raw.trim().replace(/^#+/, '').trim().replace(/\s+/g, ' ');
+    if (t && !has(t) && value.length < 20) onChange([...value, t.slice(0, 40)]);
+    setDraft('');
+  };
+  const suggestions = known.filter(k => !has(k) && (!draft || k.toLowerCase().includes(draft.toLowerCase()))).slice(0, 10);
+  return (
+    <div style={{ display: 'grid', gap: 7 }}>
+      <div className="xp-tagbox" onClick={e => (e.currentTarget.querySelector('input') as HTMLInputElement)?.focus()}>
+        {value.map(t => (
+          <span key={t} className="xp-tag on">
+            #{t}
+            <button type="button" aria-label={`Remove tag ${t}`} onClick={() => onChange(value.filter(v => v !== t))}>×</button>
+          </span>
+        ))}
+        <input value={draft} placeholder={value.length ? '' : 'winter, with-family, bucket-list…'}
+          aria-label="Add a tag"
+          onChange={e => {
+            const v = e.target.value;
+            if (v.includes(',')) { v.split(',').slice(0, -1).forEach(add); setDraft(v.split(',').pop() ?? ''); }
+            else setDraft(v);
+          }}
+          onKeyDown={e => {
+            if (e.key === 'Enter') { e.preventDefault(); add(draft); }
+            else if (e.key === 'Backspace' && !draft && value.length) onChange(value.slice(0, -1));
+          }}
+          onBlur={() => draft.trim() && add(draft)} />
+      </div>
+      {suggestions.length > 0 && (
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginRight: 2 }}>In use:</span>
+          {suggestions.map(k => (
+            <button key={k} type="button" className="xp-tag" onClick={() => add(k)}>+ {k}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── a card ─── */
 
-function Card({ x, onOpen }: { x: ExperienceDto; onOpen: () => void }) {
+function Card({ x, onOpen, onTag }: { x: ExperienceDto; onOpen: () => void; onTag: (t: string) => void }) {
   const cover = usePicture(x.images[0]?.id);
   const date = when(x.startDate, x.endDate);
   const soon = x.status === 'planned' ? howSoon(x.startDate) : null;
   return (
-    <div className="xp-card" role="button" tabIndex={0} onClick={onOpen}
-      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}>
+    // Not a button itself: the card holds buttons (its tags), and a control inside a control is
+    // flattened away by screen readers. The title is the real button, and its hit area is
+    // stretched over the whole card — so the card still opens on a click anywhere, while each tag
+    // stays its own control above it.
+    <div className="xp-card">
       <div className="xp-cover">
         {cover
           ? <img src={cover} alt={x.images[0]?.caption ?? ''} />
@@ -130,13 +194,14 @@ function Card({ x, onOpen }: { x: ExperienceDto; onOpen: () => void }) {
           {x.category && <span className="xp-cat">{x.category}</span>}
           <StatusPill status={x.status} />
         </div>
-        <div className="xp-title">{x.title}</div>
+        <button type="button" className="xp-title xp-title-btn" onClick={onOpen}>{x.title}</button>
         {x.location && <div className="xp-meta"><Pin />{x.location}</div>}
         <div className="xp-meta">
           <Cal />
           {date ?? (x.status === 'planned' ? 'Someday' : 'Undated')}
           {soon && <span className="xp-soon">· {soon}</span>}
         </div>
+        {x.tags.length > 0 && <div style={{ marginTop: 3 }}><Tags tags={x.tags} onPick={onTag} /></div>}
       </div>
     </div>
   );
@@ -221,9 +286,9 @@ function GalleryItem({ img, cover, onCaption, onCover, onRemove }: {
   );
 }
 
-function Detail({ x, onClose, onEdit, onChanged, onDeleted }: {
+function Detail({ x, onClose, onEdit, onChanged, onDeleted, onTag }: {
   x: ExperienceDto; onClose: () => void; onEdit: () => void;
-  onChanged: (next: ExperienceDto) => void; onDeleted: () => void;
+  onChanged: (next: ExperienceDto) => void; onDeleted: () => void; onTag: (t: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const date = when(x.startDate, x.endDate);
@@ -256,6 +321,7 @@ function Detail({ x, onClose, onEdit, onChanged, onDeleted }: {
             <span className="xp-meta"><Cal />{date ?? (x.status === 'planned' ? 'Someday' : 'Undated')}
               {soon && <span className="xp-soon">· {soon}</span>}</span>
           </div>
+          <Tags tags={x.tags} onPick={onTag} />
         </div>
 
         <Gallery x={x} onChanged={onChanged} />
@@ -281,12 +347,13 @@ function Detail({ x, onClose, onEdit, onChanged, onDeleted }: {
 
 /* ─── the form ─── */
 
-function Form({ x, categories, onCancel, onSaved }: {
-  x: ExperienceDto | null; categories: string[];
+function Form({ x, categories, knownTags, onCancel, onSaved }: {
+  x: ExperienceDto | null; categories: string[]; knownTags: string[];
   onCancel: () => void; onSaved: (saved: ExperienceDto) => void;
 }) {
   const [title, setTitle] = useState(x?.title ?? '');
   const [category, setCategory] = useState(x?.category ?? '');
+  const [tags, setTags] = useState<string[]>(x?.tags ?? []);
   const [status, setStatus] = useState<ExperienceStatus>(x?.status ?? 'planned');
   const [location, setLocation] = useState(x?.location ?? '');
   const [start, setStart] = useState(x?.startDate ?? '');
@@ -302,7 +369,7 @@ function Form({ x, categories, onCancel, onSaved }: {
     if (start && end && end < start) { setErr('The end date is before the start date.'); return; }
     setBusy(true); setErr(null);
     const body: SaveExperienceRequest = {
-      title: title.trim(), category: category.trim() || null, status,
+      title: title.trim(), category: category.trim() || null, tags, status,
       location: location.trim() || null, startDate: start || null, endDate: end || null,
       descriptionMd: description.trim() ? description : null,
     };
@@ -344,6 +411,11 @@ function Form({ x, categories, onCancel, onSaved }: {
               ))}
             </div>
           </div>
+        </div>
+
+        <div className="xp-field">
+          <span>Tags <em style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(Enter or comma to add)</em></span>
+          <TagInput value={tags} onChange={setTags} known={knownTags} />
         </div>
 
         <label className="xp-field">
@@ -397,6 +469,7 @@ export function ExperiencesPage() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [category, setCategory] = useState<string | null>(null);
+  const [tag, setTag] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [editing, setEditing] = useState<ExperienceDto | 'new' | null>(null);
 
@@ -413,8 +486,19 @@ export function ExperiencesPage() {
     return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([c]) => c);
   }, [items]);
 
+  // Tags in use, most used first — the filter row and the form's suggestions.
+  const knownTags = useMemo(() => {
+    const counts = new Map<string, number>();
+    (items ?? []).forEach(x => x.tags.forEach(t => counts.set(t, (counts.get(t) ?? 0) + 1)));
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t]) => t);
+  }, [items]);
+
   const shown = (items ?? []).filter(x =>
-    (filter === 'all' || x.status === filter) && (!category || x.category === category));
+    (filter === 'all' || x.status === filter) && (!category || x.category === category)
+    && (!tag || x.tags.some(t => t.toLowerCase() === tag.toLowerCase())));
+
+  // Picking a tag from a card or the detail view filters by it and says so at the top.
+  const pickTag = (t: string) => { setTag(t); setOpen(null); };
   const planned = shown.filter(x => x.status === 'planned');
   const done = shown.filter(x => x.status === 'done');
   const opened = items?.find(x => x.id === open) ?? null;
@@ -465,6 +549,18 @@ export function ExperiencesPage() {
           </div>
         )}
 
+        {knownTags.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: -8 }}
+            role="group" aria-label="Filter by tag">
+            {knownTags.map(t => (
+              <button key={t} className={`xp-tag ${tag === t ? 'on' : ''}`} aria-pressed={tag === t}
+                onClick={() => setTag(tag === t ? null : t)}>#{t}</button>
+            ))}
+            {tag && <button className="btn-ghost" style={{ fontSize: 12, color: 'var(--text-secondary)' }}
+              onClick={() => setTag(null)}>clear</button>}
+          </div>
+        )}
+
         {!items && (
           <div className="xp-grid">{[0, 1, 2, 3].map(i => <div key={i} className="crs-skel" style={{ height: 292, borderRadius: 14 }} />)}</div>
         )}
@@ -485,26 +581,26 @@ export function ExperiencesPage() {
         {planned.length > 0 && (
           <section style={{ display: 'grid', gap: 12 }}>
             {filter === 'all' && <h3 className="xp-h">Planned <span>{planned.length}</span></h3>}
-            <div className="xp-grid">{planned.map(x => <Card key={x.id} x={x} onOpen={() => setOpen(x.id)} />)}</div>
+            <div className="xp-grid">{planned.map(x => <Card key={x.id} x={x} onOpen={() => setOpen(x.id)} onTag={pickTag} />)}</div>
           </section>
         )}
 
         {done.length > 0 && (
           <section style={{ display: 'grid', gap: 12 }}>
             {filter === 'all' && <h3 className="xp-h">Done <span>{done.length}</span></h3>}
-            <div className="xp-grid">{done.map(x => <Card key={x.id} x={x} onOpen={() => setOpen(x.id)} />)}</div>
+            <div className="xp-grid">{done.map(x => <Card key={x.id} x={x} onOpen={() => setOpen(x.id)} onTag={pickTag} />)}</div>
           </section>
         )}
       </div>
 
       {opened && editing === null && (
         <Detail x={opened} onClose={() => setOpen(null)} onEdit={() => setEditing(opened)}
-          onChanged={replace}
+          onChanged={replace} onTag={pickTag}
           onDeleted={() => { setItems(prev => (prev ?? []).filter(x => x.id !== opened.id)); setOpen(null); }} />
       )}
 
       {editing !== null && (
-        <Form x={editing === 'new' ? null : editing} categories={categories}
+        <Form x={editing === 'new' ? null : editing} categories={categories} knownTags={knownTags}
           onCancel={() => setEditing(null)}
           onSaved={saved => { replace(saved); setEditing(null); setOpen(saved.id); load(); }} />
       )}

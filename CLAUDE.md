@@ -79,6 +79,11 @@ required: a plan is worth saving before it has a place, a date or a picture.
   "travel" lands on "Travel" instead of beside it. Free text so the vocabulary can grow without a
   migration; folded so it does not drift. `list_experience_categories` exists for the agent to
   reuse rather than invent.
+- **Tags are free text too, folded the same way** (`ExperienceLogic.ResolveTagsAsync`): a leading
+  `#` is dropped, whitespace collapsed, case-duplicates removed, and each one spelled the way it
+  already is elsewhere. Up to 20 of up to 40 characters — too many is refused, never truncated.
+  `text[]` with a GIN index and an `'{}'` default (the default is what let the column be added to
+  a table that already had rows). `list_experience_tags` is the reuse list.
 - **REST PUT replaces, MCP `update_experience` patches.** Same split as the meal book: the tab's
   form always sends every field, an assistant rarely restates what it is not changing. In the MCP
   tool a null argument keeps the stored value and an empty string clears it.

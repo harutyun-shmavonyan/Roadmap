@@ -1197,12 +1197,23 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 .xp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
 
 .xp-card {
+  position: relative;
   background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 14px;
   overflow: hidden; cursor: pointer; display: flex; flex-direction: column;
   transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 .xp-card:hover { border-color: var(--border); box-shadow: var(--crs-shadow-lift); transform: translateY(-2px); }
-.xp-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.xp-card:has(.xp-title-btn:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The stretched button: the title owns the click, and its ::after covers the card. */
+.xp-title-btn {
+  all: unset; display: block; cursor: pointer; text-align: left;
+  font-size: 16px; font-weight: 700; line-height: 1.3; color: var(--text-primary); letter-spacing: -.01em;
+}
+.xp-title-btn::after { content: ''; position: absolute; inset: 0; border-radius: 14px; }
+.xp-title-btn:focus-visible { outline: none; }
+/* Anything interactive inside the card sits above that overlay. */
+.xp-card .xp-tag { position: relative; z-index: 1; }
 
 .xp-cover { position: relative; aspect-ratio: 16 / 10; background: var(--bg-secondary); overflow: hidden; }
 .xp-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -1286,4 +1297,39 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 @media (max-width: 620px) {
   .xp-row { grid-template-columns: 1fr; }
   .xp-grid { grid-template-columns: 1fr; }
+}
+
+/* Tags: smaller and lighter than a category chip, because there are more of them and they are
+   secondary. Neutral for the same reason categories are — an unbounded set cannot own hues. */
+.xp-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  font: inherit; font-size: 12px; font-weight: 600; line-height: 1.5;
+  color: var(--text-secondary); background: transparent;
+  border: 1px solid var(--border-subtle); border-radius: 6px; padding: 0 7px;
+}
+button.xp-tag { cursor: pointer; }
+button.xp-tag:hover { border-color: var(--border); color: var(--text-primary); }
+button.xp-tag:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.xp-tag.on {
+  color: var(--text-primary); border-color: var(--ic-experiences);
+  background: color-mix(in srgb, var(--ic-experiences) 10%, var(--bg-elevated));
+}
+.xp-tag button {
+  border: none; background: none; padding: 0 0 0 2px; cursor: pointer; font-size: 14px; line-height: 1;
+  color: var(--text-secondary);
+}
+.xp-tag button:hover { color: var(--danger); }
+
+.xp-tagbox {
+  display: flex; flex-wrap: wrap; gap: 5px; align-items: center; cursor: text;
+  min-height: 40px; padding: 6px 8px; box-sizing: border-box;
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.xp-tagbox:focus-within { border-color: var(--accent); }
+/* Specific enough to beat the modal's own input styling — the field has to disappear into the box
+   so the chips and the text read as one control. */
+.modal .xp-tagbox input, .xp-tagbox input {
+  flex: 1; min-width: 120px; width: auto; margin: 0; box-shadow: none; border-radius: 0;
+  border: none; outline: none; background: transparent;
+  font: inherit; font-size: 14px; color: var(--text-primary); padding: 3px 2px;
 }
