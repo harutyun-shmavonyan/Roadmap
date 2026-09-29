@@ -3181,26 +3181,23 @@ public static class RoadmapEndpoints
             // Overdone keys not planned today still pay (into the same bank) whenever someone
             // can absorb it; with no underdone key there is nobody to pay, so nobody pays.
             var takeScale = offered > 0 ? transfer / offered : capacity > 0 ? 1 : 0;
+            // Each underdone key's share of the planned transfer. Fixed for the day, like every
+            // coefficient: nothing logged today moves today's weights.
+            var fullShare = claim.ToDictionary(c => c.Key,
+                c => capacity > 0 ? MaxRaise * c.Value * PlannedPts(c.Key) * transfer / capacity : 0);
 
             // Settle the day against what was actually logged, as it stands after the latest
-            // log. Penalties are paid on every unit an overdone key logs; an underdone key earns
-            // its share in proportion to how much of today's plan it has done; and the shares
-            // are only paid out of penalties actually paid today. That last cap is what keeps
-            // delay from paying: skipping the overdone item funds nothing, so nothing is raised.
-            // Claims are sized by each key's own limit (1 + 2u) and paid pro rata, so penalties
-            // from overdone work off its planned day land in the same bank; when the day goes
-            // exactly to plan the bank holds exactly the transfer and each key gets its share.
+            // log. The coefficients never move during the day; the logs only decide how much of
+            // them is paid. Penalties are paid on every unit an overdone key logs; an underdone
+            // key earns its fixed share in proportion to how much of today's plan it has done;
+            // and shares are only paid out of penalties actually paid today. That last cap is
+            // what keeps delay from paying: skipping the overdone item funds nothing.
             var logged = committedKeys.ToDictionary(k => k, k => logUnitsOnDay.GetValueOrDefault((k, d)));
             var penaltiesPaid = take.Sum(t => logged[t.Key] * nominalPpu[t.Key] * t.Value * takeScale);
-            var wanted = claim.ToDictionary(c => c.Key,
-                c => MaxRaise * c.Value * PlannedPts(c.Key) * Math.Min(1, logged[c.Key] / plannedOnDay[(c.Key, d)]));
+            var wanted = fullShare.ToDictionary(f => f.Key,
+                f => f.Value * Math.Min(1, logged[f.Key] / plannedOnDay[(f.Key, d)]));
             var totalWanted = wanted.Values.Sum();
             var paidRatio = totalWanted > 0 ? Math.Min(1, penaltiesPaid / totalWanted) : 0;
-            // The bank an underdone key can count on, re-read on every log: the planned transfer
-            // (if the rest of the plan gets done), or more once overdone work off its planned day
-            // has already paid in — never more than the underdone keys can absorb. This is what
-            // the badges show, so logging an overdone item lifts the underdone ones at once.
-            var expectedBank = Math.Min(Math.Max(transfer, penaltiesPaid), capacity);
 
             foreach (var key in committedKeys)
             {
@@ -3208,14 +3205,14 @@ public static class RoadmapEndpoints
                 double coefficient, price;
                 if (take.TryGetValue(key, out var t))
                     price = ppu * (coefficient = 1 - t * takeScale);
-                else if (claim.TryGetValue(key, out var u))
+                else if (fullShare.TryGetValue(key, out var share))
                 {
-                    coefficient = capacity > 0 ? 1 + MaxRaise * u * expectedBank / capacity : 1;
+                    coefficient = 1 + share / PlannedPts(key);
                     price = ppu + (logged[key] > 0 ? wanted[key] * paidRatio / logged[key] : 0);
                 }
                 else price = ppu * (coefficient = 1);
                 // Price: what a unit logged today is worth once the day is settled. Weight: the
-                // coefficient it is on for today, i.e. what it pays once funded.
+                // coefficient it was given this morning, i.e. what it pays once funded.
                 prices[(key, d)] = (price, coefficient);
             }
 

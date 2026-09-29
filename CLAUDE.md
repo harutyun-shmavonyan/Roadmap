@@ -65,9 +65,11 @@ The rules this was designed against, all enforced in `ComputeWeightedPricingAsyn
 - Coefficients stay in 0.3..3 and move continuously; equal shortfalls get equal coefficients.
 
 Everything is recomputed from the logs on every request, so any log — on any day, from the app or
-MCP — moves every later coefficient; the day view re-fetches after each of its writes. Underdone
-badges show the bank as it stands after the latest log, so logging an overdone item lifts them at
-once. The schedule response carries `itemPrices` (every committed item's coefficient, scheduled
+MCP — moves every *later* day's coefficients; the day view re-fetches after each of its writes.
+**A day's own coefficients never move because of that day's logs** (the user's call): they come
+from history up to the previous day. Today's logs only decide how much of them is paid — a boost
+is paid in full once enough penalty has been paid in. An overdone item logged off its planned day
+still pays its penalty into the bank, but that only funds the shares fixed that morning. The schedule response carries `itemPrices` (every committed item's coefficient, scheduled
 that day or not), which "Log to any item" uses to badge and preview the weighted points. Custom
 achievements are deliberately left alone: they store fixed points at the nominal rate and never
 touch an item, so they bypass weighting, progress and the bank — the user chose to keep them so.
