@@ -68,9 +68,9 @@ Everything is recomputed from the logs on every request, so any log — on any d
 MCP — moves every later coefficient; the day view re-fetches after each of its writes. Underdone
 badges show the bank as it stands after the latest log, so logging an overdone item lifts them at
 once. The schedule response carries `itemPrices` (every committed item's coefficient, scheduled
-that day or not) and the custom-achievement picker logs **real work** on the picked item at that
-price — it used to store a fixed-points custom log at nominal, which bypassed weighting, the item's
-progress and the bank entirely. Only free-text achievements are still custom logs.
+that day or not), which "Log to any item" uses to badge and preview the weighted points. Custom
+achievements are deliberately left alone: they store fixed points at the nominal rate and never
+touch an item, so they bypass weighting, progress and the bank — the user chose to keep them so.
 
 ## Professional Newsletter tab
 
