@@ -615,9 +615,23 @@ public static class RoadmapEndpoints
             // underdone ones receive) and what a unit is worth at it, and compute the day's
             // earned points server-side — the client can't settle the day's bank itself. Fixed sprints leave all of it null and the client behaves as before.
             double? dayEarnedPoints = null;
+            // Every committed item's coefficient today, scheduled today or not, so work logged
+            // on an item from outside its card (the custom-achievement picker) can be previewed
+            // at the price it will actually get. Pool members are priced by their block, per
+            // unit of their own. Items missing here are bonus work, always nominal.
+            Dictionary<Guid, ItemPriceDto>? itemPrices = null;
             var schedPricing = await ComputeWeightedPricingAsync(db, sprint);
             if (schedPricing is not null)
             {
+                itemPrices = [];
+                foreach (var key in schedPricing.NominalPpu.Keys)
+                    if (schedPricing.PricePercentFor(key, pd) is double pct && !schedPricing.PoolOfNode.ContainsValue(key))
+                        itemPrices[key] = new ItemPriceDto(pct, Math.Round(schedPricing.TargetPriceFor(key, pd, 0), 3));
+                foreach (var (nodeId, blockId) in schedPricing.PoolOfNode)
+                    if (schedPricing.PricePercentFor(blockId, pd) is double pct
+                        && schedPricing.MemberUnitsPerHour.GetValueOrDefault(nodeId) is double uph && uph > 0)
+                        itemPrices[nodeId] = new ItemPriceDto(pct, Math.Round(schedPricing.TargetPriceFor(blockId, pd, 0) / uph, 3));
+
                 blocks = blocks.Select(b =>
                 {
                     if ((b.NodeId ?? b.BlockId) is not Guid key) return b;
@@ -635,7 +649,7 @@ public static class RoadmapEndpoints
                         lk.TryGetValue(w.NodeId, out var n) ? n.PointsPerUnit ?? 0 : 0)), 1);
             }
 
-            return Results.Ok(new { blocks, activeSprint = sprintDto, isRelaxDay, dayEarnedPoints });
+            return Results.Ok(new { blocks, activeSprint = sprintDto, isRelaxDay, dayEarnedPoints, itemPrices });
         });
 
         group.MapPost("/", async (CreateRoadmapRequest req, RoadmapDbContext db) =>
@@ -3167,8 +3181,6 @@ public static class RoadmapEndpoints
             // Overdone keys not planned today still pay (into the same bank) whenever someone
             // can absorb it; with no underdone key there is nobody to pay, so nobody pays.
             var takeScale = offered > 0 ? transfer / offered : capacity > 0 ? 1 : 0;
-            var fullShare = claim.ToDictionary(c => c.Key,
-                c => capacity > 0 ? MaxRaise * c.Value * PlannedPts(c.Key) * transfer / capacity : 0);
 
             // Settle the day against what was actually logged, as it stands after the latest
             // log. Penalties are paid on every unit an overdone key logs; an underdone key earns
@@ -3184,6 +3196,11 @@ public static class RoadmapEndpoints
                 c => MaxRaise * c.Value * PlannedPts(c.Key) * Math.Min(1, logged[c.Key] / plannedOnDay[(c.Key, d)]));
             var totalWanted = wanted.Values.Sum();
             var paidRatio = totalWanted > 0 ? Math.Min(1, penaltiesPaid / totalWanted) : 0;
+            // The bank an underdone key can count on, re-read on every log: the planned transfer
+            // (if the rest of the plan gets done), or more once overdone work off its planned day
+            // has already paid in — never more than the underdone keys can absorb. This is what
+            // the badges show, so logging an overdone item lifts the underdone ones at once.
+            var expectedBank = Math.Min(Math.Max(transfer, penaltiesPaid), capacity);
 
             foreach (var key in committedKeys)
             {
@@ -3191,14 +3208,14 @@ public static class RoadmapEndpoints
                 double coefficient, price;
                 if (take.TryGetValue(key, out var t))
                     price = ppu * (coefficient = 1 - t * takeScale);
-                else if (fullShare.TryGetValue(key, out var share))
+                else if (claim.TryGetValue(key, out var u))
                 {
-                    coefficient = 1 + share / PlannedPts(key);
+                    coefficient = capacity > 0 ? 1 + MaxRaise * u * expectedBank / capacity : 1;
                     price = ppu + (logged[key] > 0 ? wanted[key] * paidRatio / logged[key] : 0);
                 }
                 else price = ppu * (coefficient = 1);
                 // Price: what a unit logged today is worth once the day is settled. Weight: the
-                // coefficient the item was given this morning, i.e. what it pays once funded.
+                // coefficient it is on for today, i.e. what it pays once funded.
                 prices[(key, d)] = (price, coefficient);
             }
 

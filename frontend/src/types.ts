@@ -47,7 +47,10 @@ export interface ScheduleResponse {
   blocks: ScheduleBlock[]; activeSprint: SprintDto | null; isRelaxDay: boolean;
   /** Weighted sprints only: the day's earned points priced server-side. Null on Fixed sprints. */
   dayEarnedPoints?: number | null;
+  /** Weighted sprints only: every committed item's coefficient today, scheduled today or not. */
+  itemPrices?: Record<string, ItemPrice> | null;
 }
+export interface ItemPrice { pricePercent: number; effectivePointsPerUnit: number; }
 
 export interface ActionableItem {
   id: string; title: string; path: string; status: ActionItemStatus;

@@ -78,6 +78,9 @@ public record SprintDto(Guid Id, string Name, string StartDate, string EndDate, 
 
 public record SprintPlanEntryDto(Guid? NodeId, Guid? BlockId, string NodeTitle, string Date, int StartMinute, int DurationMinutes, double PlannedUnits);
 
+/// <summary>A committed item's coefficient on a Weighted sprint day, and what one of its units is worth at it.</summary>
+public record ItemPriceDto(double PricePercent, double EffectivePointsPerUnit);
+
 public record WorkLogDto(Guid Id, Guid NodeId, string NodeTitle, string Date, double Amount, string? Unit, string? Note);
 
 /// <summary>Full log history for a single item.</summary>

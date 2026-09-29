@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { ScheduleBlock, ActionableItem, WorkLogDto, SprintDto, ScheduleHabitDto, ScheduleTaskDto, CustomLogDto, ScheduleSubPointDto } from './types';
+import type { ScheduleBlock, ActionableItem, WorkLogDto, SprintDto, ScheduleHabitDto, ScheduleTaskDto, CustomLogDto, ScheduleSubPointDto, ItemPrice } from './types';
 import { api } from './api';
 import { NAV_ICON } from './NavIcons';
 import { SprintModal } from './SprintModal';
@@ -120,6 +120,7 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
   const [isRelaxDay, setIsRelaxDay] = useState(false);
   // Weighted sprints: the day's earned points, priced server-side. Null on Fixed sprints.
   const [dayEarnedServer, setDayEarnedServer] = useState<number | null>(null);
+  const [itemPrices, setItemPrices] = useState<Record<string, ItemPrice>>({});
   const [showQuickLog, setShowQuickLog] = useState(false);
   const [quickLogSearch, setQuickLogSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -144,6 +145,7 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
     setBlocks(sched.blocks); setSprint(sched.activeSprint); setAllItems(all); setWorkLogs(wl); setHabits(hb); setTasks(tk); setCustomLogs(cl);
     setIsRelaxDay(sched.isRelaxDay ?? false);
     setDayEarnedServer(sched.dayEarnedPoints ?? null);
+    setItemPrices(sched.itemPrices ?? {});
   }, [roadmapId, date]);
 
   useEffect(() => { setLoading(true); refresh().finally(() => setLoading(false)); }, [refresh]);
@@ -346,7 +348,7 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
                       {i === 0 ? '★ ' : ''}{b.poolItems ? '◇ ' : ''}{b.nodeTitle}
                     </span>
                     {b.pricePercent != null && (
-                      <span style={{ fontSize: 11, color: b.pricePercent > 100 ? 'var(--success)' : b.pricePercent < 100 ? '#e37400' : 'var(--text-muted)' }}>
+                      <span style={{ fontSize: 11, color: pctColor(b.pricePercent) }}>
                         ⚖{Math.round(b.pricePercent)}%
                       </span>
                     )}
@@ -375,7 +377,7 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
 
               {/* Add custom log */}
               {showCustomLogForm ? (
-                <CustomLogForm date={date} roadmapId={roadmapId} items={allItems} onDone={() => { setShowCustomLogForm(false); refresh(); }} onCancel={() => setShowCustomLogForm(false)} />
+                <CustomLogForm date={date} roadmapId={roadmapId} items={allItems} prices={itemPrices} onDone={() => { setShowCustomLogForm(false); refresh(); }} onCancel={() => setShowCustomLogForm(false)} />
               ) : (
                 <button className="btn btn-sm btn-ghost" style={{ marginTop: 8, width: '100%', justifyContent: 'center' }}
                   onClick={() => setShowCustomLogForm(true)}>+ Log custom achievement</button>
@@ -627,8 +629,12 @@ function WorkLogRow({ log, roadmapId, onChanged }: { log: WorkLogDto; roadmapId:
   );
 }
 
-function CustomLogForm({ date, roadmapId, items, onDone, onCancel }: {
-  date: string; roadmapId: string; items: ActionableItem[]; onDone: () => void; onCancel: () => void;
+// The ⚖ badge colour used across the day view: above nominal is good news, below is a warning.
+const pctColor = (p: number) => p > 100 ? 'var(--success)' : p < 100 ? '#e37400' : 'var(--text-muted)';
+
+function CustomLogForm({ date, roadmapId, items, prices, onDone, onCancel }: {
+  date: string; roadmapId: string; items: ActionableItem[]; prices: Record<string, ItemPrice>;
+  onDone: () => void; onCancel: () => void;
 }) {
   const [title, setTitle] = useState('');
   const [points, setPoints] = useState('2');
@@ -639,18 +645,22 @@ function CustomLogForm({ date, roadmapId, items, onDone, onCancel }: {
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => { ref.current?.focus(); }, []);
 
-  const autoPoints = selectedItem?.pointsPerUnit != null
-    ? Math.round((parseFloat(amount) || 0) * selectedItem.pointsPerUnit * 10) / 10
+  // A picked item is logged as real work on it, so a Weighted sprint prices it (and counts it
+  // towards the item's progress) exactly as if it had been logged on its card. The preview
+  // uses today's weighted price when the sprint committed to the item, nominal otherwise.
+  const selectedPrice = selectedItem ? prices[selectedItem.id] : undefined;
+  const selectedPpu = selectedPrice?.effectivePointsPerUnit ?? selectedItem?.pointsPerUnit ?? null;
+  const autoPoints = selectedPpu != null
+    ? Math.round((parseFloat(amount) || 0) * selectedPpu * 10) / 10
     : null;
 
   const submit = async () => {
     setBusy(true);
     try {
-      if (selectedItem && selectedItem.pointsPerUnit != null) {
+      if (selectedItem) {
         const a = parseFloat(amount);
         if (isNaN(a) || a <= 0) return;
-        const pts = a * selectedItem.pointsPerUnit;
-        await api.createCustomLog(roadmapId, selectedItem.title, pts, date);
+        await api.logWork(roadmapId, selectedItem.id, date, a);
       } else {
         const t = title.trim(); const p = parseFloat(points);
         if (!t || isNaN(p) || p <= 0) return;
@@ -679,7 +689,10 @@ function CustomLogForm({ date, roadmapId, items, onDone, onCancel }: {
                   onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
                   onMouseLeave={e => (e.currentTarget.style.background = '')}>
                   <span>{i.title}</span>
-                  {i.pointsPerUnit != null && <span style={{ float: 'right', fontSize: 11, color: 'var(--text-muted)' }}>{i.pointsPerUnit} pts/{i.unit ?? 'unit'}</span>}
+                  {i.pointsPerUnit != null && <span style={{ float: 'right', fontSize: 11, color: 'var(--text-muted)' }}>
+                    {prices[i.id] && <span style={{ color: pctColor(prices[i.id].pricePercent), marginRight: 6 }}>⚖{Math.round(prices[i.id].pricePercent)}%</span>}
+                    {i.pointsPerUnit} pts/{i.unit ?? 'unit'}
+                  </span>}
                 </div>
               ))}
             </div>
@@ -700,7 +713,13 @@ function CustomLogForm({ date, roadmapId, items, onDone, onCancel }: {
         <>
           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{selectedItem.title}</div>
           {selectedItem.pointsPerUnit != null && (
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{selectedItem.pointsPerUnit} pts / {selectedItem.unit ?? 'unit'}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              {selectedPrice
+                ? <>{Math.round(selectedPrice.effectivePointsPerUnit * 100) / 100} pts / {selectedItem.unit ?? 'unit'} today{' '}
+                    <span style={{ color: pctColor(selectedPrice.pricePercent) }}>⚖{Math.round(selectedPrice.pricePercent)}%</span>
+                    {' '}of {selectedItem.pointsPerUnit}</>
+                : <>{selectedItem.pointsPerUnit} pts / {selectedItem.unit ?? 'unit'}</>}
+            </div>
           )}
           <input type="number" value={amount} onChange={e => setAmount(e.target.value)} step="any" placeholder={`Amount (${selectedItem.unit ?? 'units'})`}
             onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') onCancel(); }}

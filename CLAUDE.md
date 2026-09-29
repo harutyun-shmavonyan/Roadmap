@@ -64,6 +64,14 @@ The rules this was designed against, all enforced in `ComputeWeightedPricingAsyn
   (budget re-split by due/done, then by 1.25^sessions-behind) both had this hole.
 - Coefficients stay in 0.3..3 and move continuously; equal shortfalls get equal coefficients.
 
+Everything is recomputed from the logs on every request, so any log — on any day, from the app or
+MCP — moves every later coefficient; the day view re-fetches after each of its writes. Underdone
+badges show the bank as it stands after the latest log, so logging an overdone item lifts them at
+once. The schedule response carries `itemPrices` (every committed item's coefficient, scheduled
+that day or not) and the custom-achievement picker logs **real work** on the picked item at that
+price — it used to store a fixed-points custom log at nominal, which bypassed weighting, the item's
+progress and the bank entirely. Only free-text achievements are still custom logs.
+
 ## Professional Newsletter tab
 
 Agent-published HTML editions of professional news, read in the app. The newsletter agent
