@@ -3035,25 +3035,30 @@ public static class RoadmapEndpoints
     /// <summary>The narrowest and widest a day's price can be stretched from its nominal rate.</summary>
     private const double MinWeight = 0.3, MaxWeight = 3.0;
 
+    /// <summary>What one session of being behind multiplies an item's weight by, and one session ahead divides it by.</summary>
+    private const double WeightPerSession = 1.25;
+
     /// <summary>
     /// How much an item is owed, measured against the plan rather than against the finish line:
     /// <paramref name="due"/> is everything the plan asked of it before today,
-    /// <paramref name="done"/> everything logged against it in that time.
+    /// <paramref name="done"/> everything logged against it in that time, and
+    /// <paramref name="session"/> its average planned amount per scheduled day.
     ///
-    /// Exactly on plan is 1. Half of what was asked is 2, double is 0.5, and the ends are
-    /// clamped to <see cref="MinWeight"/> and <see cref="MaxWeight"/> — the reciprocal keeps it
-    /// symmetric on the ratio, so falling twice behind and running twice ahead pull the same
-    /// distance in opposite directions. An item the plan has not asked for yet weighs 1, since
-    /// it can be neither ahead nor behind; one asked for and untouched weighs the maximum.
+    /// The gap is counted in sessions, so one missed Gym and one missed Day Analysis are the
+    /// same "one behind" whatever their units. Every session behind multiplies the weight by
+    /// <see cref="WeightPerSession"/> and every session ahead divides it by the same, so being
+    /// N ahead is the exact mirror of being N behind, and the effect grows with the distance
+    /// instead of jumping. Clamped to <see cref="MinWeight"/> and <see cref="MaxWeight"/>,
+    /// which is about five sessions either way. On plan, or not asked for yet, weighs 1.
     ///
-    /// Measuring against the plan-to-date rather than the whole commitment is what lets an item
-    /// that is keeping pace stay at 1 all sprint. Against the commitment it drifted downwards
-    /// simply by being worked, so doing exactly what was asked slowly devalued the asking.
+    /// It used to be the ratio due / done, which went straight to the maximum the first time a
+    /// planned session was missed (done = 0): one skipped day put an item at 3× while an item
+    /// that had simply not been scheduled yet sat at 1, and the day's re-split then pushed
+    /// everything on plan down to pay for it.
     /// </summary>
-    private static double WeightAt(double due, double done) =>
-        due <= 0 ? 1
-        : done <= 0 ? MaxWeight
-        : Math.Clamp(due / done, MinWeight, MaxWeight);
+    private static double WeightAt(double due, double done, double session) =>
+        session <= 0 ? 1
+        : Math.Clamp(Math.Pow(WeightPerSession, (due - done) / session), MinWeight, MaxWeight);
 
     /// <summary>
     /// Price every sprint day of a Weighted sprint.
@@ -3114,6 +3119,11 @@ public static class RoadmapEndpoints
             plannedOnDay[(key, c.Date)] = plannedOnDay.GetValueOrDefault((key, c.Date)) + c.PlannedUnits;
         }
 
+        // One session of each key: its average planned amount over the days it is planned at all.
+        // The yardstick a gap is counted in, so items in different units are behind comparably.
+        var sessionSize = plannedOnDay.Where(p => p.Value > 0).GroupBy(p => p.Key.Item1)
+            .ToDictionary(g => g.Key, g => g.Average(p => p.Value));
+
         // A log's units in commitment terms, keyed by what the commitment knows it as.
         var logUnitsOnDay = new Dictionary<(Guid, DateOnly), double>();
         foreach (var w in logs)
@@ -3140,7 +3150,7 @@ public static class RoadmapEndpoints
         {
             var weight = new Dictionary<Guid, double>();
             foreach (var key in committedKeys)
-                weight[key] = WeightAt(dueSoFar[key], doneSoFar[key]);
+                weight[key] = WeightAt(dueSoFar[key], doneSoFar[key], sessionSize.GetValueOrDefault(key));
 
             // Re-split the day's budget among the keys planned today.
             var dayKeys = committedKeys.Where(k => plannedOnDay.GetValueOrDefault((k, d)) > 0).ToList();

@@ -114,7 +114,7 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
             {perf.scoringMode === 'Weighted' && (
               <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-sm)', padding: '10px 16px', marginBottom: 16, fontSize: 13 }}>
                 ⚖ <strong>Weighted scoring</strong> — each day keeps its preplanned points, but the budget is re-split
-                by commitment progress: overdone items earn less per unit, neglected ones full value.
+                by how far each item is from its plan: every session behind is worth ×1.25 more, every session ahead ×1.25 less.
               </div>
             )}
 
