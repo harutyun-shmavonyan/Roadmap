@@ -99,7 +99,7 @@ export function SprintModal({ roadmapId, onClose }: Props) {
                     <>
                       <span style={{ flex: 1, fontSize: 15, fontWeight: 500, minWidth: 80 }}>
                         {s.name}
-                        {s.scoringMode === 'Weighted' && <span title="Weighted scoring: each day's budget is re-split by how far each item is ahead of or behind its plan" style={{ marginLeft: 6, fontSize: 11, color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 4, padding: '1px 5px' }}>⚖ weighted</span>}
+                        {s.scoringMode === 'Weighted' && <span title="Weighted scoring: each day, overdone items give points to underdone ones; the day's total is unchanged" style={{ marginLeft: 6, fontSize: 11, color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 4, padding: '1px 5px' }}>⚖ weighted</span>}
                       </span>
                       <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{s.startDate} → {s.endDate}</span>
                       <div style={{ display: 'flex', gap: 6 }}>
@@ -146,7 +146,7 @@ export function SprintModal({ roadmapId, onClose }: Props) {
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', textTransform: 'none', letterSpacing: 'normal' }}>
                   <input type="radio" checked={scoringMode === 'Weighted'} onChange={() => setScoringMode('Weighted')} />
-                  ⚖ Weighted — items ahead of plan earn less, items behind earn more
+                  ⚖ Weighted — overdone items give points to underdone ones
                 </label>
               </div>
             </div>

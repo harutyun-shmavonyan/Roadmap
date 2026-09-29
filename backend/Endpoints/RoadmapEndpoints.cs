@@ -611,10 +611,9 @@ public static class RoadmapEndpoints
                 }
             }
 
-            // Weighted sprints: stamp each card with what its unit is worth *today* (the day's
-            // budget re-split by commitment progress) and this key's weight, and compute the
-            // day's earned points server-side — the client can't price logs without the day
-            // prices. Fixed sprints leave all of it null and the client behaves as before.
+            // Weighted sprints: stamp each card with today's coefficient (overdone items give,
+            // underdone ones receive) and what a unit is worth at it, and compute the day's
+            // earned points server-side — the client can't settle the day's bank itself. Fixed sprints leave all of it null and the client behaves as before.
             double? dayEarnedPoints = null;
             var schedPricing = await ComputeWeightedPricingAsync(db, sprint);
             if (schedPricing is not null)
@@ -624,7 +623,7 @@ public static class RoadmapEndpoints
                     if ((b.NodeId ?? b.BlockId) is not Guid key) return b;
                     return b with
                     {
-                        EffectivePointsPerUnit = Math.Round(schedPricing.PriceFor(key, pd, b.PointsPerUnit ?? 0), 3),
+                        EffectivePointsPerUnit = Math.Round(schedPricing.TargetPriceFor(key, pd, b.PointsPerUnit ?? 0), 3),
                         PricePercent = schedPricing.PricePercentFor(key, pd)
                     };
                 }).ToList();
@@ -2989,7 +2988,8 @@ public static class RoadmapEndpoints
     /// </summary>
     internal sealed class WeightedPricing
     {
-        /// <summary>(committed key, date) → (price per unit that day, weight 0..1 that day).</summary>
+        /// <summary>(committed key, date) → (settled price per unit that day, the coefficient the
+        /// key was given that morning).</summary>
         public required Dictionary<(Guid Key, DateOnly Date), (double Price, double Weight)> Prices { get; init; }
         /// <summary>Pool-block membership: node id → its Pool block's id.</summary>
         public required Dictionary<Guid, Guid> PoolOfNode { get; init; }
@@ -3003,15 +3003,17 @@ public static class RoadmapEndpoints
         /// compares against.</summary>
         public required Dictionary<Guid, double> NominalPpu { get; init; }
 
-        /// <summary>Today's price as a percent of the key's nominal rate: 112 = a unit is
-        /// worth 12% more than usual today, 92 = 8% less, 100 = neutral. Null for keys the
-        /// sprint never committed to (bonus work — always nominal).</summary>
-        public double? PricePercentFor(Guid key, DateOnly date)
-        {
-            if (!Prices.TryGetValue((key, date), out var p)) return null;
-            var nominal = NominalPpu.GetValueOrDefault(key);
-            return nominal > 0 ? Math.Round(p.Price / nominal * 100, 0) : null;
-        }
+        /// <summary>Today's coefficient as a percent: 112 = a unit pays 12% more than usual
+        /// once the boost is funded, 92 = 8% less, 100 = neutral. Null for keys the sprint never
+        /// committed to (bonus work — always nominal).</summary>
+        public double? PricePercentFor(Guid key, DateOnly date) =>
+            Prices.TryGetValue((key, date), out var p) ? Math.Round(p.Weight * 100, 0) : null;
+
+        /// <summary>What a unit is worth today at the key's coefficient — the figure to preview
+        /// a log with. The settled price can be lower for a boosted key until overdone work
+        /// funds it.</summary>
+        public double TargetPriceFor(Guid key, DateOnly date, double fallbackPpu) =>
+            Prices.TryGetValue((key, date), out var p) ? NominalPpu.GetValueOrDefault(key) * p.Weight : fallbackPpu;
 
         /// <summary>
         /// What one work log is worth in points. A pool member's log is converted to hours at
@@ -3032,56 +3034,52 @@ public static class RoadmapEndpoints
         }
     }
 
-    /// <summary>The narrowest and widest a day's price can be stretched from its nominal rate.</summary>
-    private const double MinWeight = 0.3, MaxWeight = 3.0;
-
-    /// <summary>What one session of being behind multiplies an item's weight by, and one session ahead divides it by.</summary>
-    private const double WeightPerSession = 1.25;
+    /// <summary>
+    /// The most an overdone item can give up (so its coefficient never drops below 0.3), and the
+    /// shortfall at which an underdone item's claim saturates (so the most it can be raised to is
+    /// 1 + 2 = 3). Both are 70%: the two limits are the same distance from the plan.
+    /// </summary>
+    private const double MaxTake = 0.7, FullClaimAt = 0.7, MaxRaise = 2.0;
 
     /// <summary>
-    /// How much an item is owed, measured against the plan rather than against the finish line:
-    /// <paramref name="due"/> is everything the plan asked of it before today,
-    /// <paramref name="done"/> everything logged against it in that time, and
-    /// <paramref name="session"/> its average planned amount per scheduled day.
-    ///
-    /// The gap is counted in sessions, so one missed Gym and one missed Day Analysis are the
-    /// same "one behind" whatever their units. Every session behind multiplies the weight by
-    /// <see cref="WeightPerSession"/> and every session ahead divides it by the same, so being
-    /// N ahead is the exact mirror of being N behind, and the effect grows with the distance
-    /// instead of jumping. Clamped to <see cref="MinWeight"/> and <see cref="MaxWeight"/>,
-    /// which is about five sessions either way. On plan, or not asked for yet, weighs 1.
-    ///
-    /// It used to be the ratio due / done, which went straight to the maximum the first time a
-    /// planned session was missed (done = 0): one skipped day put an item at 3× while an item
-    /// that had simply not been scheduled yet sat at 1, and the day's re-split then pushed
-    /// everything on plan down to pay for it.
+    /// How far an item is from its plan as a fraction, positive when overdone and negative when
+    /// underdone: <paramref name="done"/> minus <paramref name="due"/> (both up to the end of the
+    /// previous day), over the larger of the plan so far and one week's worth of the item's plan.
+    /// The week floor keeps the first days sane — against a single day's plan, one extra hour is
+    /// "100% overdone" — and stops mattering once the sprint has run a week.
     /// </summary>
-    private static double WeightAt(double due, double done, double session) =>
-        session <= 0 ? 1
-        : Math.Clamp(Math.Pow(WeightPerSession, (due - done) / session), MinWeight, MaxWeight);
+    private static double Deviation(double due, double done, double weekPlan)
+    {
+        var basis = Math.Max(due, weekPlan);
+        return basis > 0 ? (done - due) / basis : 0;
+    }
 
     /// <summary>
     /// Price every sprint day of a Weighted sprint.
     ///
-    /// The invariant is the one the mode is named for: each day's preplanned point total is
-    /// untouched. What moves is how that total is split. At the start of each day every
-    /// committed key gets a weight from how it stands against the plan so far (see
-    /// <see cref="WeightAt"/>), and the day's budget is re-split in proportion to weight × the
-    /// key's nominal planned points that day. Doing exactly the day's plan therefore always
-    /// earns exactly the day's budget, whatever the weights are — they only decide who gets
-    /// which share of it. A day spent grinding an item that is already ahead of its plan
-    /// captures less of the budget; a day spent on one that has fallen behind captures more.
-    /// Weights are evaluated once per day, before that day's logs, so prices are stable while
-    /// the day is being lived, which is also what makes a "best value today" ranking
-    /// meaningful.
+    /// Each morning every committed key is sorted by how it stands against its plan so far
+    /// (see <see cref="Deviation"/>): overdone, underdone, or on plan. Overdone keys give up a
+    /// share of their points in proportion to how far over they are, at most 70%. That forms a
+    /// bank, which is split between the underdone keys planned today in proportion to how far
+    /// under they are (saturating at 70% under) × their planned points today, so equally
+    /// underdone keys get the same coefficient and dearer ones more points. On-plan keys are
+    /// untouched at ×1.
     ///
-    /// Committed keys keep an off-plan price too, capped at their nominal rate, so mid-sprint
-    /// work outside the planned day is discounted when it is running ahead without ever paying
-    /// more than the scheduled day could.
+    /// The rules that fell out of designing it:
+    /// <list type="bullet">
+    /// <item>Doing exactly the day's plan earns exactly the day's planned points: what overdone
+    /// keys give up of their planned points is exactly what underdone keys receive.</item>
+    /// <item>Coefficients stay within 0.3..3, and move continuously with history: an underdone
+    /// key can absorb at most 1 + 2u, and only as much as the underdone keys can absorb is ever
+    /// taken, so a barely-underdone key never swallows the whole bank.</item>
+    /// <item>Delaying never pays. A boost is paid only out of penalties actually paid the same
+    /// day, recomputed on every log, so no ordering of early and late work beats doing the same
+    /// work on time. (Paying behind items more than their nominal rate out of thin air is what
+    /// made delay pay under the previous scheme.)</item>
+    /// </list>
     ///
-    /// None of this touches what was planned: the budget, the day plans and the sprint's
-    /// planned total all come from the frozen commitment at nominal rates. Weights move only
-    /// what earned work is worth.
+    /// None of this touches what was planned: the day plans and the sprint's planned total all
+    /// come from the frozen commitment at nominal rates. Only earned points move.
     ///
     /// Returns null for anything but a started Weighted sprint.
     /// </summary>
@@ -3119,11 +3117,6 @@ public static class RoadmapEndpoints
             plannedOnDay[(key, c.Date)] = plannedOnDay.GetValueOrDefault((key, c.Date)) + c.PlannedUnits;
         }
 
-        // One session of each key: its average planned amount over the days it is planned at all.
-        // The yardstick a gap is counted in, so items in different units are behind comparably.
-        var sessionSize = plannedOnDay.Where(p => p.Value > 0).GroupBy(p => p.Key.Item1)
-            .ToDictionary(g => g.Key, g => g.Average(p => p.Value));
-
         // A log's units in commitment terms, keyed by what the commitment knows it as.
         var logUnitsOnDay = new Dictionary<(Guid, DateOnly), double>();
         foreach (var w in logs)
@@ -3140,35 +3133,73 @@ public static class RoadmapEndpoints
         }
 
         var prices = new Dictionary<(Guid, DateOnly), (double Price, double Weight)>();
+        // Where each key stands before the day being priced: what the plan had asked of it and
+        // what was logged against it, both up to the end of the previous day, so a day's
+        // coefficients never move in response to that day's own logs.
         var doneSoFar = committedKeys.ToDictionary(k => k, _ => 0.0);
-        // What the plan had asked of each key before the day being priced — the yardstick the
-        // weight is measured against. Both run to the end of the previous day, so a day's prices
-        // never move in response to that day's own logs.
         var dueSoFar = committedKeys.ToDictionary(k => k, _ => 0.0);
+        var sprintDays = sprint.EndDate.DayNumber - sprint.StartDate.DayNumber + 1;
+        var weekPlan = committedKeys.ToDictionary(k => k,
+            k => plannedOnDay.Where(p => p.Key.Item1 == k).Sum(p => p.Value) * 7.0 / sprintDays);
 
         for (var d = sprint.StartDate; d <= sprint.EndDate; d = d.AddDays(1))
         {
-            var weight = new Dictionary<Guid, double>();
+            // Overdone keys offer a share of today's planned points (take); underdone keys
+            // planned today claim a share of that bank (u, weighted by their planned points).
+            var take = new Dictionary<Guid, double>();
+            var claim = new Dictionary<Guid, double>();
             foreach (var key in committedKeys)
-                weight[key] = WeightAt(dueSoFar[key], doneSoFar[key], sessionSize.GetValueOrDefault(key));
+            {
+                var dev = Deviation(dueSoFar[key], doneSoFar[key], weekPlan[key]);
+                if (dev > 0) take[key] = Math.Min(dev, MaxTake);
+                else if (dev < 0 && plannedOnDay.GetValueOrDefault((key, d)) > 0)
+                    claim[key] = Math.Min(-dev, FullClaimAt) / FullClaimAt;
+            }
+            double PlannedPts(Guid k) => plannedOnDay.GetValueOrDefault((k, d)) * nominalPpu[k];
 
-            // Re-split the day's budget among the keys planned today.
-            var dayKeys = committedKeys.Where(k => plannedOnDay.GetValueOrDefault((k, d)) > 0).ToList();
-            var budget = dayKeys.Sum(k => plannedOnDay[(k, d)] * nominalPpu[k]);
-            var denom = dayKeys.Sum(k => weight[k] * plannedOnDay[(k, d)] * nominalPpu[k]);
+            // What overdone items planned today would give, and what underdone ones could take
+            // (each at most 1 + 2u). Only the smaller of the two changes hands, so a bank that
+            // nobody can absorb is never collected and doing exactly the plan still earns
+            // exactly the plan: the planned points taken equal the planned points handed out.
+            var offered = take.Sum(t => t.Value * PlannedPts(t.Key));
+            var capacity = claim.Sum(c => MaxRaise * c.Value * PlannedPts(c.Key));
+            var transfer = Math.Min(offered, capacity);
+            // Overdone keys not planned today still pay (into the same bank) whenever someone
+            // can absorb it; with no underdone key there is nobody to pay, so nobody pays.
+            var takeScale = offered > 0 ? transfer / offered : capacity > 0 ? 1 : 0;
+            var fullShare = claim.ToDictionary(c => c.Key,
+                c => capacity > 0 ? MaxRaise * c.Value * PlannedPts(c.Key) * transfer / capacity : 0);
+
+            // Settle the day against what was actually logged, as it stands after the latest
+            // log. Penalties are paid on every unit an overdone key logs; an underdone key earns
+            // its share in proportion to how much of today's plan it has done; and the shares
+            // are only paid out of penalties actually paid today. That last cap is what keeps
+            // delay from paying: skipping the overdone item funds nothing, so nothing is raised.
+            // Claims are sized by each key's own limit (1 + 2u) and paid pro rata, so penalties
+            // from overdone work off its planned day land in the same bank; when the day goes
+            // exactly to plan the bank holds exactly the transfer and each key gets its share.
+            var logged = committedKeys.ToDictionary(k => k, k => logUnitsOnDay.GetValueOrDefault((k, d)));
+            var penaltiesPaid = take.Sum(t => logged[t.Key] * nominalPpu[t.Key] * t.Value * takeScale);
+            var wanted = claim.ToDictionary(c => c.Key,
+                c => MaxRaise * c.Value * PlannedPts(c.Key) * Math.Min(1, logged[c.Key] / plannedOnDay[(c.Key, d)]));
+            var totalWanted = wanted.Values.Sum();
+            var paidRatio = totalWanted > 0 ? Math.Min(1, penaltiesPaid / totalWanted) : 0;
 
             foreach (var key in committedKeys)
             {
-                var planned = plannedOnDay.GetValueOrDefault((key, d));
-                var price = planned > 0
-                    ? (denom > 0 ? budget * weight[key] * nominalPpu[key] / denom : 0)
-                    // Committed but not planned today: no day's budget to draw a share from, so
-                    // its own rate, discounted if it is ahead of the plan. Capped at nominal
-                    // rather than allowed the full weight: an item that is behind would
-                    // otherwise be worth more off its schedule than it could ever earn on it,
-                    // since the re-split is bounded by the day's budget and this is not.
-                    : Math.Min(weight[key], 1) * nominalPpu[key];
-                prices[(key, d)] = (price, weight[key]);
+                var ppu = nominalPpu[key];
+                double coefficient, price;
+                if (take.TryGetValue(key, out var t))
+                    price = ppu * (coefficient = 1 - t * takeScale);
+                else if (fullShare.TryGetValue(key, out var share))
+                {
+                    coefficient = 1 + share / PlannedPts(key);
+                    price = ppu + (logged[key] > 0 ? wanted[key] * paidRatio / logged[key] : 0);
+                }
+                else price = ppu * (coefficient = 1);
+                // Price: what a unit logged today is worth once the day is settled. Weight: the
+                // coefficient the item was given this morning, i.e. what it pays once funded.
+                prices[(key, d)] = (price, coefficient);
             }
 
             foreach (var key in committedKeys)

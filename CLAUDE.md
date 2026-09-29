@@ -46,6 +46,24 @@ This is the pipeline's only feedback loop. Finder can measure how many postings
 it produced but not whether any of them converted, so a supply problem, a
 staleness problem and a CV problem are otherwise indistinguishable.
 
+## Weighted sprint scoring
+
+A Weighted sprint moves points between items each day; planned points never move. Each morning
+(from history up to the previous day) every committed item is **overdone**, **underdone** or **on
+plan**, measured as `(done − planned so far) ÷ max(planned so far, one week of its plan)`.
+Overdone items give up that fraction of their points (at most 70%, so ×0.3 is the floor) into a
+bank; underdone items planned that day split it by `u × planned points today` (u = shortfall,
+saturating at 70%), each at most ×(1 + 2u), so ×3 is the ceiling. On-plan items stay at ×1. Only
+what underdone items can absorb is ever taken. The day is re-settled on every log, and a boost is
+paid only out of penalties actually paid that day.
+
+The rules this was designed against, all enforced in `ComputeWeightedPricingAsync`:
+- Doing exactly the day's plan earns exactly the day's planned points.
+- **Delaying never pays.** Any bonus for being behind that is not funded by same-day penalties
+  lets "skip it, catch up later at a higher rate" beat doing it on time — the two earlier schemes
+  (budget re-split by due/done, then by 1.25^sessions-behind) both had this hole.
+- Coefficients stay in 0.3..3 and move continuously; equal shortfalls get equal coefficients.
+
 ## Professional Newsletter tab
 
 Agent-published HTML editions of professional news, read in the app. The newsletter agent
