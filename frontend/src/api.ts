@@ -3,6 +3,7 @@ import type { RoadmapSummary, RoadmapTree, NodeDto, CreateNodeRequest, Actionabl
   WeekPlan, WeekPlanGoal, WorkLogHistory, HabitDto, SprintHabitDto, ScheduleHabitDto,
   SingleTaskDto, ScheduleTaskDto, CustomLogDto, ScheduleBlockDef, ScheduleBlockMode, SprintGoalDto,
   NodeSubPointDto, ScheduleSubPointDto, NoteDto,
+  NotePromptDto, NotePromptOverviewDto, NoteSrsStatsDto, NotePromptState,
   ArticleSummaryDto, ArticleDto, ArticleImageDto, ArticleFormat,
   NewsletterSummaryDto, NewsletterCursorDto,
   JobRunDto, JobRunSummaryDto,
@@ -190,6 +191,17 @@ export const api = {
 
   // Daily Notes (global 'red' / 'green' books)
   getNotes: (book: 'red' | 'green') => req<NoteDto[]>(`/api/notes/${book}`),
+  // Notes v2 — prompts and their FSRS schedule. Reviews are recorded through the MCP tools in chat;
+  // the tab reads, edits and retires prompts.
+  getNoteSrsStats: () => req<NoteSrsStatsDto>('/api/notes/srs/stats'),
+  getNotePromptOverview: (book: 'red' | 'green') => req<NotePromptOverviewDto[]>(`/api/notes/srs/overview/${book}`),
+  getNotePrompts: (book: 'red' | 'green', dayNumber: number) => req<NotePromptDto[]>(`/api/notes/${book}/${dayNumber}/prompts`),
+  createNotePrompts: (book: 'red' | 'green', dayNumber: number, prompts: { question: string; answer: string }[]) =>
+    req<NotePromptDto[]>(`/api/notes/${book}/${dayNumber}/prompts`, { method: 'POST', body: JSON.stringify({ prompts }) }),
+  // PATCH semantics: omit a field to keep it. reset restarts the schedule (for a rewritten leech).
+  updateNotePrompt: (id: string, patch: { question?: string; answer?: string; state?: NotePromptState; reset?: boolean }) =>
+    req<NotePromptDto>(`/api/notes/prompts/${id}`, { method: 'PUT', body: JSON.stringify(patch) }),
+  deleteNotePrompt: (id: string) => req<void>(`/api/notes/prompts/${id}`, { method: 'DELETE' }),
 
   // Articles (global reading library; Markdown or HTML body; marking read earns 3 pts/hour)
   getArticles: () => req<ArticleSummaryDto[]>('/api/articles'),

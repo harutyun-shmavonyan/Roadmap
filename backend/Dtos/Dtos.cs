@@ -262,6 +262,33 @@ public record CategoryTimeDto(string CategoryName, double TotalMinutes, double T
 public record NoteDto(string Book, int DayNumber, string EntryDate, string Content, DateTime CreatedAt, DateTime UpdatedAt);
 public record UpdateNoteRequest(string? Content, string? EntryDate);
 
+// --- Notes v2: FSRS-scheduled prompts (see NoteSrsLogic) ---
+public record NotePromptReviewDto(DateTime ReviewedAt, string Grade, int ElapsedDays, double Retrievability,
+    double StabilityBefore, double StabilityAfter, double DifficultyBefore, double DifficultyAfter,
+    bool WasRelearning, string? Answer, string? Note);
+// retrievability is the predicted recall today; stability is in days (the interval at 90% recall).
+public record NotePromptDto(Guid Id, string Book, int DayNumber, string EntryDate, string Question, string Answer,
+    int SortOrder, string State, double Difficulty, double Stability, double Retrievability, string DueOn,
+    bool IsDue, bool Relearning, int Lapses, int Reviews, DateTime LastReviewedAt, DateTime CreatedAt,
+    List<NotePromptReviewDto> ReviewHistory);
+public record NotePromptInput(string Question, string Answer);
+public record CreateNotePromptsRequest(List<NotePromptInput> Prompts);
+// PATCH semantics: null keeps the stored value. state is Active | Parked | Suspended. reset restarts the
+// schedule as if the prompt were just written (for a rewritten leech).
+public record UpdateNotePromptRequest(string? Question, string? Answer, string? State, bool? Reset);
+// Today's queue. remaining = dailyCap - askedToday; overflow = due prompts that did not fit; parkedNow = how
+// many of those were parked by this call; unparked = parked prompts pulled back in because there were spare slots.
+public record NoteSrsSessionDto(string Date, int DailyCap, int AskedToday, int Remaining, int DueTotal, int Returned,
+    int Overflow, int ParkedNow, int Unparked, int ParkedTotal, double CarryCapacityPerDay, double DesiredRetention,
+    List<NotePromptDto> Prompts);
+public record DayLoadDto(string Date, int Due);
+public record NoteSrsStatsDto(int Prompts, int Active, int Parked, int Suspended, int Leeches, int NotesWithPrompts,
+    int NotesWithoutPrompts, int DueToday, int AskedToday, int DailyCap, int Remaining, double CarryCapacityPerDay,
+    double DesiredRetention, int ReviewsAllTime, int ReviewsLast7Days, double? TrueRetention30d, int Lapses,
+    double AverageStability, List<DayLoadDto> UpcomingLoad);
+// Per-note summary for the Notes tab's day list.
+public record NotePromptOverviewDto(int DayNumber, int PromptCount, int Due, int Parked, int Suspended, string? NextDueOn);
+
 // --- Articles (global reading library; Markdown or HTML body; reading earns no points) ---
 public record ArticleImageDto(string Name, string ContentType, int SortOrder);
 public record ArticleSummaryDto(Guid Id, string Title, string Format, int ReadMinutes,

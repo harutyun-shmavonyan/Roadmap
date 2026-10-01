@@ -135,6 +135,7 @@ app.MapGet("/api/auth/check", (HttpContext ctx) =>
 app.MapRoadmapEndpoints();
 app.MapCourseEndpoints();
 app.MapExperienceEndpoints();
+app.MapNoteSrsEndpoints();
 
 // MCP endpoint — protected by MCP_SECRET if configured
 app.MapMcp("/mcp").AddEndpointFilter(async (ctx, next) =>

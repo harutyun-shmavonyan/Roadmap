@@ -22,4 +22,7 @@ public class Note
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>The atomic question/answer prompts extracted from this note for spaced repetition (Notes v2).</summary>
+    public List<NotePrompt> Prompts { get; set; } = [];
 }

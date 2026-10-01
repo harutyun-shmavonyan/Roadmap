@@ -145,6 +145,29 @@ export interface WorkLogHistoryEntry {
 // Daily Notes
 export interface NoteDto { book: string; dayNumber: number; entryDate: string; content: string; createdAt: string; updatedAt: string; }
 
+// Notes v2 — FSRS-scheduled prompts extracted from a note. stability is in days (the interval at 90%
+// predicted recall); retrievability is the predicted recall today.
+export type NotePromptState = 'Active' | 'Parked' | 'Suspended';
+export interface NotePromptReviewDto {
+  reviewedAt: string; grade: 'Again' | 'Hard' | 'Good' | 'Easy'; elapsedDays: number; retrievability: number;
+  stabilityBefore: number; stabilityAfter: number; difficultyBefore: number; difficultyAfter: number;
+  wasRelearning: boolean; answer: string | null; note: string | null;
+}
+export interface NotePromptDto {
+  id: string; book: string; dayNumber: number; entryDate: string; question: string; answer: string;
+  sortOrder: number; state: NotePromptState; difficulty: number; stability: number; retrievability: number;
+  dueOn: string; isDue: boolean; relearning: boolean; lapses: number; reviews: number;
+  lastReviewedAt: string; createdAt: string; reviewHistory: NotePromptReviewDto[];
+}
+export interface NotePromptOverviewDto { dayNumber: number; promptCount: number; due: number; parked: number; suspended: number; nextDueOn: string | null; }
+export interface NoteSrsStatsDto {
+  prompts: number; active: number; parked: number; suspended: number; leeches: number;
+  notesWithPrompts: number; notesWithoutPrompts: number; dueToday: number; askedToday: number; dailyCap: number;
+  remaining: number; carryCapacityPerDay: number; desiredRetention: number; reviewsAllTime: number;
+  reviewsLast7Days: number; trueRetention30d: number | null; lapses: number; averageStability: number;
+  upcomingLoad: { date: string; due: number }[];
+}
+
 export type ArticleFormat = 'markdown' | 'html';
 export interface ArticleImageDto { name: string; contentType: string; sortOrder: number; }
 export interface ArticleSummaryDto { id: string; title: string; format: ArticleFormat; readMinutes: number; isRead: boolean; readOn: string | null; sortOrder: number; imageCount: number; readProgress: number; createdAt: string; updatedAt: string; }

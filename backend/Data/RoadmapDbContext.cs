@@ -30,6 +30,8 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
     public DbSet<Note> Notes => Set<Note>();
     public DbSet<VocabEntry> VocabEntries => Set<VocabEntry>();
     public DbSet<VocabReview> VocabReviews => Set<VocabReview>();
+    public DbSet<NotePrompt> NotePrompts => Set<NotePrompt>();
+    public DbSet<NotePromptReview> NotePromptReviews => Set<NotePromptReview>();
     public DbSet<JobRun> JobRuns => Set<JobRun>();
     public DbSet<JobPosting> JobPostings => Set<JobPosting>();
     public DbSet<Article> Articles => Set<Article>();
@@ -557,6 +559,32 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.HasOne(r => r.VocabEntry).WithMany(v => v.Reviews)
                 .HasForeignKey(r => r.VocabEntryId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(r => new { r.VocabEntryId, r.ReviewedAt });
+        });
+
+        // ===== Notes v2: FSRS-scheduled prompts extracted from daily notes =====
+        modelBuilder.Entity<NotePrompt>(e =>
+        {
+            e.ToTable("note_prompts");
+            e.HasKey(p => p.Id);
+            e.HasOne(p => p.Note).WithMany(n => n.Prompts)
+                .HasForeignKey(p => p.NoteId).OnDelete(DeleteBehavior.Cascade);
+            e.Property(p => p.Question).IsRequired();
+            e.Property(p => p.Answer).IsRequired();
+            e.Property(p => p.State).HasConversion<string>().HasMaxLength(16);
+            e.HasIndex(p => new { p.NoteId, p.SortOrder });
+            // The daily session is "active and due on or before today" — the hot path.
+            e.HasIndex(p => new { p.State, p.DueOn });
+        });
+
+        modelBuilder.Entity<NotePromptReview>(e =>
+        {
+            e.ToTable("note_prompt_reviews");
+            e.HasKey(r => r.Id);
+            e.HasOne(r => r.NotePrompt).WithMany(p => p.ReviewHistory)
+                .HasForeignKey(r => r.NotePromptId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(r => new { r.NotePromptId, r.ReviewedAt });
+            // The daily cap counts today's rows.
+            e.HasIndex(r => r.ReviewDate);
         });
 
         // ===== Courses =====
