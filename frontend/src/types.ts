@@ -162,6 +162,35 @@ export interface NewsletterCursorDto {
   unreadCount: number; issueCount: number; anchor: string;
 }
 
+// Stock Signals — the market screener's runs. One per trading day, quiet days included; each signal carries
+// the rule's evidence and thesis, the triage verdict written later, and the reader's decision.
+export const SIGNAL_STATUSES = ['new', 'reviewed', 'acted', 'dismissed'] as const;
+export type SignalStatus = typeof SIGNAL_STATUSES[number];
+export interface SignalEvidence { label: string; value: string; threshold?: string | null; passes?: boolean | null; note?: string | null; }
+export interface SignalMarket {
+  benchmark?: string; close?: number | null; ret_1d?: number | null; dd_252d?: number | null; vol_name?: string;
+  vol?: number | null; hy_oas?: number | null; hy_oas_20d_change?: number | null; breadth?: number | null;
+}
+export interface SignalWatchItem { market?: string; group: string; z?: number | null; dd_20d?: number | null; rev?: number | null; cutting?: number | null; note?: string | null; }
+export interface SignalDto {
+  id: string; eventId: string; market: string; screen: string; key: string; tier: number; title: string;
+  headline: string; thesis: string; evidence: SignalEvidence[]; horizon: string; horizonDays: number | null;
+  proposal: string | null; proposalDetail: Record<string, unknown> | null; candidates: Record<string, unknown>[];
+  context: Record<string, unknown> | null; invalidation: string | null; regime: string | null; nextStep: string | null;
+  sortOrder: number; triage: unknown; triageSummary: string | null; triagedAt: string | null; triageModel: string | null;
+  status: string; notes: string | null; decidedAt: string | null; updatedAt: string;
+}
+export interface SignalRunSummaryDto {
+  id: string; runDate: string; status: string; isTradingDay: boolean; summary: string; signalCount: number;
+  watchCount: number; isRead: boolean; readOn: string | null; publishedAt: string; gitSha: string | null;
+}
+export interface SignalRunDto {
+  id: string; runDate: string; status: string; isTradingDay: boolean; summary: string;
+  markets: Record<string, SignalMarket> | null; watch: SignalWatchItem[] | null; warnings: string[];
+  reportMarkdown: string | null; gitSha: string | null; isRead: boolean; readOn: string | null;
+  publishedAt: string; createdAt: string; updatedAt: string; signals: SignalDto[];
+}
+
 // Habits
 export interface HabitDto { id: string; name: string; createdAt: string; }
 export interface SprintHabitDto { sprintHabitId: string; habitId: string; name: string; isPaused: boolean; currentStreak: number; bestStreak: number; isFormed: boolean; checks: { date: string; isChecked: boolean }[]; }

@@ -121,3 +121,29 @@ required: a plan is worth saving before it has a place, a date or a picture.
 - **`ImageLogic` is the shared image code** — type sniffing, base64/data-URI decoding, and the
   guarded server-side URL download. Meals and experiences both go through it; `MealLogic` keeps
   its old method names as forwards.
+
+## Stock Signals tab
+
+The market screener (repo `Screener`) publishes **every** run here after the US close — the quiet days too,
+because "nothing fired" is the message and the tab shows it as one. One `SignalRun` per trading day (unique
+on `RunDate`); each `Signal` is one thing the screener proposed, keyed by the screener's own `EventId`
+(`2026-10-01_A_us_semiconductors_t1`), which is the identity that holds across two publishes of a day.
+
+Three layers live on a signal, written by three hands:
+
+1. **The rule's case** — arrives with `publish_signal_run`: a headline in numbers, the evidence table (each
+   metric against its threshold), the thesis in words, the horizon, the proposal (sizes are proposals for a
+   human; nothing executes), the candidates, and what would prove it wrong. Deterministic, from the screener.
+2. **The triage verdict** — `set_signal_triage`, written by the `screener-alert-triage` skill after it has
+   read filings and news: the verdict JSON plus a phone-readable narrative. Makes the day unread again.
+3. **The reader's decision** — status `new | reviewed | acted | dismissed` and notes, from the tab
+   (`PATCH /api/signals/items/{id}`) or `update_signal`.
+
+`publish_signal_run` replaces a date the way `import_job_run` does, and **carries layers two and three across
+by `EventId`**; its result reports `carried`, so a re-publish that dropped a decision is visible rather than
+quiet. A re-publish with the same set of event ids keeps the day's read tick; one that changes the set makes
+the day unread. Quiet days older than 120 days are pruned on publish; days that fired are never pruned — they
+are the audit trail of what was proposed and why. `SignalLogic` owns every rule so the REST endpoints
+(`/api/signals`) and the MCP tools cannot drift. The JSON blobs (markets, watch, evidence, candidates,
+proposal detail, triage) are stored as text and parsed on the way out; their keys are the screener's
+snake_case, mirrored by the tab's types. Opening a day in the tab ticks it read.

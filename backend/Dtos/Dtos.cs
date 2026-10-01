@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Roadmap.Api.Dtos;
 
 // --- Responses ---
@@ -402,3 +404,64 @@ public record SaveExperienceRequest(string? Title, string? Category, string? Sta
 
 public record SetExperienceStatusRequest(string? Status);
 public record UpdateExperienceImageRequest(string? Caption, int? SortOrder);
+
+// --- Stock Signals (screener runs: one per trading day; each signal carries the rule's evidence, its thesis,
+// the triage verdict written later, and the reader's decision) ---
+public record SignalRunSummaryDto(Guid Id, string RunDate, string Status, bool IsTradingDay, string Summary,
+    int SignalCount, int WatchCount, bool IsRead, string? ReadOn, DateTime PublishedAt, string? GitSha);
+
+public record SignalDto(Guid Id, string EventId, string Market, string Screen, string Key, int Tier, string Title,
+    string Headline, string Thesis, JsonElement Evidence, string Horizon, int? HorizonDays, string? Proposal,
+    JsonElement? ProposalDetail, JsonElement Candidates, JsonElement? Context, string? Invalidation, string? Regime,
+    string? NextStep, int SortOrder,
+    JsonElement? Triage, string? TriageSummary, DateTime? TriagedAt, string? TriageModel,
+    string Status, string? Notes, DateTime? DecidedAt, DateTime UpdatedAt);
+
+public record SignalRunDto(Guid Id, string RunDate, string Status, bool IsTradingDay, string Summary,
+    JsonElement? Markets, JsonElement? Watch, List<string> Warnings, string? ReportMarkdown, string? GitSha,
+    bool IsRead, string? ReadOn, DateTime PublishedAt, DateTime CreatedAt, DateTime UpdatedAt, List<SignalDto> Signals);
+
+/// <summary>PATCH semantics: a null field keeps the stored value, an empty string clears the notes.</summary>
+public record UpdateSignalRequest(string? Status, string? Notes);
+public record SetSignalTriageRequest(JsonElement? Triage, string? Summary, string? Model);
+
+/// <summary>
+/// One signal as the screener publishes it. Snake_case on purpose: the same class binds the MCP tool's
+/// argument and the REST body, and the screener is Python. Everything but event_id, screen and key is optional.
+/// </summary>
+public sealed class SignalInput
+{
+    public string? event_id { get; set; }
+    public string? market { get; set; }
+    public string? screen { get; set; }
+    public string? key { get; set; }
+    public int? tier { get; set; }
+    public string? title { get; set; }
+    public string? headline { get; set; }
+    public string? thesis { get; set; }
+    public JsonElement? evidence { get; set; }
+    public string? horizon { get; set; }
+    public int? horizon_days { get; set; }
+    public string? proposal { get; set; }
+    public JsonElement? proposal_detail { get; set; }
+    public JsonElement? candidates { get; set; }
+    public JsonElement? context { get; set; }
+    public string? invalidation { get; set; }
+    public string? regime { get; set; }
+    public string? next_step { get; set; }
+}
+
+/// <summary>A whole run as the screener publishes it. An empty or missing signals list is a quiet day, and is stored as one.</summary>
+public sealed class PublishSignalRunInput
+{
+    public string? run_date { get; set; }
+    public string? status { get; set; }
+    public bool? is_trading_day { get; set; }
+    public string? summary { get; set; }
+    public JsonElement? markets { get; set; }
+    public JsonElement? watch { get; set; }
+    public string[]? warnings { get; set; }
+    public string? report_markdown { get; set; }
+    public string? git_sha { get; set; }
+    public SignalInput[]? signals { get; set; }
+}

@@ -34,6 +34,8 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
     public DbSet<JobPosting> JobPostings => Set<JobPosting>();
     public DbSet<Article> Articles => Set<Article>();
     public DbSet<NewsletterIssue> NewsletterIssues => Set<NewsletterIssue>();
+    public DbSet<SignalRun> SignalRuns => Set<SignalRun>();
+    public DbSet<Signal> Signals => Set<Signal>();
 
     // --- Courses ---
     public DbSet<LessonTemplate> LessonTemplates => Set<LessonTemplate>();
@@ -452,6 +454,42 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.Property(n => n.Html).HasColumnType("text");
             // One edition per day — the publish path upserts on this rather than inserting.
             e.HasIndex(n => n.IssueDate).IsUnique();
+        });
+
+        modelBuilder.Entity<SignalRun>(e =>
+        {
+            e.ToTable("signal_runs");
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Status).HasMaxLength(32).IsRequired();
+            e.Property(r => r.Summary).HasMaxLength(512).IsRequired();
+            e.Property(r => r.GitSha).HasMaxLength(64);
+            e.Property(r => r.MarketsJson).HasColumnType("text");
+            e.Property(r => r.WatchJson).HasColumnType("text");
+            e.Property(r => r.ReportMarkdown).HasColumnType("text");
+            // One run per trading day: publishing a date again replaces it (see SignalRun docs).
+            e.HasIndex(r => r.RunDate).IsUnique();
+            e.HasMany(r => r.Signals).WithOne(s => s.Run).HasForeignKey(s => s.SignalRunId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Signal>(e =>
+        {
+            e.ToTable("signals");
+            e.HasKey(s => s.Id);
+            e.Property(s => s.EventId).HasMaxLength(160).IsRequired();
+            e.Property(s => s.Market).HasMaxLength(8).IsRequired();
+            e.Property(s => s.Screen).HasMaxLength(4).IsRequired();
+            e.Property(s => s.Key).HasMaxLength(160).IsRequired();
+            e.Property(s => s.Title).HasMaxLength(256).IsRequired();
+            e.Property(s => s.Headline).HasMaxLength(1024).IsRequired();
+            e.Property(s => s.Status).HasMaxLength(32).IsRequired();
+            e.Property(s => s.Regime).HasMaxLength(16);
+            e.Property(s => s.TriageModel).HasMaxLength(64);
+            foreach (var col in new[] { "Thesis", "EvidenceJson", "Horizon", "Proposal", "ProposalJson", "CandidatesJson",
+                                        "ContextJson", "Invalidation", "NextStep", "TriageJson", "TriageSummary", "Notes" })
+                e.Property(col).HasColumnType("text");
+            // The screener's event id is the identity that holds across two publishes of the same day.
+            e.HasIndex(s => s.EventId).IsUnique();
+            e.HasIndex(s => s.SignalRunId);
         });
 
         modelBuilder.Entity<ArticleImage>(e =>

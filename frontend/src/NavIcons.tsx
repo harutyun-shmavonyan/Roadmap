@@ -19,6 +19,14 @@ const S = ({ children }: { children: ReactNode }) => (
 );
 
 export const NAV_ICON: Record<string, ReactNode> = {
+  // Pulse — the market's heartbeat, read once a day.
+  signals: (
+    <S>
+      <rect x="2.5" y="3" width="19" height="18" rx="4" fill="var(--ic-signals)" />
+      <polyline points="5,13 8.3,13 10.4,7.5 13.6,17 15.7,11 19,11" fill="none" stroke="#fff" strokeWidth="1.9"
+        strokeLinejoin="round" strokeLinecap="round" />
+    </S>
+  ),
   // Calendar — the day you are living.
   schedule: (
     <S>

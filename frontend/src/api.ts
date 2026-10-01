@@ -10,7 +10,8 @@ import type { RoadmapSummary, RoadmapTree, NodeDto, CreateNodeRequest, Actionabl
   MealDto, MealSlot, SaveMealRequest,
   CourseSummaryDto, CourseDetailDto, LessonDetailDto, CourseEventDto, CourseResumeDto,
   CourseStatus, LessonStatus,
-  ExperienceDto, ExperienceImageDto, ExperienceStatus, SaveExperienceRequest } from './types';
+  ExperienceDto, ExperienceImageDto, ExperienceStatus, SaveExperienceRequest,
+  SignalRunDto, SignalRunSummaryDto, SignalDto } from './types';
 
 const B = '/api/roadmaps';
 
@@ -258,6 +259,15 @@ export const api = {
     if (!r.ok) throw new Error(`Newsletter fetch failed: ${r.status}`);
     return r.text();
   },
+
+  // Stock Signals (the screener publishes over MCP; the tab reads, ticks days read, records decisions)
+  getSignalRuns: (days = 90) => req<SignalRunSummaryDto[]>(`/api/signals?days=${days}`),
+  getLatestSignalRun: () => req<SignalRunDto>('/api/signals/latest'),
+  getSignalRun: (date: string) => req<SignalRunDto>(`/api/signals/${date}`),
+  markSignalRunRead: (id: string) => req<SignalRunSummaryDto>(`/api/signals/${id}/read`, { method: 'POST' }),
+  markSignalRunUnread: (id: string) => req<SignalRunSummaryDto>(`/api/signals/${id}/unread`, { method: 'POST' }),
+  updateSignal: (id: string, body: { status?: string; notes?: string }) =>
+    req<SignalDto>(`/api/signals/items/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   // English vocabulary (global — entries are added and reviewed over MCP; the tab reads and prunes)
   getVocab: () => req<VocabEntryDto[]>('/api/vocab'),
