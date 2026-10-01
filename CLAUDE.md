@@ -20,6 +20,11 @@ docker push h317280/roadmap-app:latest
 - **Verify, do not assume.** `https://roadmap-app.up.railway.app/mcp` needs no secret, so
   `tools/list` over JSON-RPC is the cheapest proof of what is actually running. On 2026-09-26 an
   image push looked done while production was still a day-old build.
+- **No Docker on the machine?** The `build and push image` workflow (`.github/workflows/deploy-image.yml`) does the
+  same build and push on GitHub's runners: automatically on every push to `main` that touches `backend/`,
+  `frontend/` or the `Dockerfile`, or by hand (Actions → run workflow, pick the branch). It needs the repository
+  secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (a hub.docker.com access token with read/write). It only pushes
+  the image; the Railway redeploy is still a separate step.
 - Docs-only changes (this file, `README.md`) are not in the image, so they don't need a rebuild.
 - The Docker build compiles the frontend (`npm run build`) and backend (`dotnet publish`) inside
   the image, so a clean working tree isn't required — but note the build ships the **entire
