@@ -466,6 +466,7 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.Property(r => r.MarketsJson).HasColumnType("text");
             e.Property(r => r.WatchJson).HasColumnType("text");
             e.Property(r => r.ReportMarkdown).HasColumnType("text");
+            e.Property(r => r.Briefing).HasColumnType("text");
             // One run per trading day: publishing a date again replaces it (see SignalRun docs).
             e.HasIndex(r => r.RunDate).IsUnique();
             e.HasMany(r => r.Signals).WithOne(s => s.Run).HasForeignKey(s => s.SignalRunId).OnDelete(DeleteBehavior.Cascade);

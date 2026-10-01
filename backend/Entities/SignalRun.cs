@@ -27,6 +27,10 @@ public class SignalRun
     /// <summary>One line for the list row: "No important signal · SPY −0.4% · VIX 17" or "1 signal: Semiconductors sector panic".</summary>
     public string Summary { get; set; } = string.Empty;
 
+    /// <summary>The day in plain words, markdown: what the market did and what it means, which groups are under pressure
+    /// and why they are not a signal yet, what would make one fire, what the data notes mean. Written by the screener.</summary>
+    public string? Briefing { get; set; }
+
     /// <summary>Per-market context as JSON: benchmark, close, 1-day return, 252-day drawdown, fear gauge, credit spread, breadth.</summary>
     public string? MarketsJson { get; set; }
 

@@ -263,7 +263,8 @@ function WatchList({ items }: { items: SignalWatchItem[] }) {
           <div key={i}>
             [{w.market ?? 'US'}] <b style={{ color: 'var(--text-primary)' }}>{w.group}</b>
             {' · '}z {num(w.z)} · dd {pct(w.dd_20d, 0)}{isNum(w.rev) && <> · rev {pct(w.rev)}</>}{isNum(w.cutting) && <> · cutting {pct(w.cutting, 0).replace('+', '')}</>}
-            {w.note && <span style={{ color: 'var(--text-muted)' }}> · {w.note}</span>}
+            {w.why_not ? <span style={{ color: 'var(--text-muted)' }}> — not a signal because {w.why_not}</span>
+              : w.note && <span style={{ color: 'var(--text-muted)' }}> · {w.note}</span>}
           </div>
         ))}
       </div>
@@ -376,13 +377,23 @@ export function SignalsPage() {
           </div>
         </div>
 
-        <div style={{ marginBottom: 14 }}><MarketLine markets={run.markets} /></div>
+        {run.signals.length === 0 && <QuietPanel run={run} />}
 
-        {run.signals.length === 0
-          ? <QuietPanel run={run} />
-          : run.signals.map(s => <SignalCard key={s.id} s={s} runDate={run.runDate} onSaved={patchSignal} />)}
+        {/* The day in words comes first; the numbers it was written from sit below it for anyone who wants them. */}
+        {run.briefing && (
+          <div style={{ marginTop: 14, padding: '14px 16px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)',
+            background: 'var(--bg-elevated)' }}>
+            <Prose src={run.briefing} />
+          </div>
+        )}
 
-        <WatchList items={run.watch ?? []} />
+        {run.signals.length > 0 && <div style={{ marginTop: 14 }}>
+          {run.signals.map(s => <SignalCard key={s.id} s={s} runDate={run.runDate} onSaved={patchSignal} />)}
+        </div>}
+
+        {!run.briefing && <WatchList items={run.watch ?? []} />}
+
+        <Section title="The numbers"><MarketLine markets={run.markets} /></Section>
 
         {run.warnings.length > 0 && (
           <Section title="Health">
@@ -394,7 +405,7 @@ export function SignalsPage() {
 
         {run.reportMarkdown && (
           <div style={{ marginTop: 16 }}>
-            <button className="btn btn-ghost btn-sm" onClick={() => setShowReport(v => !v)}>{showReport ? 'Hide full report' : 'Full report'}</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowReport(v => !v)}>{showReport ? 'Hide technical report' : 'Technical report'}</button>
             {showReport && <div style={{ marginTop: 8, padding: '12px 14px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)',
               background: 'var(--bg-secondary)', overflowX: 'auto' }}><Prose src={run.reportMarkdown} /></div>}
           </div>

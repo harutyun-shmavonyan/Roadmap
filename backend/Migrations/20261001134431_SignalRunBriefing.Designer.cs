@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Roadmap.Api.Data;
@@ -12,9 +13,11 @@ using Roadmap.Api.Data;
 namespace Roadmap.Api.Migrations
 {
     [DbContext(typeof(RoadmapDbContext))]
-    partial class RoadmapDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261001134431_SignalRunBriefing")]
+    partial class SignalRunBriefing
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

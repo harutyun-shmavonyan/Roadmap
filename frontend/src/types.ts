@@ -171,7 +171,7 @@ export interface SignalMarket {
   benchmark?: string; close?: number | null; ret_1d?: number | null; dd_252d?: number | null; vol_name?: string;
   vol?: number | null; hy_oas?: number | null; hy_oas_20d_change?: number | null; breadth?: number | null;
 }
-export interface SignalWatchItem { market?: string; group: string; z?: number | null; dd_20d?: number | null; rev?: number | null; cutting?: number | null; note?: string | null; }
+export interface SignalWatchItem { market?: string; group: string; z?: number | null; dd_20d?: number | null; rev?: number | null; cutting?: number | null; note?: string | null; why_not?: string | null; }
 export interface SignalDto {
   id: string; eventId: string; market: string; screen: string; key: string; tier: number; title: string;
   headline: string; thesis: string; evidence: SignalEvidence[]; horizon: string; horizonDays: number | null;
@@ -185,7 +185,7 @@ export interface SignalRunSummaryDto {
   watchCount: number; isRead: boolean; readOn: string | null; publishedAt: string; gitSha: string | null;
 }
 export interface SignalRunDto {
-  id: string; runDate: string; status: string; isTradingDay: boolean; summary: string;
+  id: string; runDate: string; status: string; isTradingDay: boolean; summary: string; briefing: string | null;
   markets: Record<string, SignalMarket> | null; watch: SignalWatchItem[] | null; warnings: string[];
   reportMarkdown: string | null; gitSha: string | null; isRead: boolean; readOn: string | null;
   publishedAt: string; createdAt: string; updatedAt: string; signals: SignalDto[];

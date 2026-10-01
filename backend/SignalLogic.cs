@@ -101,6 +101,7 @@ public static class SignalLogic
         run.WatchJson = Store(input.watch);
         run.Warnings = [.. (input.warnings ?? []).Where(w => !string.IsNullOrWhiteSpace(w)).Select(w => w.Trim())];
         run.ReportMarkdown = string.IsNullOrWhiteSpace(input.report_markdown) ? null : input.report_markdown;
+        run.Briefing = string.IsNullOrWhiteSpace(input.briefing) ? null : input.briefing.Trim();
         run.GitSha = string.IsNullOrWhiteSpace(input.git_sha) ? null : Trunc(input.git_sha.Trim(), 64);
         run.SignalCount = inputs.Length;
         run.Summary = Trunc(string.IsNullOrWhiteSpace(input.summary) ? DefaultSummary(run, inputs) : input.summary.Trim(), 512);
@@ -220,7 +221,7 @@ public static class SignalLogic
         r.SignalCount, CountArray(r.WatchJson), r.IsRead, r.ReadOn?.ToString("yyyy-MM-dd"), r.PublishedAt, r.GitSha);
 
     public static SignalRunDto ToDto(SignalRun r) => new(
-        r.Id, r.RunDate.ToString("yyyy-MM-dd"), r.Status, r.IsTradingDay, r.Summary,
+        r.Id, r.RunDate.ToString("yyyy-MM-dd"), r.Status, r.IsTradingDay, r.Summary, r.Briefing,
         Load(r.MarketsJson), Load(r.WatchJson), r.Warnings, r.ReportMarkdown, r.GitSha,
         r.IsRead, r.ReadOn?.ToString("yyyy-MM-dd"), r.PublishedAt, r.CreatedAt, r.UpdatedAt,
         r.Signals.OrderBy(s => s.SortOrder).Select(ToDto).ToList());

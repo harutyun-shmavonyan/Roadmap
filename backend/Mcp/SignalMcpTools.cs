@@ -45,12 +45,13 @@ public sealed class SignalMcpTools(RoadmapDbContext db)
         JsonElement? watch = null,
         [Description("The run's Health lines (stale estimates, skipped market). Omit when all was well.")] string[]? warnings = null,
         [Description("The screener's daily report as markdown, for the 'full report' expander.")] string? report_markdown = null,
+        [Description("The day in plain words (markdown), shown first: what the market did and what it means, which groups are under pressure and why they are not a signal yet, what would make one fire, what the data notes mean.")] string? briefing = null,
         [Description("Git commit of the screener that produced the run.")] string? git_sha = null)
     {
         var input = new PublishSignalRunInput
         {
             run_date = run_date, signals = signals, status = status, is_trading_day = is_trading_day, summary = summary,
-            markets = markets, watch = watch, warnings = warnings, report_markdown = report_markdown, git_sha = git_sha,
+            markets = markets, watch = watch, warnings = warnings, report_markdown = report_markdown, briefing = briefing, git_sha = git_sha,
         };
         var error = SignalLogic.Validate(input);
         if (error is not null) return J(new { error });

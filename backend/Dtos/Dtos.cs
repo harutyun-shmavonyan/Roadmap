@@ -417,7 +417,7 @@ public record SignalDto(Guid Id, string EventId, string Market, string Screen, s
     JsonElement? Triage, string? TriageSummary, DateTime? TriagedAt, string? TriageModel,
     string Status, string? Notes, DateTime? DecidedAt, DateTime UpdatedAt);
 
-public record SignalRunDto(Guid Id, string RunDate, string Status, bool IsTradingDay, string Summary,
+public record SignalRunDto(Guid Id, string RunDate, string Status, bool IsTradingDay, string Summary, string? Briefing,
     JsonElement? Markets, JsonElement? Watch, List<string> Warnings, string? ReportMarkdown, string? GitSha,
     bool IsRead, string? ReadOn, DateTime PublishedAt, DateTime CreatedAt, DateTime UpdatedAt, List<SignalDto> Signals);
 
@@ -462,6 +462,7 @@ public sealed class PublishSignalRunInput
     public JsonElement? watch { get; set; }
     public string[]? warnings { get; set; }
     public string? report_markdown { get; set; }
+    public string? briefing { get; set; }
     public string? git_sha { get; set; }
     public SignalInput[]? signals { get; set; }
 }
