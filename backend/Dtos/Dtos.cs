@@ -272,7 +272,7 @@ public record NotePromptDto(Guid Id, string Book, int DayNumber, string EntryDat
     bool IsDue, bool Relearning, int Lapses, int Reviews, DateTime LastReviewedAt, DateTime CreatedAt,
     List<NotePromptReviewDto> ReviewHistory);
 public record NotePromptInput(string Question, string Answer);
-public record CreateNotePromptsRequest(List<NotePromptInput> Prompts);
+public record CreateNotePromptsRequest(List<NotePromptInput> Prompts, bool? Backfill = null);
 // PATCH semantics: null keeps the stored value. state is Active | Parked | Suspended. reset restarts the
 // schedule as if the prompt were just written (for a rewritten leech).
 public record UpdateNotePromptRequest(string? Question, string? Answer, string? State, bool? Reset);

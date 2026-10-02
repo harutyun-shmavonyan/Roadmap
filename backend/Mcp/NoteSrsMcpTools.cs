@@ -40,13 +40,14 @@ public sealed class NoteSrsMcpTools(RoadmapDbContext db)
     public async Task<string> CreateNotePrompts(
         [Description("Book: 'red' or 'green'")] string book,
         [Description("The note's day_number")] int number,
-        [Description("The prompts: each { question, answer }")] NotePromptInput[] prompts)
+        [Description("The prompts: each { question, answer }")] NotePromptInput[] prompts,
+        [Description("true when the note is older than today (a backfill): the note's date counts as the exposure, and the first review is spread onto the first day from +4 that has fewer than 10 backfilled prompts due, so importing many notes never floods one day. Default false — for a note written today.")] bool backfill = false)
     {
         if (!TryBook(book, out var bk)) return J(new { error = "Invalid book. Use 'red' or 'green'." });
         var note = await db.Notes.FirstOrDefaultAsync(n => n.Book == bk && n.DayNumber == number);
         if (note is null) return J(new { error = "Note not found" });
 
-        var (created, error) = await NoteSrsLogic.CreatePromptsAsync(db, note, prompts);
+        var (created, error) = await NoteSrsLogic.CreatePromptsAsync(db, note, prompts, backfill);
         if (error is not null) return J(new { error });
         await db.SaveChangesAsync();
 
@@ -58,7 +59,8 @@ public sealed class NoteSrsMcpTools(RoadmapDbContext db)
             note = NoteRef(note),
             created = created.Select(p => new { prompt_id = p.Id, p.Question, p.Answer, due_on = p.DueOn.ToString("yyyy-MM-dd") }),
             total_prompts_on_note = total,
-            first_review_in_days = created.Count == 0 ? 0 : created[0].DueOn.DayNumber - today.DayNumber,
+            backfill,
+            first_review_in_days = created.Count == 0 ? 0 : created.Min(p => p.DueOn.DayNumber) - today.DayNumber,
         });
     }
 
@@ -182,8 +184,8 @@ public sealed class NoteSrsMcpTools(RoadmapDbContext db)
     // ===== Coverage =====
 
     [McpServerTool(Name = "list_notes_without_prompts"), Description(
-        "Daily notes that have no prompts yet, newest first, with their content — the backfill list. Feed existing notes into Notes v2 " +
-        "a few at a time (each gets 1-3 prompts via create_note_prompts), never all at once: every prompt created today is due in 4 days.")]
+        "Daily notes that have no prompts yet, newest first, with their content — the backfill list. Give each 1-3 prompts via " +
+        "create_note_prompts with backfill=true, which spreads their first reviews at 10 a day instead of piling them onto one date.")]
     public async Task<string> ListNotesWithoutPrompts(
         [Description("Restrict to one book: 'red' or 'green'. Omit for both.")] string? book = null,
         [Description("Max notes to return (default 5)")] int limit = 5)

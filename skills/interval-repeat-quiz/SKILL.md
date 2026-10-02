@@ -228,8 +228,9 @@ available.
   prompt; `reset=true` restarts its schedule (for a rewritten leech).
 - `list_notes_without_prompts(book?, limit?)` → notes not yet in v2, newest
   first, with content — the backfill list.
-- `create_note_prompts(book, number, prompts)` — attach `{question, answer}`
-  prompts to a note (1–3; ceiling 5).
+- `create_note_prompts(book, number, prompts, backfill?)` — attach
+  `{question, answer}` prompts to a note (1–3; ceiling 5). `backfill=true` for
+  any note older than today.
 - `get_note_srs_stats()` → totals: due today, asked/cap, parked, leeches, true
   retention over 30 days, carry capacity, due per day for the next week.
 
@@ -335,9 +336,10 @@ call `list_notes_without_prompts(limit=3)`. If `total_without_prompts > 0`:
 
 On yes, for each returned note write 1–3 prompts by the rules below, show the
 questions (not the answers), and call `create_note_prompts(book, day_number,
-prompts)`. Each goes into the schedule due in 4 days. Never backfill more than
-3 notes per session unless the user asks for more — a flood of prompts due the
-same day only ends up parked.
+prompts, backfill=true)`. `backfill=true` tells the server the note's own date
+was the exposure and spreads the first reviews at ten a day from +4, so even a
+large backfill never floods one date. Three notes per session is the default;
+honor a request for more.
 
 ## Prompt rules (for backfill and rewrites)
 

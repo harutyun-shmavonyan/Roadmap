@@ -95,7 +95,7 @@ public static class NoteSrsEndpoints
             if (bk is not ("red" or "green")) return Results.BadRequest("Invalid book. Use 'red' or 'green'.");
             var note = await db.Notes.FirstOrDefaultAsync(n => n.Book == bk && n.DayNumber == dayNumber);
             if (note is null) return Results.NotFound();
-            var (created, error) = await NoteSrsLogic.CreatePromptsAsync(db, note, req.Prompts);
+            var (created, error) = await NoteSrsLogic.CreatePromptsAsync(db, note, req.Prompts, req.Backfill ?? false);
             if (error is not null) return Results.BadRequest(error);
             await db.SaveChangesAsync();
             var today = AppClock.Today();

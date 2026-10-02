@@ -48,6 +48,12 @@ public static class NoteSrsLogic
     /// <summary>Steady-state questions per day that one carried prompt costs at 0.9 retention (simulated over two years).</summary>
     public const double ReviewsPerCarriedPrompt = 7.0;
 
+    /// <summary>
+    /// Backfilled prompts (older notes entering v2 after the fact) are spread so that no day gets more than
+    /// this many of their first reviews. 500 prompts arriving at once would otherwise all come due together.
+    /// </summary>
+    public const int BackfillPerDay = 10;
+
     public const int MaxQuestionLength = 1000;
     public const int MaxAnswerLength = 4000;
 
@@ -196,7 +202,7 @@ public static class NoteSrsLogic
     /// context but does not save. Returns the new rows, or an error.
     /// </summary>
     public static async Task<(List<NotePrompt> Created, string? Error)> CreatePromptsAsync(
-        RoadmapDbContext db, Note note, IReadOnlyList<NotePromptInput>? inputs)
+        RoadmapDbContext db, Note note, IReadOnlyList<NotePromptInput>? inputs, bool backfill = false)
     {
         if (inputs is null || inputs.Count == 0) return ([], "prompts is required — at least one { question, answer }");
 
@@ -208,6 +214,20 @@ public static class NoteSrsLogic
         var nowUtc = DateTime.UtcNow;
         var today = AppClock.Today();
         var sort = existing.Count == 0 ? 0 : existing.Max(p => p.SortOrder) + 1;
+
+        // Backfill: the note was the exposure, back on its own date — so a prompt the learner still
+        // recalls after months leaps to a long interval on its first pass, and one they have lost comes
+        // back tomorrow. Its first review lands on the first day from the normal +4 that still has room.
+        Dictionary<DateOnly, int>? dueCounts = null;
+        var firstDay = today.AddDays(Fsrs.IntervalDays(Fsrs.Initial(FsrsGrade.Good).Stability, DesiredRetention));
+        if (backfill)
+        {
+            dueCounts = await db.NotePrompts
+                .Where(p => p.State == NotePromptState.Active && p.DueOn >= firstDay)
+                .GroupBy(p => p.DueOn).Select(g => new { Day = g.Key, N = g.Count() })
+                .ToDictionaryAsync(x => x.Day, x => x.N);
+        }
+
         var created = new List<NotePrompt>();
         foreach (var input in inputs)
         {
@@ -216,6 +236,15 @@ public static class NoteSrsLogic
             var key = input.Question.Trim().ToLowerInvariant();
             if (!seen.Add(key)) return ([], $"duplicate question: \"{input.Question.Trim()}\"");
             var p = NewPrompt(note, input.Question, input.Answer, sort++, nowUtc, today);
+            if (backfill && dueCounts is not null)
+            {
+                var exposure = AppClock.StartOfDayUtc(note.EntryDate);
+                p.LastReviewedAt = exposure < nowUtc ? exposure : nowUtc;
+                var day = firstDay;
+                while (dueCounts.GetValueOrDefault(day) >= BackfillPerDay) day = day.AddDays(1);
+                dueCounts[day] = dueCounts.GetValueOrDefault(day) + 1;
+                p.DueOn = day;
+            }
             p.Note = note;
             db.NotePrompts.Add(p);
             created.Add(p);

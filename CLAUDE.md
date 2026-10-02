@@ -99,6 +99,11 @@ The decisions, each simulated before being adopted:
 - **Overflow below 50% predicted recall is parked** (`State = Parked`), not deleted, and pulled
   back in on a day with spare slots. Overflow above it simply stays due. Parking happens only in
   `get_due_note_prompts` (the MCP session); the tab's `/srs/session` is a read-only preview.
+- **Backfill is spread, not dumped.** `create_note_prompts(backfill=true)` (any note older than today)
+  makes the note's own date the exposure — so a fact still recalled after months leaps to a long
+  interval on its first pass, and a lost one comes back tomorrow — and puts the first review on the
+  first day from +4 with fewer than `BackfillPerDay` (10) backfilled prompts due. The 2026-10-02
+  migration of the 259 pre-v2 notes went through this.
 - **Grades are again / hard / good / easy.** The grader is the quiz skill; "O" from the user means
   "I know this perfectly" and is recorded as easy. Lapses come back tomorrow flagged `Relearning`;
   the eighth lapse suspends the prompt as a leech (`update_note_prompt reset=true` after a rewrite).
