@@ -17,12 +17,18 @@ public static class FlashcardEndpoints
     {
         var g = app.MapGroup("/api/flashcards").WithTags("Flashcards").RequireAuthorization();
 
-        g.MapGet("/", async (string? book, int? limit, bool? withoutPrompts, RoadmapDbContext db) =>
+        // Cards newest first. Filters: book, an exact date, a from/to range, a text search, "no prompts yet".
+        g.MapGet("/", async (string? book, string? date, string? from, string? to, string? search, int? limit, bool? withoutPrompts, RoadmapDbContext db) =>
         {
             string? bk = null;
             if (!string.IsNullOrWhiteSpace(book)) { if (!FlashcardLogic.TryBook(book, out bk)) return BadBook(); }
-            var n = limit is > 0 and <= 2000 ? limit.Value : 1000;
-            return Results.Ok(await FlashcardLogic.ListCardsAsync(db, bk, n, withoutPrompts ?? false));
+            DateOnly? d = null, f = null, t = null;
+            if (!string.IsNullOrWhiteSpace(date)) { if (!DateOnly.TryParse(date, out var x)) return Results.BadRequest("Invalid date."); d = x; }
+            if (!string.IsNullOrWhiteSpace(from)) { if (!DateOnly.TryParse(from, out var x)) return Results.BadRequest("Invalid from."); f = x; }
+            if (!string.IsNullOrWhiteSpace(to)) { if (!DateOnly.TryParse(to, out var x)) return Results.BadRequest("Invalid to."); t = x; }
+            var n = limit is > 0 and <= 5000 ? limit.Value : 2000;
+            var (_, cards) = await FlashcardLogic.ListCardsAsync(db, bk, d, f, t, search, withoutPrompts ?? false, n);
+            return Results.Ok(cards);
         });
 
         g.MapGet("/stats", async (RoadmapDbContext db) => Results.Ok(await FlashcardLogic.StatsAsync(db)));
@@ -52,7 +58,7 @@ public static class FlashcardEndpoints
             if (string.IsNullOrWhiteSpace(req.EntryDate)) date = AppClock.Today();
             else if (!DateOnly.TryParse(req.EntryDate, out date)) return Results.BadRequest("Invalid entryDate. Use YYYY-MM-DD.");
 
-            var (card, action) = await FlashcardLogic.UpsertCardAsync(db, bk, req.Content ?? "", date);
+            var card = await FlashcardLogic.CreateCardAsync(db, bk, req.Content ?? "", date);
             if (req.Prompts is { Count: > 0 })
             {
                 var (_, error) = await FlashcardLogic.CreatePromptsAsync(db, card, req.Prompts, req.Backfill ?? date < AppClock.Today());
@@ -61,7 +67,7 @@ public static class FlashcardEndpoints
             }
             var full = await db.Flashcards.AsNoTracking().Include(c => c.Prompts).FirstAsync(c => c.Id == card.Id);
             var dto = FlashcardLogic.ToCardDto(full, AppClock.Today(), includeHistory: false);
-            return action == "created" ? Results.Created($"/api/flashcards/{card.Id}", dto) : Results.Ok(dto);
+            return Results.Created($"/api/flashcards/{card.Id}", dto);
         });
 
         g.MapGet("/{id:guid}", async (Guid id, RoadmapDbContext db) =>
@@ -88,6 +94,16 @@ public static class FlashcardEndpoints
             db.Flashcards.Remove(card);   // prompts and reviews cascade
             await db.SaveChangesAsync();
             return Results.NoContent();
+        });
+
+        g.MapPost("/{id:guid}/split", async (Guid id, SplitFlashcardRequest req, RoadmapDbContext db) =>
+        {
+            var (cards, error) = await FlashcardLogic.SplitCardAsync(db, id, req.Parts);
+            if (error is not null) return error == "flashcard not found" ? Results.NotFound() : Results.BadRequest(error);
+            var ids = cards.Select(c => c.Id).ToList();
+            var full = await db.Flashcards.AsNoTracking().Include(c => c.Prompts).Where(c => ids.Contains(c.Id)).ToListAsync();
+            var today = AppClock.Today();
+            return Results.Ok(full.OrderBy(c => c.CreatedAt).Select(c => FlashcardLogic.ToCardDto(c, today, includeHistory: false)));
         });
 
         g.MapPost("/{id:guid}/prompts", async (Guid id, AddFlashcardPromptsRequest req, RoadmapDbContext db) =>

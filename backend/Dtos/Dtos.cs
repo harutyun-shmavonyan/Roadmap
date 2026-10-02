@@ -267,21 +267,24 @@ public record FlashcardPromptReviewDto(DateTime ReviewedAt, string Grade, int El
     double StabilityBefore, double StabilityAfter, double DifficultyBefore, double DifficultyAfter,
     bool WasRelearning, string? Answer, string? Note);
 // retrievability is the predicted recall today; stability is in days (the interval at 90% recall).
-public record FlashcardPromptDto(Guid Id, Guid FlashcardId, string Book, int DayNumber, string EntryDate,
+public record FlashcardPromptDto(Guid Id, Guid FlashcardId, string Book, string EntryDate,
     string Question, string Answer, int SortOrder, string State, double Difficulty, double Stability,
     double Retrievability, string DueOn, bool IsDue, bool Relearning, int Lapses, int Reviews,
     DateTime LastReviewedAt, DateTime CreatedAt, List<FlashcardPromptReviewDto> ReviewHistory);
-// A list returns cards with counts and an empty Prompts list; a single card carries its prompts.
-public record FlashcardDto(Guid Id, string Book, int DayNumber, string EntryDate, string Content,
+// A card is one note. A list returns cards with counts and an empty Prompts list; a single card carries its prompts.
+public record FlashcardDto(Guid Id, string Book, string EntryDate, string Content,
     int PromptCount, int Due, int Parked, int Suspended, string? NextDueOn, DateTime CreatedAt, DateTime UpdatedAt,
     List<FlashcardPromptDto> Prompts);
 public record FlashcardPromptInput(string Question, string Answer);
-// entryDate defaults to today (Asia/Yerevan). One card per book per day: a second create for the same
-// day appends the content. backfill (any card older than today) dates the exposure to the card and
-// spreads first reviews; see FlashcardLogic.
+// One note = one card: every create makes a new card. entryDate defaults to today (Asia/Yerevan).
+// backfill (any card older than today) dates the exposure to the card and spreads first reviews.
 public record CreateFlashcardRequest(string Book, string Content, string? EntryDate, List<FlashcardPromptInput>? Prompts, bool? Backfill);
 public record UpdateFlashcardRequest(string Content);
 public record AddFlashcardPromptsRequest(List<FlashcardPromptInput> Prompts, bool? Backfill);
+// Split one card into several (e.g. a day that held several notes). Every prompt of the card must be
+// assigned to exactly one part; prompts move with their schedule and review history.
+public record FlashcardSplitPart(string Content, List<Guid>? PromptIds);
+public record SplitFlashcardRequest(List<FlashcardSplitPart> Parts);
 // PATCH semantics: null keeps the stored value. state is Active | Parked | Suspended. reset restarts the schedule.
 public record UpdateFlashcardPromptRequest(string? Question, string? Answer, string? State, bool? Reset);
 // grade is again | hard | good | easy; answer "O" = declared known.

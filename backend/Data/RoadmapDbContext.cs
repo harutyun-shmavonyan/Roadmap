@@ -568,8 +568,9 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.ToTable("flashcards");
             e.HasKey(c => c.Id);
             e.Property(c => c.Book).HasMaxLength(16).IsRequired();
-            e.HasIndex(c => new { c.Book, c.EntryDate }).IsUnique();
-            e.HasIndex(c => new { c.Book, c.DayNumber }).IsUnique();
+            // Many cards per day: the date is a filter, not an identity.
+            e.HasIndex(c => new { c.Book, c.EntryDate });
+            e.HasIndex(c => c.EntryDate);
         });
 
         modelBuilder.Entity<FlashcardPrompt>(e =>

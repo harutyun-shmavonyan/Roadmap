@@ -20,97 +20,97 @@ public sealed class FlashcardMcpTools(RoadmapDbContext db)
 {
     private static string J(object? v) => JsonSerializer.Serialize(v, new JsonSerializerOptions { WriteIndented = true });
 
-    private static object CardRef(Flashcard c) => new { flashcard_id = c.Id, book = c.Book, day_number = c.DayNumber, entry_date = c.EntryDate.ToString("yyyy-MM-dd") };
+    private static object CardRef(Flashcard c) => new { flashcard_id = c.Id, book = c.Book, entry_date = c.EntryDate.ToString("yyyy-MM-dd") };
 
-    private async Task<Flashcard?> FindCardAsync(string book, int number, bool tracking) =>
-        tracking
-            ? await db.Flashcards.Include(c => c.Prompts).FirstOrDefaultAsync(c => c.Book == book && c.DayNumber == number)
-            : await db.Flashcards.AsNoTracking().Include(c => c.Prompts).FirstOrDefaultAsync(c => c.Book == book && c.DayNumber == number);
+    private static bool TryDate(string? raw, out DateOnly? value)
+    {
+        value = null;
+        if (string.IsNullOrWhiteSpace(raw)) return true;
+        if (!DateOnly.TryParse(raw, out var d)) return false;
+        value = d;
+        return true;
+    }
 
     // ===== Cards =====
 
     [McpServerTool(Name = "create_flashcard"), Description(
-        "Notes v2: write a day's learning as a flashcard in a book ('red' = professional/technical, 'green' = general) and attach its " +
-        "prompts in the same call. One card per book per day: if a card already exists for that date the content is appended to it " +
-        "and the prompts are added. Content is the day's bullets (Markdown). Prompts are atomic question/answer pairs — as many as " +
-        "the subpoints need, one fact each, the question carrying no hint of the answer. Writing the card counts as the first exposure, " +
-        "so each prompt is already scheduled: first review in about 4 days, nothing asked today. For a card older than today pass " +
-        "backfill=true (default when the date is in the past): the card's date counts as the exposure and first reviews are spread at " +
-        "10 a day so a bulk import never floods one date. Returns { flashcard_id, day_number, action, prompts_created, first_review_in_days }.")]
+        "Notes v2: save ONE note as a new flashcard in a book ('red' = professional/technical, 'green' = general) and attach its " +
+        "prompts in the same call. One note = one card: every call creates a new card, even on a day that already has cards (the date " +
+        "is just a property of the card). Content is the note — one top-level bullet with its subpoints (Markdown). Prompts are atomic " +
+        "question/answer pairs — as many as the subpoints need, one fact each, the question carrying no hint of the answer. Writing the " +
+        "card counts as the first exposure, so each prompt is already scheduled: first review in about 4 days, nothing asked today. For " +
+        "a card dated before today, backfill defaults to true: the card's date counts as the exposure and first reviews are spread at 10 " +
+        "a day so a bulk import never floods one date. Returns { flashcard_id, prompts_created, first_review_in_days }.")]
     public async Task<string> CreateFlashcard(
         [Description("Book: 'red' or 'green'")] string book,
-        [Description("The day's content, Markdown bullets")] string content,
-        [Description("Date (YYYY-MM-DD), defaults to today in Asia/Yerevan")] string? date = null,
+        [Description("The note: one top-level bullet and its subpoints, Markdown")] string content,
+        [Description("Date the note was learned (YYYY-MM-DD), defaults to today in Asia/Yerevan")] string? date = null,
         [Description("Prompts to attach: each { question, answer }")] FlashcardPromptInput[]? prompts = null,
         [Description("Backfill mode (see above). Defaults to true when the date is before today, else false.")] bool? backfill = null)
     {
         if (!FlashcardLogic.TryBook(book, out var bk)) return J(new { error = "Invalid book. Use 'red' or 'green'." });
-        if (string.IsNullOrWhiteSpace(content) && (prompts is null || prompts.Length == 0)) return J(new { error = "content is required" });
-        DateOnly entryDate;
-        if (date is null) entryDate = AppClock.Today();
-        else if (!DateOnly.TryParse(date, out entryDate)) return J(new { error = "Invalid date. Use YYYY-MM-DD." });
+        if (string.IsNullOrWhiteSpace(content)) return J(new { error = "content is required" });
+        if (!TryDate(date, out var d)) return J(new { error = "Invalid date. Use YYYY-MM-DD." });
+        var entryDate = d ?? AppClock.Today();
 
-        var (card, action) = await FlashcardLogic.UpsertCardAsync(db, bk, content ?? "", entryDate);
+        var card = await FlashcardLogic.CreateCardAsync(db, bk, content, entryDate);
         var created = new List<FlashcardPrompt>();
         if (prompts is { Length: > 0 })
         {
             var (list, error) = await FlashcardLogic.CreatePromptsAsync(db, card, prompts, backfill ?? entryDate < AppClock.Today());
-            if (error is not null) return J(new { error, card = CardRef(card), action, note = "the card was saved; the prompts were not" });
+            if (error is not null) return J(new { error, card = CardRef(card), note = "the card was saved; the prompts were not — fix and call add_flashcard_prompts" });
             await db.SaveChangesAsync();
             created = list;
         }
         var today = AppClock.Today();
-        var total = await db.FlashcardPrompts.CountAsync(p => p.FlashcardId == card.Id);
         return J(new
         {
-            status = action,
+            status = "created",
             card = CardRef(card),
             prompts_created = created.Count,
-            total_prompts_on_card = total,
             first_review_in_days = created.Count == 0 ? (int?)null : created.Min(p => p.DueOn.DayNumber) - today.DayNumber,
             created = created.Select(p => new { prompt_id = p.Id, p.Question, due_on = p.DueOn.ToString("yyyy-MM-dd") }),
         });
     }
 
-    [McpServerTool(Name = "get_flashcard"), Description("Notes v2: one card by book and day_number, with its content and all its prompts (state, stability, predicted recall, next due).")]
+    [McpServerTool(Name = "get_flashcard"), Description("Notes v2: one card by id, with its content and all its prompts (state, stability, predicted recall, next due).")]
     public async Task<string> GetFlashcard(
-        [Description("Book: 'red' or 'green'")] string book,
-        [Description("The card's day_number")] int number,
+        [Description("Flashcard UUID")] Guid flashcard_id,
         [Description("Include every recorded review of each prompt (default false)")] bool include_history = false)
     {
-        if (!FlashcardLogic.TryBook(book, out var bk)) return J(new { error = "Invalid book. Use 'red' or 'green'." });
         IQueryable<Flashcard> q = db.Flashcards.AsNoTracking().Include(c => c.Prompts);
         if (include_history) q = q.Include(c => c.Prompts).ThenInclude(p => p.ReviewHistory);
-        var card = await q.FirstOrDefaultAsync(c => c.Book == bk && c.DayNumber == number);
+        var card = await q.FirstOrDefaultAsync(c => c.Id == flashcard_id);
         return card is null ? J(new { error = "Flashcard not found" }) : J(FlashcardLogic.ToCardDto(card, AppClock.Today(), include_history));
     }
 
     [McpServerTool(Name = "list_flashcards"), Description(
-        "Notes v2: cards newest first, with content and prompt counts (no prompt bodies). without_prompts_only=true is the backfill " +
-        "list — cards that still need prompts; give each its prompts with add_flashcard_prompts (backfill=true).")]
+        "Notes v2: cards newest first (by date), with content and prompt counts (no prompt bodies). Filter by book, by an exact date " +
+        "(all the cards learned that day), by a from/to date range, by text (matches content or a prompt question), or " +
+        "without_prompts_only=true for the backfill list — cards that still need prompts (give them with add_flashcard_prompts).")]
     public async Task<string> ListFlashcards(
         [Description("Restrict to one book: 'red' or 'green'. Omit for both.")] string? book = null,
-        [Description("Max cards (default 20, max 200)")] int limit = 20,
-        [Description("Only cards with no prompts yet (default false)")] bool without_prompts_only = false)
+        [Description("Only cards of this date (YYYY-MM-DD)")] string? date = null,
+        [Description("Only cards on or after this date (YYYY-MM-DD)")] string? from_date = null,
+        [Description("Only cards on or before this date (YYYY-MM-DD)")] string? to_date = null,
+        [Description("Text to look for in the card content or its prompt questions")] string? search = null,
+        [Description("Only cards with no prompts yet (default false)")] bool without_prompts_only = false,
+        [Description("Max cards (default 20, max 200)")] int limit = 20)
     {
         string? bk = null;
         if (!string.IsNullOrWhiteSpace(book)) { if (!FlashcardLogic.TryBook(book, out bk)) return J(new { error = "Invalid book. Use 'red' or 'green'." }); }
+        if (!TryDate(date, out var d) || !TryDate(from_date, out var f) || !TryDate(to_date, out var t)) return J(new { error = "Invalid date. Use YYYY-MM-DD." });
         if (limit is < 1 or > 200) limit = 20;
-        var cards = await FlashcardLogic.ListCardsAsync(db, bk, limit, without_prompts_only);
-        var total = without_prompts_only
-            ? await db.Flashcards.CountAsync(c => (bk == null || c.Book == bk) && !c.Prompts.Any())
-            : await db.Flashcards.CountAsync(c => bk == null || c.Book == bk);
+        var (total, cards) = await FlashcardLogic.ListCardsAsync(db, bk, d, f, t, search, without_prompts_only, limit);
         return J(new { total, returned = cards.Count, cards });
     }
 
-    [McpServerTool(Name = "update_flashcard"), Description("Notes v2: replace a card's content (overwrites, does not append). Prompts are untouched.")]
+    [McpServerTool(Name = "update_flashcard"), Description("Notes v2: replace a card's content (overwrites). Prompts are untouched.")]
     public async Task<string> UpdateFlashcard(
-        [Description("Book: 'red' or 'green'")] string book,
-        [Description("The card's day_number")] int number,
-        [Description("The new full content")] string content)
+        [Description("Flashcard UUID")] Guid flashcard_id,
+        [Description("The new content")] string content)
     {
-        if (!FlashcardLogic.TryBook(book, out var bk)) return J(new { error = "Invalid book. Use 'red' or 'green'." });
-        var card = await FindCardAsync(bk, number, tracking: true);
+        var card = await db.Flashcards.Include(c => c.Prompts).FirstOrDefaultAsync(c => c.Id == flashcard_id);
         if (card is null) return J(new { error = "Flashcard not found" });
         card.Content = content ?? "";
         card.UpdatedAt = DateTime.UtcNow;
@@ -118,33 +118,47 @@ public sealed class FlashcardMcpTools(RoadmapDbContext db)
         return J(FlashcardLogic.ToCardDto(card, AppClock.Today(), includeHistory: false));
     }
 
-    [McpServerTool(Name = "delete_flashcard"), Description("Notes v2: delete a card with all its prompts and their review history. Leaves a gap in the day_number sequence.")]
-    public async Task<string> DeleteFlashcard(
-        [Description("Book: 'red' or 'green'")] string book,
-        [Description("The card's day_number")] int number)
+    [McpServerTool(Name = "delete_flashcard"), Description("Notes v2: delete a card with all its prompts and their review history.")]
+    public async Task<string> DeleteFlashcard([Description("Flashcard UUID")] Guid flashcard_id)
     {
-        if (!FlashcardLogic.TryBook(book, out var bk)) return J(new { error = "Invalid book. Use 'red' or 'green'." });
-        var card = await db.Flashcards.FirstOrDefaultAsync(c => c.Book == bk && c.DayNumber == number);
+        var card = await db.Flashcards.FirstOrDefaultAsync(c => c.Id == flashcard_id);
         if (card is null) return J(new { error = "Flashcard not found" });
         db.Flashcards.Remove(card);
         await db.SaveChangesAsync();
-        return J(new { deleted = true, book = bk, day_number = number });
+        return J(new { deleted = true, flashcard_id });
+    }
+
+    [McpServerTool(Name = "split_flashcard"), Description(
+        "Notes v2: split one card into several — e.g. a card that holds more than one note. Each part is { content, prompt_ids }. Every " +
+        "prompt of the card must be assigned to exactly one part; prompts move with their schedule and full review history. The new " +
+        "cards keep the book and date, in the order given; the original card is deleted. Returns the new cards.")]
+    public async Task<string> SplitFlashcard(
+        [Description("Flashcard UUID")] Guid flashcard_id,
+        [Description("The parts, in order: each { content, prompt_ids }")] FlashcardSplitInput[] parts)
+    {
+        var mapped = parts?.Select(p => new FlashcardSplitPart(p.content, p.prompt_ids?.ToList())).ToList();
+        var (cards, error) = await FlashcardLogic.SplitCardAsync(db, flashcard_id, mapped);
+        if (error is not null) return J(new { error });
+        return J(new
+        {
+            status = "split",
+            from = flashcard_id,
+            cards = cards.Select(c => new { flashcard_id = c.Id, prompts = c.Prompts.Count, first_line = c.Content.Split('\n')[0] }),
+        });
     }
 
     // ===== Prompts =====
 
     [McpServerTool(Name = "add_flashcard_prompts"), Description(
         "Notes v2: attach more prompts to an existing card — as many as its subpoints need, one fact each. Duplicates of a question " +
-        "already on the card are refused. backfill=true (default when the card is older than today) dates the exposure to the card and " +
-        "spreads first reviews at 10 a day.")]
+        "already on the card are refused. backfill defaults to true when the card is dated before today (exposure dated to the card, " +
+        "first reviews spread at 10 a day).")]
     public async Task<string> AddFlashcardPrompts(
-        [Description("Book: 'red' or 'green'")] string book,
-        [Description("The card's day_number")] int number,
+        [Description("Flashcard UUID")] Guid flashcard_id,
         [Description("The prompts: each { question, answer }")] FlashcardPromptInput[] prompts,
         [Description("Backfill mode; defaults to true when the card's date is before today")] bool? backfill = null)
     {
-        if (!FlashcardLogic.TryBook(book, out var bk)) return J(new { error = "Invalid book. Use 'red' or 'green'." });
-        var card = await db.Flashcards.FirstOrDefaultAsync(c => c.Book == bk && c.DayNumber == number);
+        var card = await db.Flashcards.FirstOrDefaultAsync(c => c.Id == flashcard_id);
         if (card is null) return J(new { error = "Flashcard not found" });
         var (created, error) = await FlashcardLogic.CreatePromptsAsync(db, card, prompts, backfill ?? card.EntryDate < AppClock.Today());
         if (error is not null) return J(new { error });
@@ -256,3 +270,6 @@ public sealed class FlashcardMcpTools(RoadmapDbContext db)
         "true retention over 30 days (target 0.9), lapses, and the due count for each of the next 7 days.")]
     public async Task<string> GetFlashcardStats() => J(await FlashcardLogic.StatsAsync(db));
 }
+
+/// <summary>One part of a split_flashcard call, in the snake_case the MCP tools speak.</summary>
+public sealed record FlashcardSplitInput(string content, Guid[]? prompt_ids);

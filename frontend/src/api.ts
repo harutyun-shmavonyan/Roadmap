@@ -193,8 +193,14 @@ export const api = {
   getNotes: (book: 'red' | 'green') => req<NoteDto[]>(`/api/notes/${book}`),
   // Notes v2 — flashcards (independent of the daily notes). Cards and prompts are mostly written by the
   // skills in chat; the tab reads them, fixes prompts, and runs the in-app flashcard review.
-  getFlashcards: (book?: 'red' | 'green', withoutPrompts = false) =>
-    req<FlashcardDto[]>(`/api/flashcards/?${book ? `book=${book}&` : ''}${withoutPrompts ? 'withoutPrompts=true&' : ''}limit=2000`),
+  getFlashcards: (f: { book?: 'red' | 'green'; date?: string; search?: string; withoutPrompts?: boolean } = {}) => {
+    const q = new URLSearchParams({ limit: '5000' });
+    if (f.book) q.set('book', f.book);
+    if (f.date) q.set('date', f.date);
+    if (f.search) q.set('search', f.search);
+    if (f.withoutPrompts) q.set('withoutPrompts', 'true');
+    return req<FlashcardDto[]>(`/api/flashcards/?${q}`);
+  },
   getFlashcard: (id: string) => req<FlashcardDto>(`/api/flashcards/${id}`),
   getFlashcardStats: () => req<FlashcardStatsDto>('/api/flashcards/stats'),
   createFlashcard: (book: 'red' | 'green', content: string, entryDate?: string, prompts?: { question: string; answer: string }[]) =>

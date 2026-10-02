@@ -64,7 +64,7 @@ function Card({ p, children }: { p: FlashcardPromptDto; children: React.ReactNod
     }}>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
         <Pill text={p.book} color={BOOK_COLOR[p.book] ?? '#8b8b8b'} />
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Day {p.dayNumber} · {fmtDate(p.entryDate)}</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fmtDate(p.entryDate)}</span>
         {p.relearning && <Pill text="again from yesterday" color="#e5484d" />}
         {p.state === 'Parked' && <Pill text="back from parked" color="#f5a623" />}
       </div>

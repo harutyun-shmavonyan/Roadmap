@@ -1,6 +1,6 @@
 ---
 name: add-daily-note
-description: "Add a single day's note to the user's Red book (professional/technical content) or Green book (general/personal learning) — to the v1 notes AND, as a flashcard with one prompt per subpoint, to Notes v2 (both run in parallel during the trial). Trigger whenever the user wants to record, log, save, or add a note for a day — phrases like \"add today's note\", \"remember this for today\", \"log this\", \"note this down\", \"add an entry\", \"save this\", \"I learned that...\". The skill decides between Red and Green book based on the content (technical/work → Red; general personal learning → Green) and defaults to today's date. Use this even if the user doesn't explicitly name a book."
+description: "Add a single day's note to the user's Red book (professional/technical content) or Green book (general/personal learning) — to the v1 notes AND, as a new flashcard (one card per note, one prompt per subpoint), to Notes v2 (both run in parallel during the trial). Trigger whenever the user wants to record, log, save, or add a note for a day — phrases like \"add today's note\", \"remember this for today\", \"log this\", \"note this down\", \"add an entry\", \"save this\", \"I learned that...\". The skill decides between Red and Green book based on the content (technical/work → Red; general personal learning → Green) and defaults to today's date. Use this even if the user doesn't explicitly name a book."
 ---
 
 # Add Daily Note
@@ -8,9 +8,11 @@ description: "Add a single day's note to the user's Red book (professional/techn
 Adds a single day's entry to one of two notebook systems, stored in the
 **Roadmap app** (PostgreSQL) and accessed through its **MCP server** — not
 Google Drive anymore. **Two systems run in parallel for now and every note goes
-to both:** the v1 daily notes (`add_note`) and Notes v2, where the same day's
-learning is a **flashcard** with one spaced-repetition **prompt per subpoint**
-(`create_flashcard`). Nothing is shared between them; one will be retired later.
+to both:** the v1 daily notes (`add_note`, one entry per day that collects the
+day's notes) and Notes v2, where **every note is its own flashcard** with one
+spaced-repetition **prompt per subpoint** (`create_flashcard`; the date is just
+a property of the card). Nothing is shared between them; one will be retired
+later, and then only this skill needs to change.
 
 - **Red book** — professional/technical notes (software engineering, system design, work learning)
 - **Green book** — general personal learning (linguistics, history, film, food, psychology, languages, trivia)
@@ -36,21 +38,21 @@ if they aren't already available, then use:
 
 **v2 — flashcards**
 - `create_flashcard(book, content, date?, prompts?, backfill?)` → `{ status,
-  card: { flashcard_id, day_number, entry_date }, prompts_created,
+  card: { flashcard_id, book, entry_date }, prompts_created,
   first_review_in_days }`
-  - Same `book`, `content` and `date` semantics as `add_note`: one card per
-    book per day, same-day calls append to the card. The v2 day_number is the
-    card's own counter — do not assume it equals the v1 one.
+  - **Always creates a new card.** One note = one card, however many notes the
+    day already has. `book`, `content` and `date` mean the same as for
+    `add_note`; `content` is just this note (its bullet and subpoints).
   - `prompts`: a list of `{ question, answer }` — **one per subpoint worth
     recalling, as many as the subpoints need.** Writing the card counts as the
     first exposure, so each prompt is already scheduled: first review in about
     4 days, nothing asked today.
   - `backfill`: leave unset. It defaults to true for a past date (the card's
     date counts as the exposure and first reviews are spread 10 a day).
-- `get_flashcard(book, number)` → the card with its prompts. Use it before a
-  same-day append so a fact already covered is not asked twice.
-- `add_flashcard_prompts(book, number, prompts)` — more prompts for an
+- `get_flashcard(flashcard_id)` → the card with its prompts.
+- `add_flashcard_prompts(flashcard_id, prompts)` — more prompts for an
   existing card (e.g. when the card was created without them).
+- `list_flashcards(book?, date?, search?)` → cards, e.g. all cards of a day.
 
 There is no number to look up beforehand and no memory cache to maintain — the
 database assigns and tracks the number. Do **not** read or write any
@@ -143,11 +145,12 @@ and `action`.
 
 Every note goes straight into spaced repetition; there is no daily limit on new
 cards or prompts — the quiz caps *questions* per day, not intake. Write the
-prompts for the content you just saved (only the new bullet, not the whole day
-when `action` was `"appended"`) and call
+prompts for the note you just saved and call
 `create_flashcard(book, content, date?, prompts)` with the **same content and
-date** you passed to `add_note`. One `create_flashcard` call per note; it
-creates the card or appends to today's.
+date** you passed to `add_note` (just this note, even when `add_note` appended
+it to an existing day). One `create_flashcard` call per note — it always makes
+a new card. Two notes dictated together are two `add_note` bullets and two
+cards.
 
 Prompt rules — these decide whether the schedule can do its job:
 
@@ -173,7 +176,8 @@ Prompt rules — these decide whether the schedule can do its job:
   note uses. Mixed is fine.
 - **Zero is a valid count.** A plan, a reflection, a mood, a to-do — nothing to
   recall, so create the card with no prompts and say so in the confirmation.
-- **Appended note:** `get_flashcard` first; don't repeat a fact already covered.
+- **Same topic as an earlier card:** prompts stay with their own card; it is
+  fine for a later card to ask about a related fact, not the same one.
 
 Example, for the cosine-similarity note above:
 
@@ -193,7 +197,7 @@ One or two lines, reflecting whether it was new or appended and how many
 prompts the card got:
 
 - created → "Added Green book entry 240 for 20.06.2026 · v2 card with 2 prompts, first review in 4 days."
-- appended → "Appended to Green book entry 240 (20.06.2026) — same day, same number · 1 prompt added to the card."
+- appended → "Appended to Green book entry 240 (20.06.2026) — same day, same number · new v2 card with 1 prompt."
 - no prompts → "Added Red book entry 241 for 21.06.2026 · v2 card, no prompts (nothing to recall)."
 
 Show the prompt questions (not the answers) only if the user asks or if you
@@ -202,8 +206,8 @@ reasoning unless asked.
 
 ## Edge cases
 
-- **Second+ note on the same day**: appends to that day's existing entry and
-  keeps its number. This is the intended behavior, not a conflict.
+- **Second+ note on the same day**: in v1 it appends to that day's entry and
+  keeps its number; in v2 it is a new card on the same date. Both are intended.
 - **User overrides classification**: honor it.
 - **Mixed content** (substantial technical *and* general): ask which book.
 - **User dictates over multiple messages**: gather the full content first, then

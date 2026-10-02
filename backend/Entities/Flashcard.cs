@@ -18,14 +18,14 @@ public enum FlashcardPromptState
 }
 
 /// <summary>
-/// Notes v2. A flashcard is one day's learning in one book ('red' | 'green') — the v2 counterpart of
-/// a daily note, written in parallel with it by the note-taking skill while both systems run, but
-/// stored on its own: no foreign key, no shared table, no shared logic with the v1 notes. One row
-/// per (book, entry_date); same-day additions append to the content, and DayNumber is a per-book
-/// sequential counter assigned on the first entry of a day.
+/// Notes v2. A flashcard is <b>one note</b> — a single top-level bullet with its subpoints — in one
+/// book ('red' | 'green'). The card is the entity; the date is just a property of it, used to filter
+/// ("all cards of 2026-09-30") and as the first exposure of a backfilled card. A day can hold any
+/// number of cards; adding a note always creates a new card, never appends to another one.
 ///
-/// The card carries the content (the day's bullets and subpoints); what is actually scheduled is its
-/// <see cref="FlashcardPrompt"/>s — as many as the subpoints need, one fact each.
+/// It lives beside the v1 daily notes and shares nothing with them: no foreign key, no shared table,
+/// no shared logic. What is actually scheduled is the card's <see cref="FlashcardPrompt"/>s — as many
+/// as its subpoints need, one fact each — and each prompt keeps its own review history.
 /// </summary>
 public class Flashcard
 {
@@ -34,13 +34,10 @@ public class Flashcard
     /// <summary>'red' (professional/technical) or 'green' (general learning).</summary>
     public string Book { get; set; } = string.Empty;
 
-    /// <summary>Per-book sequential counter, starting at 1.</summary>
-    public int DayNumber { get; set; }
-
-    /// <summary>The calendar date this card is for (Asia/Yerevan).</summary>
+    /// <summary>The calendar date this note was learned (Asia/Yerevan). A filter, not an identity.</summary>
     public DateOnly EntryDate { get; set; }
 
-    /// <summary>The day's bullets, Markdown.</summary>
+    /// <summary>The note: one top-level bullet and its subpoints, Markdown.</summary>
     public string Content { get; set; } = string.Empty;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

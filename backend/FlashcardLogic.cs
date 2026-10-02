@@ -13,8 +13,8 @@ namespace Roadmap.Api;
 ///
 /// The design, and the simulations it rests on, in brief:
 /// <list type="bullet">
-/// <item><b>Prompts, not cards, are scheduled.</b> One fact per prompt so each gets an accurate grade;
-/// a card has as many prompts as its subpoints need.</item>
+/// <item><b>A card is one note; prompts, not cards, are scheduled.</b> One fact per prompt so each gets
+/// an accurate grade; a card has as many prompts as its subpoints need. The date is only a filter.</item>
 /// <item><b>Writing the card is the first exposure.</b> A new prompt starts as if graded Good and is due
 /// in about four days. Intake is never limited; nothing new spends a slot of the cap.</item>
 /// <item><b>The cap is on questions per day</b> (<see cref="DailyCap"/>), never on reviews per prompt. At
@@ -113,44 +113,67 @@ public static class FlashcardLogic
 
     // ===== Cards =====
 
-    /// <summary>
-    /// Create the card for (book, date), or append to the one that exists — one card per day per
-    /// book, like a daily note. Saves. Returns the card and "created" | "appended". Retries the rare
-    /// race where a concurrent write takes the same date or day number.
-    /// </summary>
-    public static async Task<(Flashcard Card, string Action)> UpsertCardAsync(RoadmapDbContext db, string book, string content, DateOnly date)
+    /// <summary>Create a new card — one note. Never appends to another card. Adds and saves.</summary>
+    public static async Task<Flashcard> CreateCardAsync(RoadmapDbContext db, string book, string content, DateOnly date)
     {
-        content = content.Trim();
-        for (var attempt = 0; attempt < 3; attempt++)
-        {
-            await using var tx = await db.Database.BeginTransactionAsync();
-            var existing = await db.Flashcards.FirstOrDefaultAsync(c => c.Book == book && c.EntryDate == date);
-            if (existing is not null)
-            {
-                if (content.Length > 0)
-                    existing.Content = existing.Content.Length == 0 ? content : existing.Content + "\n" + content;
-                existing.UpdatedAt = DateTime.UtcNow;
-                await db.SaveChangesAsync();
-                await tx.CommitAsync();
-                return (existing, "appended");
-            }
+        var card = new Flashcard { Id = Guid.NewGuid(), Book = book, EntryDate = date, Content = content.Trim() };
+        db.Flashcards.Add(card);
+        await db.SaveChangesAsync();
+        return card;
+    }
 
-            var maxDay = await db.Flashcards.Where(c => c.Book == book).MaxAsync(c => (int?)c.DayNumber) ?? 0;
-            var card = new Flashcard { Id = Guid.NewGuid(), Book = book, DayNumber = maxDay + 1, EntryDate = date, Content = content };
-            db.Flashcards.Add(card);
-            try
+    /// <summary>
+    /// Split a card into several cards, each with its own content and the prompts listed for it. Every
+    /// prompt of the original must be listed exactly once; prompts keep their id, schedule and review
+    /// history (only their card changes). The new cards keep the original's book and date, and their
+    /// creation order follows the order of the parts. The original card is deleted. Saves, in one
+    /// transaction. Returns the new cards or an error.
+    /// </summary>
+    public static async Task<(List<Flashcard> Cards, string? Error)> SplitCardAsync(RoadmapDbContext db, Guid cardId, IReadOnlyList<FlashcardSplitPart>? parts)
+    {
+        var card = await db.Flashcards.Include(c => c.Prompts).FirstOrDefaultAsync(c => c.Id == cardId);
+        if (card is null) return ([], "flashcard not found");
+        if (parts is null || parts.Count < 2) return ([], "a split needs at least two parts");
+        if (parts.Any(p => string.IsNullOrWhiteSpace(p.Content))) return ([], "every part needs content");
+
+        var owned = card.Prompts.Select(p => p.Id).ToHashSet();
+        var listed = parts.SelectMany(p => p.PromptIds ?? []).ToList();
+        var unknown = listed.Where(id => !owned.Contains(id)).ToList();
+        if (unknown.Count > 0) return ([], $"prompt(s) not on this card: {string.Join(", ", unknown)}");
+        var dupes = listed.GroupBy(x => x).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+        if (dupes.Count > 0) return ([], $"prompt(s) assigned to more than one part: {string.Join(", ", dupes)}");
+        var missing = owned.Except(listed).ToList();
+        if (missing.Count > 0) return ([], $"every prompt must be assigned to a part; unassigned: {string.Join(", ", missing)}");
+
+        await using var tx = await db.Database.BeginTransactionAsync();
+        var byId = card.Prompts.ToDictionary(p => p.Id);
+        var nowUtc = DateTime.UtcNow;
+        var created = new List<Flashcard>();
+        for (var i = 0; i < parts.Count; i++)
+        {
+            var part = new Flashcard
             {
-                await db.SaveChangesAsync();
-                await tx.CommitAsync();
-                return (card, "created");
-            }
-            catch (DbUpdateException)
+                Id = Guid.NewGuid(), Book = card.Book, EntryDate = card.EntryDate, Content = parts[i].Content.Trim(),
+                CreatedAt = card.CreatedAt.AddMilliseconds(i), UpdatedAt = nowUtc,
+            };
+            db.Flashcards.Add(part);
+            var sort = 0;
+            foreach (var id in parts[i].PromptIds ?? [])
             {
-                await tx.RollbackAsync();
-                db.Entry(card).State = EntityState.Detached;
+                var p = byId[id];
+                p.FlashcardId = part.Id;
+                p.Flashcard = part;
+                p.SortOrder = sort++;
+                p.UpdatedAt = nowUtc;
             }
+            created.Add(part);
         }
-        throw new InvalidOperationException("Could not create the flashcard due to concurrent updates. Please retry.");
+        await db.SaveChangesAsync();
+        card.Prompts.Clear();
+        db.Flashcards.Remove(card);
+        await db.SaveChangesAsync();
+        await tx.CommitAsync();
+        return (created, null);
     }
 
     // ===== Prompt lifecycle =====
@@ -428,29 +451,42 @@ public static class FlashcardLogic
             UpcomingLoad: load);
     }
 
-    /// <summary>Cards of one book (or both), newest first, with prompt counts and no prompt bodies.</summary>
-    public static async Task<List<FlashcardDto>> ListCardsAsync(RoadmapDbContext db, string? book, int limit, bool withoutPromptsOnly)
+    /// <summary>
+    /// Cards newest first (by date, then creation), filtered by book, an exact date or a date range,
+    /// a text search, and "no prompts yet". Counts only — no prompt bodies. Returns (total matching, page).
+    /// </summary>
+    public static async Task<(int Total, List<FlashcardDto> Cards)> ListCardsAsync(RoadmapDbContext db, string? book,
+        DateOnly? date, DateOnly? from, DateOnly? to, string? search, bool withoutPromptsOnly, int limit)
     {
         var today = AppClock.Today();
         var q = db.Flashcards.AsNoTracking().AsQueryable();
         if (book is not null) q = q.Where(c => c.Book == book);
+        if (date is { } d) q = q.Where(c => c.EntryDate == d);
+        if (from is { } f) q = q.Where(c => c.EntryDate >= f);
+        if (to is { } t) q = q.Where(c => c.EntryDate <= t);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var pattern = $"%{search.Trim()}%";
+            q = q.Where(c => EF.Functions.ILike(c.Content, pattern) || c.Prompts.Any(p => EF.Functions.ILike(p.Question, pattern)));
+        }
         if (withoutPromptsOnly) q = q.Where(c => !c.Prompts.Any());
-        var cards = await q.OrderByDescending(c => c.EntryDate).ThenByDescending(c => c.DayNumber).Take(limit).ToListAsync();
+        var total = await q.CountAsync();
+        var cards = await q.OrderByDescending(c => c.EntryDate).ThenBy(c => c.CreatedAt).Take(limit).ToListAsync();
         var ids = cards.Select(c => c.Id).ToList();
         var counts = await db.FlashcardPrompts.AsNoTracking().Where(p => ids.Contains(p.FlashcardId))
             .Select(p => new { p.FlashcardId, p.State, p.DueOn }).ToListAsync();
         var byCard = counts.ToLookup(x => x.FlashcardId);
-        return cards.Select(c =>
+        return (total, cards.Select(c =>
         {
             var ps = byCard[c.Id].ToList();
-            return new FlashcardDto(c.Id, c.Book, c.DayNumber, c.EntryDate.ToString("yyyy-MM-dd"), c.Content,
+            return new FlashcardDto(c.Id, c.Book, c.EntryDate.ToString("yyyy-MM-dd"), c.Content,
                 ps.Count,
                 ps.Count(x => x.State == FlashcardPromptState.Active && x.DueOn <= today),
                 ps.Count(x => x.State == FlashcardPromptState.Parked),
                 ps.Count(x => x.State == FlashcardPromptState.Suspended),
                 ps.Where(x => x.State == FlashcardPromptState.Active).Select(x => (DateOnly?)x.DueOn).Min()?.ToString("yyyy-MM-dd"),
                 c.CreatedAt, c.UpdatedAt, []);
-        }).ToList();
+        }).ToList());
     }
 
     // ===== DTOs =====
@@ -459,7 +495,7 @@ public static class FlashcardLogic
     {
         var ps = c.Prompts.OrderBy(p => p.SortOrder).ThenBy(p => p.CreatedAt).ToList();
         foreach (var p in ps) p.Flashcard ??= c;
-        return new FlashcardDto(c.Id, c.Book, c.DayNumber, c.EntryDate.ToString("yyyy-MM-dd"), c.Content,
+        return new FlashcardDto(c.Id, c.Book, c.EntryDate.ToString("yyyy-MM-dd"), c.Content,
             ps.Count,
             ps.Count(p => IsDue(p, today)),
             ps.Count(p => p.State == FlashcardPromptState.Parked),
@@ -471,7 +507,7 @@ public static class FlashcardLogic
 
     public static FlashcardPromptDto ToPromptDto(FlashcardPrompt p, DateOnly today, bool includeHistory) => new(
         p.Id, p.FlashcardId,
-        p.Flashcard?.Book ?? "", p.Flashcard?.DayNumber ?? 0, p.Flashcard?.EntryDate.ToString("yyyy-MM-dd") ?? "",
+        p.Flashcard?.Book ?? "", p.Flashcard?.EntryDate.ToString("yyyy-MM-dd") ?? "",
         p.Question, p.Answer, p.SortOrder, p.State.ToString(),
         Math.Round(p.Difficulty, 2), Math.Round(p.Stability, 1), Math.Round(Retrievability(p, today), 3),
         p.DueOn.ToString("yyyy-MM-dd"), IsDue(p, today), p.Relearning, p.Lapses, p.Reviews, p.LastReviewedAt, p.CreatedAt,

@@ -1,6 +1,6 @@
 ---
 name: interval-repeat-quiz
-description: "Run a spaced repetition quiz session on the user's notes (Red and Green books) from the Roadmap app. Two engines, and the skill ALWAYS asks which one to run first: v1 — the fixed schedule (entries 0, 1, 2, 7, 14, 30, 60, 180, 360 back from the newest, one question per bullet, no memory of results); v2 — adaptive FSRS over flashcards (one per day's note, one prompt per subpoint), 25 questions a day, every answer recorded so a forgotten prompt comes back tomorrow and a known one disappears for months. Answering just \"O\" means \"I know this perfectly\". Trigger on phrases like \"run interval repeat\", \"quiz me\", \"review session\", \"test me on X book\", \"spaced repetition\", \"let's review my notes\", \"time for review\"."
+description: "Run a spaced repetition quiz session on the user's notes (Red and Green books) from the Roadmap app. Two engines, and the skill ALWAYS asks which one to run first: v1 — the fixed schedule (entries 0, 1, 2, 7, 14, 30, 60, 180, 360 back from the newest, one question per bullet, no memory of results); v2 — adaptive FSRS over flashcards (one card per note, one prompt per subpoint), 25 questions a day, every answer recorded so a forgotten prompt comes back tomorrow and a known one disappears for months. Answering just \"O\" means \"I know this perfectly\". Trigger on phrases like \"run interval repeat\", \"quiz me\", \"review session\", \"test me on X book\", \"spaced repetition\", \"let's review my notes\", \"time for review\"."
 ---
 
 # Interval Repeat Quiz
@@ -201,9 +201,9 @@ No praise, no encouragement padding.
 
 # Version 2 — adaptive (FSRS)
 
-Notes v2 is a system of its own beside the v1 notes: each day's learning is a
-**flashcard** (one per book per day, same content as the v1 note during the
-trial), and each card carries **prompts** — one fact each, as many as its
+Notes v2 is a system of its own beside the v1 notes: **every note is a
+flashcard** (the date is just a property of the card — a day can hold many),
+and each card carries **prompts** — one fact each, as many as its
 subpoints need — written by the `add-daily-note` skill when the card is
 created, or later through this skill's backfill. The server schedules every
 prompt with FSRS: a success multiplies the days until it is asked again, a
@@ -221,7 +221,7 @@ available.
   lapses first, then due prompts by predicted recall, highest first. Fields:
   `Date, DailyCap, AskedToday, Remaining, DueTotal, Returned, Overflow,
   ParkedNow, Unparked, ParkedTotal, CarryCapacityPerDay, Prompts[]`. Each prompt:
-  `Id, FlashcardId, Book, DayNumber, EntryDate, Question, Answer, State,
+  `Id, FlashcardId, Book, EntryDate, Question, Answer, State,
   Stability, Retrievability, DueOn, Relearning, Lapses, Reviews`. Safe to call
   again the same day — it returns what is still due within the remaining budget.
 - `record_flashcard_review(prompt_id, grade, answer?, note?)` — grade is
@@ -229,10 +229,12 @@ available.
   due_on, relearning, lapses, leech, asked_today, remaining_today`.
 - `update_flashcard_prompt(prompt_id, question?, answer?, state?, reset?)` —
   fix a prompt; `reset=true` restarts its schedule (for a rewritten leech).
-- `list_flashcards(book?, limit?, without_prompts_only?)` → cards newest first
-  with content and prompt counts; `without_prompts_only=true` is the backfill list.
-- `get_flashcard(book, number)` → one card with its prompts.
-- `add_flashcard_prompts(book, number, prompts)` — attach `{question, answer}`
+- `list_flashcards(book?, date?, from_date?, to_date?, search?,
+  without_prompts_only?, limit?)` → cards newest first with content and prompt
+  counts; `date` gives all cards of one day; `without_prompts_only=true` is the
+  backfill list.
+- `get_flashcard(flashcard_id)` → one card with its prompts.
+- `add_flashcard_prompts(flashcard_id, prompts)` — attach `{question, answer}`
   prompts to a card (backfill mode is automatic for a card older than today).
 - `get_flashcard_stats()` → totals: cards, due today, asked/cap, parked,
   leeches, true retention over 30 days, carry capacity, due per day next week.
@@ -332,8 +334,8 @@ short line on a visible pattern is fine. No praise, no encouragement padding.
 
 ### Step 6 — Backfill (offer once per session)
 
-Some cards have no prompts yet (every v1 note was copied into a card; most got
-prompts in the 2026-10-02 migration, the rest were skipped as cue-only). At
+Some cards have no prompts yet (the old notes were migrated into one card per
+note on 2026-10-02; most got prompts, the rest were skipped as cue-only). At
 the close — or when the queue was empty — call
 `list_flashcards(without_prompts_only=true, limit=3)`. If `total > 0`:
 
@@ -341,7 +343,7 @@ the close — or when the queue was empty — call
 
 On yes, for each returned card write its prompts by the rules below — one per
 subpoint worth recalling — show the questions (not the answers), and call
-`add_flashcard_prompts(book, day_number, prompts)`. Backfill mode is automatic
+`add_flashcard_prompts(flashcard_id, prompts)`. Backfill mode is automatic
 for a card older than today: its own date counts as the exposure and first
 reviews are spread ten a day, so even a large backfill never floods one date.
 Three cards per session is the default; honor a request for more.

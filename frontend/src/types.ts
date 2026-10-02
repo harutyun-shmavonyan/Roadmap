@@ -145,8 +145,8 @@ export interface WorkLogHistoryEntry {
 // Daily Notes
 export interface NoteDto { book: string; dayNumber: number; entryDate: string; content: string; createdAt: string; updatedAt: string; }
 
-// Notes v2 — flashcards, a system of its own beside the daily notes. A card is one day's learning in
-// one book; what is scheduled is its prompts (FSRS). stability is in days (the interval at 90% predicted
+// Notes v2 — flashcards, a system of its own beside the daily notes. A card is one note (its date is a
+// property and a filter); what is scheduled is its prompts (FSRS). stability is in days (the interval at 90% predicted
 // recall); retrievability is the predicted recall today.
 export type FlashcardPromptState = 'Active' | 'Parked' | 'Suspended';
 export type FlashcardGrade = 'again' | 'hard' | 'good' | 'easy';
@@ -156,13 +156,13 @@ export interface FlashcardPromptReviewDto {
   wasRelearning: boolean; answer: string | null; note: string | null;
 }
 export interface FlashcardPromptDto {
-  id: string; flashcardId: string; book: string; dayNumber: number; entryDate: string; question: string; answer: string;
+  id: string; flashcardId: string; book: string; entryDate: string; question: string; answer: string;
   sortOrder: number; state: FlashcardPromptState; difficulty: number; stability: number; retrievability: number;
   dueOn: string; isDue: boolean; relearning: boolean; lapses: number; reviews: number;
   lastReviewedAt: string; createdAt: string; reviewHistory: FlashcardPromptReviewDto[];
 }
 export interface FlashcardDto {
-  id: string; book: string; dayNumber: number; entryDate: string; content: string;
+  id: string; book: string; entryDate: string; content: string;
   promptCount: number; due: number; parked: number; suspended: number; nextDueOn: string | null;
   createdAt: string; updatedAt: string; prompts: FlashcardPromptDto[];
 }

@@ -82,12 +82,15 @@ with `notes`** — no foreign key, no shared logic — so either system can be k
 touching the other. During the trial the skills write both: `add-daily-note` saves the v1 note *and*
 the v2 card, and `interval-repeat-quiz` asks which engine to run.
 
-The model: a **flashcard is one day's learning in one book** (red/green), one card per (book, date),
-same-day additions append — the v2 counterpart of a daily note. What is *scheduled* is the card's
-**prompts**: one question/answer pair per fact, **as many as the subpoints need** (no small ceiling;
-`MaxPromptsPerCard` is a sanity limit of 50). One grade per fact is the whole point. Scheduler `Fsrs`
-(FSRS-4.5, default parameters, pure functions like `Sm2`); rules in `FlashcardLogic`, shared by REST
-and MCP so they cannot drift on what "due" means.
+The model: a **flashcard is one note** (one top-level bullet with its subpoints) in one book
+(red/green). The card is the entity; its **date is a property and a filter** ("all cards of
+2026-09-30"), not an identity — a day holds any number of cards and adding a note always creates a
+new card. What is *scheduled* is the card's **prompts**: one question/answer pair per fact, **as many
+as the subpoints need** (`MaxPromptsPerCard` is a sanity limit of 50), each with its own review
+history. One grade per fact is the whole point. Scheduler `Fsrs` (FSRS-4.5, default parameters, pure
+functions like `Sm2`); rules in `FlashcardLogic`, shared by REST and MCP so they cannot drift on
+what "due" means. `split_flashcard` turns one card into several, moving each prompt with its
+schedule and history — that is how the migrated day-cards became one card per note.
 
 The decisions, each simulated before being adopted:
 - **Writing the card is the first exposure.** A new prompt starts in the state a Good first rating
@@ -119,10 +122,11 @@ The decisions, each simulated before being adopted:
 - Same EF caveat as `VocabStore.ApplyReview`: the review row is returned unattached and added by
   the caller, never through the navigation.
 
-**Seeding (migration `FlashcardsV2`, 2026-10-02).** Every v1 note was *copied* into a card (new ids,
-same book/day/date/content), and the 544 prompts written that day for the first, note-bound attempt
-were moved onto the cards with their schedule intact; the note-bound tables were then dropped. The
-copies are snapshots — a later edit to a v1 note does not reach its card, by design.
+**Seeding (2026-10-02).** Migration `FlashcardsV2` *copied* every v1 note-day into a card (new ids)
+and moved the 544 prompts written that day onto them; migration `FlashcardPerNote` dropped the
+per-day identity (`DayNumber`, one card per book+date); then every card holding several top-level
+bullets was split with `split_flashcard` into one card per note, each prompt assigned to the note
+it asks about. The copies are snapshots — a later edit to a v1 note does not reach v2, by design.
 
 The skills live in `skills/` in this repo (`interval-repeat-quiz`, `add-daily-note`); the copies
 Claude actually runs are synced from the user's account, so a change here has to be uploaded there.
