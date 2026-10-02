@@ -3,6 +3,7 @@ import { marked } from 'marked';
 import type { FlashcardDto, FlashcardPromptDto, FlashcardStatsDto, FlashcardPromptState } from './types';
 import { api } from './api';
 import { FlashcardsReview } from './FlashcardsReview';
+import { FlashcardsDashboard } from './FlashcardsDashboard';
 
 // Notes v2. A card is one note in one book; its date is a property and a filter, and its prompts are
 // what get scheduled. Cards and prompts are mostly written by the skills in chat; here they are read,
@@ -295,7 +296,7 @@ function NewCardForm({ defaultBook, onCreated }: { defaultBook: Book; onCreated:
 }
 
 export function FlashcardsPage() {
-  const [mode, setMode] = useState<'cards' | 'review'>('cards');
+  const [mode, setMode] = useState<'cards' | 'review' | 'dashboard'>('cards');
   const [book, setBook] = useState<BookFilter>('all');
   const [date, setDate] = useState('');
   const [search, setSearch] = useState('');
@@ -380,13 +381,13 @@ export function FlashcardsPage() {
       {/* Mode switch, Red / Green, and the totals (global — the cap is shared by both books) */}
       <div style={{ display: 'flex', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginRight: 6 }}>
-          {(['cards', 'review'] as const).map(m => {
+          {(['cards', 'review', 'dashboard'] as const).map(m => {
             const active = mode === m;
             return (
               <button key={m} onClick={() => setMode(m)} style={{
                 padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none', textTransform: 'capitalize',
                 background: active ? 'var(--accent, #5b8def)' : 'var(--bg-secondary)', color: active ? '#fff' : 'var(--text-secondary)',
-              }}>{m === 'review' ? `Review${stats && stats.dueToday > 0 ? ` · ${Math.min(stats.dueToday, stats.remaining)}` : ''}` : 'Cards'}</button>
+              }}>{m === 'review' ? `Review${stats && stats.dueToday > 0 ? ` · ${Math.min(stats.dueToday, stats.remaining)}` : ''}` : m === 'dashboard' ? 'Dashboard' : 'Cards'}</button>
             );
           })}
         </div>
@@ -427,6 +428,8 @@ export function FlashcardsPage() {
 
       {mode === 'review' ? (
         <FlashcardsReview onStatsChanged={loadStats} />
+      ) : mode === 'dashboard' ? (
+        <FlashcardsDashboard />
       ) : loading ? (
         <div style={{ padding: 24, color: 'var(--text-muted)' }}>Loading...</div>
       ) : (

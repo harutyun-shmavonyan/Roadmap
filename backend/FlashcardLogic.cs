@@ -489,6 +489,22 @@ public static class FlashcardLogic
         }).ToList());
     }
 
+    /// <summary>
+    /// Every prompt's stability and days since it was last seen — the inputs of the forgetting curve —
+    /// for the dashboard, which projects recall forward on the client. Suspended prompts are included and
+    /// flagged by state; the tab decides what to show.
+    /// </summary>
+    public static async Task<FlashcardMemoryDto> MemoryAsync(RoadmapDbContext db, string? book)
+    {
+        var today = AppClock.Today();
+        var q = db.FlashcardPrompts.AsNoTracking().Include(p => p.Flashcard).AsQueryable();
+        if (book is not null) q = q.Where(p => p.Flashcard!.Book == book);
+        var rows = await q.ToListAsync();
+        return new FlashcardMemoryDto(today.ToString("yyyy-MM-dd"), DesiredRetention,
+            rows.Select(p => new FlashcardMemoryPointDto(p.Flashcard?.Book ?? "", p.State.ToString(),
+                Math.Round(p.Stability, 3), ElapsedDays(p, today))).ToList());
+    }
+
     // ===== DTOs =====
 
     public static FlashcardDto ToCardDto(Flashcard c, DateOnly today, bool includeHistory)

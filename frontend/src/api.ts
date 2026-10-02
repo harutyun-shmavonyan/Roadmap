@@ -3,7 +3,7 @@ import type { RoadmapSummary, RoadmapTree, NodeDto, CreateNodeRequest, Actionabl
   WeekPlan, WeekPlanGoal, WorkLogHistory, HabitDto, SprintHabitDto, ScheduleHabitDto,
   SingleTaskDto, ScheduleTaskDto, CustomLogDto, ScheduleBlockDef, ScheduleBlockMode, SprintGoalDto,
   NodeSubPointDto, ScheduleSubPointDto, NoteDto,
-  FlashcardDto, FlashcardPromptDto, FlashcardStatsDto, FlashcardSessionDto, FlashcardGrade, FlashcardReviewResultDto, FlashcardPromptState,
+  FlashcardDto, FlashcardPromptDto, FlashcardStatsDto, FlashcardMemoryDto, FlashcardSessionDto, FlashcardGrade, FlashcardReviewResultDto, FlashcardPromptState,
   ArticleSummaryDto, ArticleDto, ArticleImageDto, ArticleFormat,
   NewsletterSummaryDto, NewsletterCursorDto,
   JobRunDto, JobRunSummaryDto,
@@ -204,6 +204,7 @@ export const api = {
   },
   getFlashcard: (id: string) => req<FlashcardDto>(`/api/flashcards/${id}`),
   getFlashcardStats: () => req<FlashcardStatsDto>('/api/flashcards/stats'),
+  getFlashcardMemory: () => req<FlashcardMemoryDto>('/api/flashcards/memory'),
   createFlashcard: (book: 'red' | 'green', content: string, entryDate?: string, prompts?: { question: string; answer: string }[]) =>
     req<FlashcardDto>('/api/flashcards/', { method: 'POST', body: JSON.stringify({ book, content, entryDate, prompts }) }),
   updateFlashcard: (id: string, content: string) =>

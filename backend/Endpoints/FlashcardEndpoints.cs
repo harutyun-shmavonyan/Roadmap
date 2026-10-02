@@ -33,6 +33,14 @@ public static class FlashcardEndpoints
 
         g.MapGet("/stats", async (RoadmapDbContext db) => Results.Ok(await FlashcardLogic.StatsAsync(db)));
 
+        // The dashboard's memory snapshot: stability and days-since-seen per prompt.
+        g.MapGet("/memory", async (string? book, RoadmapDbContext db) =>
+        {
+            string? bk = null;
+            if (!string.IsNullOrWhiteSpace(book)) { if (!FlashcardLogic.TryBook(book, out bk)) return BadBook(); }
+            return Results.Ok(await FlashcardLogic.MemoryAsync(db, bk));
+        });
+
         // Preview of today's queue — no parking, no unparking.
         g.MapGet("/session", async (string? book, RoadmapDbContext db) =>
         {

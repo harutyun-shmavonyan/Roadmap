@@ -175,6 +175,8 @@ export interface FlashcardReviewResultDto {
   prompt: FlashcardPromptDto; grade: 'Again' | 'Hard' | 'Good' | 'Easy'; passed: boolean; retrievabilityBefore: number;
   elapsedDays: number; intervalDays: number; leech: boolean; askedToday: number; remaining: number; dailyCap: number;
 }
+export interface FlashcardMemoryPointDto { book: string; state: FlashcardPromptState; stability: number; elapsedDays: number; }
+export interface FlashcardMemoryDto { today: string; desiredRetention: number; prompts: FlashcardMemoryPointDto[]; }
 export interface FlashcardStatsDto {
   flashcards: number; flashcardsWithPrompts: number; flashcardsWithoutPrompts: number; prompts: number; active: number;
   parked: number; suspended: number; leeches: number; dueToday: number; askedToday: number; dailyCap: number;

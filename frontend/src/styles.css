@@ -8,6 +8,8 @@
   --text-primary: #202124;
   --text-secondary: #5f6368;
   --text-muted: #80868b;
+  /* Chart series 1 — validated (dataviz validator) on --bg-secondary in each theme. */
+  --chart-1: #2a78d6;
   --accent: #1a73e8;
   --accent-dim: #1a73e80d;
   --accent-light: #e8f0fe;
@@ -49,6 +51,7 @@
   --text-primary: #e8e6e3;
   --text-secondary: #8a8a8f;
   --text-muted: #555560;
+  --chart-1: #3987e5;
   --accent: #c9a84c;
   --accent-dim: #c9a84c22;
   --accent-light: #c9a84c15;
