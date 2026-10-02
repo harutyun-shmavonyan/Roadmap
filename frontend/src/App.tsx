@@ -8,6 +8,7 @@ import { PerformancePage } from './PerformancePage';
 import { HabitsPage } from './HabitsPage';
 import { TasksPage } from './TasksPage';
 import { NotesPage } from './NotesPage';
+import { FlashcardsPage } from './FlashcardsPage';
 import { ArticlesPage } from './ArticlesPage';
 import { NewsletterPage } from './NewsletterPage';
 import { NAV_ICON } from './NavIcons';
@@ -23,11 +24,11 @@ import { ExperiencesPage } from './ExperiencesPage';
    #/r/{roadmapId}/{page} for scoped, #/{page} for global, #/roadmaps for the picker. */
 
 type ScopedPage = 'schedule' | 'weekplan' | 'roadmap' | 'tasks' | 'performance' | 'habits';
-type GlobalPage = 'articles' | 'courses' | 'newsletter' | 'english' | 'notes' | 'nutrition' | 'jobs' | 'experiences';
+type GlobalPage = 'articles' | 'courses' | 'newsletter' | 'english' | 'notes' | 'notesv2' | 'nutrition' | 'jobs' | 'experiences';
 type PageId = ScopedPage | GlobalPage;
 
 const SCOPED_PAGES: ScopedPage[] = ['schedule', 'weekplan', 'roadmap', 'tasks', 'performance', 'habits'];
-const GLOBAL_PAGES: GlobalPage[] = ['articles', 'courses', 'newsletter', 'english', 'notes', 'nutrition', 'jobs', 'experiences'];
+const GLOBAL_PAGES: GlobalPage[] = ['articles', 'courses', 'newsletter', 'english', 'notes', 'notesv2', 'nutrition', 'jobs', 'experiences'];
 
 const isScoped = (id: PageId): id is ScopedPage => (SCOPED_PAGES as string[]).includes(id);
 
@@ -56,6 +57,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Track', scoped: false, items: [
       { id: 'notes', label: 'Notes' },
+      { id: 'notesv2', label: 'Notes v2' },
       { id: 'nutrition', label: 'Nutrition' },
       { id: 'jobs', label: 'Jobs' },
       { id: 'experiences', label: 'Experiences' },
@@ -332,6 +334,7 @@ function AuthedApp({ theme, toggleTheme, onLogout }: { theme: string; toggleThem
     if (route.kind === 'global') {
       switch (route.page) {
         case 'notes': return <NotesPage />;
+        case 'notesv2': return <FlashcardsPage />;
         case 'articles': return <ArticlesPage />;
         case 'newsletter': return <NewsletterPage />;
         case 'jobs': return <JobsPage />;

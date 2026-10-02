@@ -1,26 +1,26 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { NotePromptDto, NoteSrsSessionDto, NoteGrade } from './types';
+import type { FlashcardPromptDto, FlashcardSessionDto, FlashcardGrade } from './types';
 import { api } from './api';
 
-// The Notes tab's flashcard mode (Notes v2). Pulls today's queue — already triaged under the daily
-// cap by the server — and walks it one card at a time: question, reveal, self-grade. Every grade is
-// recorded at once, so a session begun here and finished in chat (or the other way round) is one
-// session. Failures are shown once more at the end, unrecorded: the real retest is tomorrow.
+// The Notes v2 flashcard review. Pulls today's queue — already triaged under the daily cap by the
+// server — and walks it one card at a time: question, reveal, self-grade. Every grade is recorded at
+// once, so a session begun here and finished in chat (or the other way round) is one session.
+// Failures are shown once more at the end, unrecorded: the real retest is tomorrow.
 
 type Scope = 'both' | 'red' | 'green';
 type Phase = 'loading' | 'review' | 'relearn' | 'done' | 'error';
-interface Outcome { grade: NoteGrade; intervalDays: number; leech: boolean; }
+interface Outcome { grade: FlashcardGrade; intervalDays: number; leech: boolean; }
 
-const GRADES: NoteGrade[] = ['again', 'hard', 'good', 'easy'];
-const GRADE_COLOR: Record<NoteGrade, string> = { again: '#e5484d', hard: '#f5a623', good: '#30a46c', easy: '#5b8def' };
-const GRADE_LABEL: Record<NoteGrade, string> = { again: 'Again', hard: 'Hard', good: 'Good', easy: 'Easy' };
-const GRADE_HINT: Record<NoteGrade, string> = {
+const GRADES: FlashcardGrade[] = ['again', 'hard', 'good', 'easy'];
+const GRADE_COLOR: Record<FlashcardGrade, string> = { again: '#e5484d', hard: '#f5a623', good: '#30a46c', easy: '#5b8def' };
+const GRADE_LABEL: Record<FlashcardGrade, string> = { again: 'Again', hard: 'Hard', good: 'Good', easy: 'Easy' };
+const GRADE_HINT: Record<FlashcardGrade, string> = {
   again: 'wrong or blank · back tomorrow',
   hard: 'right in part, or a real effort',
   good: 'recalled it',
   easy: 'instant and complete',
 };
-const MARK: Record<NoteGrade, string> = { again: '✗', hard: '~', good: '✓', easy: '✓✓' };
+const MARK: Record<FlashcardGrade, string> = { again: '✗', hard: '~', good: '✓', easy: '✓✓' };
 const BOOK_COLOR: Record<string, string> = { red: '#e5484d', green: '#30a46c' };
 
 function fmtDate(iso: string): string {
@@ -56,7 +56,7 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
   );
 }
 
-function Card({ p, children }: { p: NotePromptDto; children: React.ReactNode }) {
+function Card({ p, children }: { p: FlashcardPromptDto; children: React.ReactNode }) {
   return (
     <div style={{
       maxWidth: 720, width: '100%', margin: '0 auto', border: '1px solid var(--border-subtle)',
@@ -64,7 +64,7 @@ function Card({ p, children }: { p: NotePromptDto; children: React.ReactNode }) 
     }}>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
         <Pill text={p.book} color={BOOK_COLOR[p.book] ?? '#8b8b8b'} />
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fmtDate(p.entryDate)}</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Day {p.dayNumber} · {fmtDate(p.entryDate)}</span>
         {p.relearning && <Pill text="again from yesterday" color="#e5484d" />}
         {p.state === 'Parked' && <Pill text="back from parked" color="#f5a623" />}
       </div>
@@ -74,16 +74,21 @@ function Card({ p, children }: { p: NotePromptDto; children: React.ReactNode }) 
   );
 }
 
-export function NotesReview({ onStatsChanged }: { onStatsChanged: () => void }) {
+const answerBox: React.CSSProperties = {
+  marginTop: 18, padding: '12px 14px', borderRadius: 'var(--radius-md)', background: 'var(--bg-primary)',
+  border: '1px solid var(--border-subtle)', fontSize: 15, lineHeight: 1.5, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap',
+};
+
+export function FlashcardsReview({ onStatsChanged }: { onStatsChanged: () => void }) {
   const [scope, setScope] = useState<Scope>('both');
-  const [session, setSession] = useState<NoteSrsSessionDto | null>(null);
+  const [session, setSession] = useState<FlashcardSessionDto | null>(null);
   const [phase, setPhase] = useState<Phase>('loading');
   const [error, setError] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
   const [last, setLast] = useState<{ text: string; color: string } | null>(null);
-  const [relearn, setRelearn] = useState<NotePromptDto[]>([]);
+  const [relearn, setRelearn] = useState<FlashcardPromptDto[]>([]);
   const [busy, setBusy] = useState(false);
   const [askedToday, setAskedToday] = useState(0);
   const [cap, setCap] = useState(25);
@@ -91,7 +96,7 @@ export function NotesReview({ onStatsChanged }: { onStatsChanged: () => void }) 
   const start = useCallback(async (s: Scope) => {
     setPhase('loading'); setError(null); setOutcomes({}); setLast(null); setIndex(0); setRevealed(false); setRelearn([]);
     try {
-      const sess = await api.startNoteReview(s === 'both' ? undefined : s);
+      const sess = await api.startFlashcardReview(s === 'both' ? undefined : s);
       setSession(sess); setAskedToday(sess.askedToday); setCap(sess.dailyCap);
       setPhase(sess.prompts.length ? 'review' : 'done');
     } catch (e) {
@@ -102,20 +107,20 @@ export function NotesReview({ onStatsChanged }: { onStatsChanged: () => void }) 
   useEffect(() => { void start(scope); }, [scope, start]);
 
   const queue = session?.prompts ?? [];
-  const current: NotePromptDto | undefined = phase === 'review' ? queue[index] : phase === 'relearn' ? relearn[index] : undefined;
+  const current: FlashcardPromptDto | undefined = phase === 'review' ? queue[index] : phase === 'relearn' ? relearn[index] : undefined;
 
-  const grade = async (g: NoteGrade, answer?: string) => {
+  const grade = async (g: FlashcardGrade, answer?: string) => {
     if (!current || busy || phase !== 'review') return;
     setBusy(true);
     try {
-      const r = await api.recordNotePromptReview(current.id, g, answer, answer === 'O' ? 'declared known' : undefined);
+      const r = await api.recordFlashcardReview(current.id, g, answer, answer === 'O' ? 'declared known' : undefined);
       const next = { ...outcomes, [current.id]: { grade: g, intervalDays: r.intervalDays, leech: r.leech } };
       setOutcomes(next);
       setAskedToday(r.askedToday); setCap(r.dailyCap);
       setLast({
         color: GRADE_COLOR[g],
         text: g === 'again'
-          ? `${MARK.again} back tomorrow${r.leech ? ' · failed 8 times, suspended as a leech — rewrite it under the note' : ''}`
+          ? `${MARK.again} back tomorrow${r.leech ? ' · failed 8 times, suspended as a leech — rewrite it on its card' : ''}`
           : `${MARK[g]} next in ${fmtInterval(r.intervalDays)}`,
       });
       onStatsChanged();
@@ -157,7 +162,6 @@ export function NotesReview({ onStatsChanged }: { onStatsChanged: () => void }) 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 24px 32px' }}>
-      {/* Scope + progress */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', maxWidth: 720, width: '100%', margin: '0 auto 14px' }}>
         {(['both', 'red', 'green'] as Scope[]).map(s => <Chip key={s} active={scope === s} onClick={() => setScope(s)}>{s}</Chip>)}
         <span style={{ flex: 1 }} />
@@ -193,10 +197,7 @@ export function NotesReview({ onStatsChanged }: { onStatsChanged: () => void }) 
             </div>
           ) : (
             <>
-              <div style={{
-                marginTop: 18, padding: '12px 14px', borderRadius: 'var(--radius-md)', background: 'var(--bg-primary)',
-                border: '1px solid var(--border-subtle)', fontSize: 15, lineHeight: 1.5, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap',
-              }}>{current.answer}</div>
+              <div style={answerBox}>{current.answer}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginTop: 16 }}>
                 {GRADES.map((g, i) => (
                   <button key={g} disabled={busy} onClick={() => grade(g)} style={{
@@ -226,10 +227,7 @@ export function NotesReview({ onStatsChanged }: { onStatsChanged: () => void }) 
               <div style={{ marginTop: 22 }}><button className="btn btn-accent" onClick={() => setRevealed(true)}>Show answer <span className="kbd" style={{ marginLeft: 6, opacity: 0.8 }}>space</span></button></div>
             ) : (
               <>
-                <div style={{
-                  marginTop: 18, padding: '12px 14px', borderRadius: 'var(--radius-md)', background: 'var(--bg-primary)',
-                  border: '1px solid var(--border-subtle)', fontSize: 15, lineHeight: 1.5, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap',
-                }}>{current.answer}</div>
+                <div style={answerBox}>{current.answer}</div>
                 <div style={{ marginTop: 16 }}><button className="btn" onClick={relearnNext}>Next <span className="kbd" style={{ marginLeft: 6, opacity: 0.8 }}>space</span></button></div>
               </>
             )}
@@ -247,7 +245,7 @@ export function NotesReview({ onStatsChanged }: { onStatsChanged: () => void }) 
               <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.6 }}>
                 {session.remaining === 0
                   ? `${session.dueTotal} more are due but wait for tomorrow — the cap is what keeps the load steady.`
-                  : 'New prompts come due four days after their note is written. Write a note, or quiz the backlog in chat with "quiz me".'}
+                  : 'New prompts come due four days after their card is written. Write a note in chat, or say "quiz me" and pick v2.'}
                 {session.parkedTotal > 0 && <div>{session.parkedTotal} parked prompts are waiting for a lighter day.</div>}
               </div>
             </>
@@ -266,7 +264,7 @@ export function NotesReview({ onStatsChanged }: { onStatsChanged: () => void }) 
                 <div>Asked {askedToday} / {cap} today.</div>
                 {session.overflow > 0 && <div>{session.overflow} due prompts did not fit the cap{session.parkedNow > 0 ? `; ${session.parkedNow} of them were below 50% recall and were parked` : ''}.</div>}
                 {session.unparked > 0 && <div>{session.unparked} parked prompts were pulled back in today.</div>}
-                {Object.values(outcomes).some(o => o.leech) && <div style={{ color: '#e5484d' }}>A prompt was suspended as a leech — rewrite it under its note and restart its schedule.</div>}
+                {Object.values(outcomes).some(o => o.leech) && <div style={{ color: '#e5484d' }}>A prompt was suspended as a leech — rewrite it on its card and restart its schedule.</div>}
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
                 <button className="btn btn-sm" onClick={() => start(scope)}>Check for more</button>

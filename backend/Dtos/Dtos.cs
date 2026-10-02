@@ -262,36 +262,42 @@ public record CategoryTimeDto(string CategoryName, double TotalMinutes, double T
 public record NoteDto(string Book, int DayNumber, string EntryDate, string Content, DateTime CreatedAt, DateTime UpdatedAt);
 public record UpdateNoteRequest(string? Content, string? EntryDate);
 
-// --- Notes v2: FSRS-scheduled prompts (see NoteSrsLogic) ---
-public record NotePromptReviewDto(DateTime ReviewedAt, string Grade, int ElapsedDays, double Retrievability,
+// --- Notes v2: flashcards (independent of the daily notes; see FlashcardLogic) ---
+public record FlashcardPromptReviewDto(DateTime ReviewedAt, string Grade, int ElapsedDays, double Retrievability,
     double StabilityBefore, double StabilityAfter, double DifficultyBefore, double DifficultyAfter,
     bool WasRelearning, string? Answer, string? Note);
 // retrievability is the predicted recall today; stability is in days (the interval at 90% recall).
-public record NotePromptDto(Guid Id, string Book, int DayNumber, string EntryDate, string Question, string Answer,
-    int SortOrder, string State, double Difficulty, double Stability, double Retrievability, string DueOn,
-    bool IsDue, bool Relearning, int Lapses, int Reviews, DateTime LastReviewedAt, DateTime CreatedAt,
-    List<NotePromptReviewDto> ReviewHistory);
-public record NotePromptInput(string Question, string Answer);
-public record CreateNotePromptsRequest(List<NotePromptInput> Prompts, bool? Backfill = null);
-// PATCH semantics: null keeps the stored value. state is Active | Parked | Suspended. reset restarts the
-// schedule as if the prompt were just written (for a rewritten leech).
-public record UpdateNotePromptRequest(string? Question, string? Answer, string? State, bool? Reset);
+public record FlashcardPromptDto(Guid Id, Guid FlashcardId, string Book, int DayNumber, string EntryDate,
+    string Question, string Answer, int SortOrder, string State, double Difficulty, double Stability,
+    double Retrievability, string DueOn, bool IsDue, bool Relearning, int Lapses, int Reviews,
+    DateTime LastReviewedAt, DateTime CreatedAt, List<FlashcardPromptReviewDto> ReviewHistory);
+// A list returns cards with counts and an empty Prompts list; a single card carries its prompts.
+public record FlashcardDto(Guid Id, string Book, int DayNumber, string EntryDate, string Content,
+    int PromptCount, int Due, int Parked, int Suspended, string? NextDueOn, DateTime CreatedAt, DateTime UpdatedAt,
+    List<FlashcardPromptDto> Prompts);
+public record FlashcardPromptInput(string Question, string Answer);
+// entryDate defaults to today (Asia/Yerevan). One card per book per day: a second create for the same
+// day appends the content. backfill (any card older than today) dates the exposure to the card and
+// spreads first reviews; see FlashcardLogic.
+public record CreateFlashcardRequest(string Book, string Content, string? EntryDate, List<FlashcardPromptInput>? Prompts, bool? Backfill);
+public record UpdateFlashcardRequest(string Content);
+public record AddFlashcardPromptsRequest(List<FlashcardPromptInput> Prompts, bool? Backfill);
+// PATCH semantics: null keeps the stored value. state is Active | Parked | Suspended. reset restarts the schedule.
+public record UpdateFlashcardPromptRequest(string? Question, string? Answer, string? State, bool? Reset);
+// grade is again | hard | good | easy; answer "O" = declared known.
+public record RecordFlashcardReviewRequest(string Grade, string? Answer, string? Note);
+public record FlashcardReviewResultDto(FlashcardPromptDto Prompt, string Grade, bool Passed, double RetrievabilityBefore,
+    int ElapsedDays, int IntervalDays, bool Leech, int AskedToday, int Remaining, int DailyCap);
 // Today's queue. remaining = dailyCap - askedToday; overflow = due prompts that did not fit; parkedNow = how
 // many of those were parked by this call; unparked = parked prompts pulled back in because there were spare slots.
-public record NoteSrsSessionDto(string Date, int DailyCap, int AskedToday, int Remaining, int DueTotal, int Returned,
+public record FlashcardSessionDto(string Date, int DailyCap, int AskedToday, int Remaining, int DueTotal, int Returned,
     int Overflow, int ParkedNow, int Unparked, int ParkedTotal, double CarryCapacityPerDay, double DesiredRetention,
-    List<NotePromptDto> Prompts);
+    List<FlashcardPromptDto> Prompts);
 public record DayLoadDto(string Date, int Due);
-public record NoteSrsStatsDto(int Prompts, int Active, int Parked, int Suspended, int Leeches, int NotesWithPrompts,
-    int NotesWithoutPrompts, int DueToday, int AskedToday, int DailyCap, int Remaining, double CarryCapacityPerDay,
-    double DesiredRetention, int ReviewsAllTime, int ReviewsLast7Days, double? TrueRetention30d, int Lapses,
-    double AverageStability, List<DayLoadDto> UpcomingLoad);
-// In-app review (the Notes tab's flashcard mode): grade is again | hard | good | easy; answer "O" = declared known.
-public record RecordNotePromptReviewRequest(string Grade, string? Answer, string? Note);
-public record NotePromptReviewResultDto(NotePromptDto Prompt, string Grade, bool Passed, double RetrievabilityBefore,
-    int ElapsedDays, int IntervalDays, bool Leech, int AskedToday, int Remaining, int DailyCap);
-// Per-note summary for the Notes tab's day list.
-public record NotePromptOverviewDto(int DayNumber, int PromptCount, int Due, int Parked, int Suspended, string? NextDueOn);
+public record FlashcardStatsDto(int Flashcards, int FlashcardsWithPrompts, int FlashcardsWithoutPrompts, int Prompts,
+    int Active, int Parked, int Suspended, int Leeches, int DueToday, int AskedToday, int DailyCap, int Remaining,
+    double CarryCapacityPerDay, double DesiredRetention, int ReviewsAllTime, int ReviewsLast7Days,
+    double? TrueRetention30d, int Lapses, double AverageStability, List<DayLoadDto> UpcomingLoad);
 
 // --- Articles (global reading library; Markdown or HTML body; reading earns no points) ---
 public record ArticleImageDto(string Name, string ContentType, int SortOrder);

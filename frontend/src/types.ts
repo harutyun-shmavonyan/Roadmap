@@ -145,35 +145,39 @@ export interface WorkLogHistoryEntry {
 // Daily Notes
 export interface NoteDto { book: string; dayNumber: number; entryDate: string; content: string; createdAt: string; updatedAt: string; }
 
-// Notes v2 — FSRS-scheduled prompts extracted from a note. stability is in days (the interval at 90%
-// predicted recall); retrievability is the predicted recall today.
-export type NotePromptState = 'Active' | 'Parked' | 'Suspended';
-export interface NotePromptReviewDto {
+// Notes v2 — flashcards, a system of its own beside the daily notes. A card is one day's learning in
+// one book; what is scheduled is its prompts (FSRS). stability is in days (the interval at 90% predicted
+// recall); retrievability is the predicted recall today.
+export type FlashcardPromptState = 'Active' | 'Parked' | 'Suspended';
+export type FlashcardGrade = 'again' | 'hard' | 'good' | 'easy';
+export interface FlashcardPromptReviewDto {
   reviewedAt: string; grade: 'Again' | 'Hard' | 'Good' | 'Easy'; elapsedDays: number; retrievability: number;
   stabilityBefore: number; stabilityAfter: number; difficultyBefore: number; difficultyAfter: number;
   wasRelearning: boolean; answer: string | null; note: string | null;
 }
-export interface NotePromptDto {
-  id: string; book: string; dayNumber: number; entryDate: string; question: string; answer: string;
-  sortOrder: number; state: NotePromptState; difficulty: number; stability: number; retrievability: number;
+export interface FlashcardPromptDto {
+  id: string; flashcardId: string; book: string; dayNumber: number; entryDate: string; question: string; answer: string;
+  sortOrder: number; state: FlashcardPromptState; difficulty: number; stability: number; retrievability: number;
   dueOn: string; isDue: boolean; relearning: boolean; lapses: number; reviews: number;
-  lastReviewedAt: string; createdAt: string; reviewHistory: NotePromptReviewDto[];
+  lastReviewedAt: string; createdAt: string; reviewHistory: FlashcardPromptReviewDto[];
 }
-// Today's queue (POST starts or resumes it, with the same parking side effects as the MCP session).
-export interface NoteSrsSessionDto {
+export interface FlashcardDto {
+  id: string; book: string; dayNumber: number; entryDate: string; content: string;
+  promptCount: number; due: number; parked: number; suspended: number; nextDueOn: string | null;
+  createdAt: string; updatedAt: string; prompts: FlashcardPromptDto[];
+}
+export interface FlashcardSessionDto {
   date: string; dailyCap: number; askedToday: number; remaining: number; dueTotal: number; returned: number;
   overflow: number; parkedNow: number; unparked: number; parkedTotal: number; carryCapacityPerDay: number;
-  desiredRetention: number; prompts: NotePromptDto[];
+  desiredRetention: number; prompts: FlashcardPromptDto[];
 }
-export type NoteGrade = 'again' | 'hard' | 'good' | 'easy';
-export interface NotePromptReviewResultDto {
-  prompt: NotePromptDto; grade: 'Again' | 'Hard' | 'Good' | 'Easy'; passed: boolean; retrievabilityBefore: number;
+export interface FlashcardReviewResultDto {
+  prompt: FlashcardPromptDto; grade: 'Again' | 'Hard' | 'Good' | 'Easy'; passed: boolean; retrievabilityBefore: number;
   elapsedDays: number; intervalDays: number; leech: boolean; askedToday: number; remaining: number; dailyCap: number;
 }
-export interface NotePromptOverviewDto { dayNumber: number; promptCount: number; due: number; parked: number; suspended: number; nextDueOn: string | null; }
-export interface NoteSrsStatsDto {
-  prompts: number; active: number; parked: number; suspended: number; leeches: number;
-  notesWithPrompts: number; notesWithoutPrompts: number; dueToday: number; askedToday: number; dailyCap: number;
+export interface FlashcardStatsDto {
+  flashcards: number; flashcardsWithPrompts: number; flashcardsWithoutPrompts: number; prompts: number; active: number;
+  parked: number; suspended: number; leeches: number; dueToday: number; askedToday: number; dailyCap: number;
   remaining: number; carryCapacityPerDay: number; desiredRetention: number; reviewsAllTime: number;
   reviewsLast7Days: number; trueRetention30d: number | null; lapses: number; averageStability: number;
   upcomingLoad: { date: string; due: number }[];

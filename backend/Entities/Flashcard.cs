@@ -1,7 +1,7 @@
 namespace Roadmap.Api.Entities;
 
 /// <summary>Whether a prompt takes part in scheduling.</summary>
-public enum NotePromptState
+public enum FlashcardPromptState
 {
     /// <summary>Scheduled normally.</summary>
     Active,
@@ -18,34 +18,65 @@ public enum NotePromptState
 }
 
 /// <summary>
-/// One atomic question/answer pair extracted from a <see cref="Note"/> — the unit that is actually
-/// scheduled. A daily note holds several facts, and a single grade for the whole note would let the
-/// parts the learner knows drag the parts they do not (minimum information principle); so each note
-/// yields a handful of prompts, each with its own FSRS state.
+/// Notes v2. A flashcard is one day's learning in one book ('red' | 'green') — the v2 counterpart of
+/// a daily note, written in parallel with it by the note-taking skill while both systems run, but
+/// stored on its own: no foreign key, no shared table, no shared logic with the v1 notes. One row
+/// per (book, entry_date); same-day additions append to the content, and DayNumber is a per-book
+/// sequential counter assigned on the first entry of a day.
 ///
-/// <b>Writing the note counts as the first exposure.</b> A prompt is created already in the state a
-/// Good first rating would give (stability ≈ 4 days, due in 4 days) and <see cref="LastReviewedAt"/>
-/// starts at creation. Nothing new ever competes for a slot in the daily cap — the cap only triages
-/// reviews, which can tolerate triage. The alternative (asking first exposures first) was simulated
-/// and held fewer memories: it starved the reviews of things already learned.
+/// The card carries the content (the day's bullets and subpoints); what is actually scheduled is its
+/// <see cref="FlashcardPrompt"/>s — as many as the subpoints need, one fact each.
 /// </summary>
-public class NotePrompt
+public class Flashcard
 {
     public Guid Id { get; set; }
 
-    public Guid NoteId { get; set; }
-    public Note? Note { get; set; }
+    /// <summary>'red' (professional/technical) or 'green' (general learning).</summary>
+    public string Book { get; set; } = string.Empty;
 
-    /// <summary>The cue. Specific, no hints, answerable from the note alone.</summary>
+    /// <summary>Per-book sequential counter, starting at 1.</summary>
+    public int DayNumber { get; set; }
+
+    /// <summary>The calendar date this card is for (Asia/Yerevan).</summary>
+    public DateOnly EntryDate { get; set; }
+
+    /// <summary>The day's bullets, Markdown.</summary>
+    public string Content { get; set; } = string.Empty;
+
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    public List<FlashcardPrompt> Prompts { get; set; } = [];
+}
+
+/// <summary>
+/// One atomic question/answer pair on a <see cref="Flashcard"/> — the unit that is scheduled. A
+/// single grade for a whole card would let the facts the learner knows drag the ones they do not
+/// (minimum information principle), so each subpoint worth recalling gets its own prompt with its
+/// own FSRS state.
+///
+/// <b>Writing the card counts as the first exposure.</b> A prompt is created already in the state a
+/// Good first rating would give (stability ≈ 4 days, due in 4 days) and <see cref="LastReviewedAt"/>
+/// starts at creation — or, for a backfilled card, at the card's own date. Nothing new ever competes
+/// for a slot in the daily cap; the cap only triages reviews.
+/// </summary>
+public class FlashcardPrompt
+{
+    public Guid Id { get; set; }
+
+    public Guid FlashcardId { get; set; }
+    public Flashcard? Flashcard { get; set; }
+
+    /// <summary>The cue. Specific, no hints, answerable from the card alone.</summary>
     public string Question { get; set; } = string.Empty;
 
     /// <summary>The expected answer — what the grader compares against. Never shown before the learner answers.</summary>
     public string Answer { get; set; } = string.Empty;
 
-    /// <summary>Order within the note.</summary>
+    /// <summary>Order within the card.</summary>
     public int SortOrder { get; set; }
 
-    public NotePromptState State { get; set; } = NotePromptState.Active;
+    public FlashcardPromptState State { get; set; } = FlashcardPromptState.Active;
 
     // --- FSRS state (see Fsrs) ---------------------------------------------------------------
 
@@ -58,7 +89,7 @@ public class NotePrompt
     /// <summary>The next day (Asia/Yerevan) this prompt is due.</summary>
     public DateOnly DueOn { get; set; }
 
-    /// <summary>When it was last reviewed — or created, for a prompt never yet asked (creation is the first exposure).</summary>
+    /// <summary>When it was last reviewed — or first exposed, for a prompt never yet asked.</summary>
     public DateTime LastReviewedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>The last review was a lapse: it is asked first tomorrow, ahead of everything else.</summary>
@@ -73,19 +104,19 @@ public class NotePrompt
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
-    public List<NotePromptReview> ReviewHistory { get; set; } = [];
+    public List<FlashcardReview> ReviewHistory { get; set; } = [];
 }
 
 /// <summary>
-/// One recorded review of a <see cref="NotePrompt"/> — append-only, with the scheduler state on both
-/// sides so the learning curve can be reconstructed and the parameters re-fitted later.
+/// One recorded review of a <see cref="FlashcardPrompt"/> — append-only, with the scheduler state on
+/// both sides so the learning curve can be reconstructed and the parameters re-fitted later.
 /// </summary>
-public class NotePromptReview
+public class FlashcardReview
 {
     public Guid Id { get; set; }
 
-    public Guid NotePromptId { get; set; }
-    public NotePrompt? NotePrompt { get; set; }
+    public Guid FlashcardPromptId { get; set; }
+    public FlashcardPrompt? FlashcardPrompt { get; set; }
 
     public DateTime ReviewedAt { get; set; } = DateTime.UtcNow;
 
@@ -95,7 +126,7 @@ public class NotePromptReview
     /// <summary>FSRS rating: 1 Again, 2 Hard, 3 Good, 4 Easy.</summary>
     public int Grade { get; set; }
 
-    /// <summary>Calendar days since the previous review (or creation).</summary>
+    /// <summary>Calendar days since the previous review (or the exposure).</summary>
     public int ElapsedDays { get; set; }
 
     /// <summary>Predicted recall at the moment of the review.</summary>

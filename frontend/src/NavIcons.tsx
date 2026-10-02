@@ -110,6 +110,15 @@ export const NAV_ICON: Record<string, ReactNode> = {
     </S>
   ),
   // Notes — a page being written on.
+  // Notes v2 — a stack of flashcards, the front one turned to its question mark.
+  notesv2: (
+    <S>
+      <rect x="5" y="7" width="15" height="12" rx="2.5" fill="var(--ic-notesv2)" opacity=".45" />
+      <rect x="3" y="4.5" width="15" height="12" rx="2.5" fill="var(--ic-notesv2)" />
+      <path d="M8.6 9.2a2 2 0 0 1 3.9.6c0 1.3-1.9 1.4-1.9 2.6" stroke="#fff" strokeWidth="1.7" fill="none" strokeLinecap="round" />
+      <circle cx="10.6" cy="14.6" r="1" fill="#fff" />
+    </S>
+  ),
   notes: (
     <S>
       <rect x="4" y="3" width="14" height="18" rx="2.5" fill="var(--ic-notes)" />

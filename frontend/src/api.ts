@@ -3,7 +3,7 @@ import type { RoadmapSummary, RoadmapTree, NodeDto, CreateNodeRequest, Actionabl
   WeekPlan, WeekPlanGoal, WorkLogHistory, HabitDto, SprintHabitDto, ScheduleHabitDto,
   SingleTaskDto, ScheduleTaskDto, CustomLogDto, ScheduleBlockDef, ScheduleBlockMode, SprintGoalDto,
   NodeSubPointDto, ScheduleSubPointDto, NoteDto,
-  NotePromptDto, NotePromptOverviewDto, NoteSrsStatsDto, NotePromptState, NoteSrsSessionDto, NoteGrade, NotePromptReviewResultDto,
+  FlashcardDto, FlashcardPromptDto, FlashcardStatsDto, FlashcardSessionDto, FlashcardGrade, FlashcardReviewResultDto, FlashcardPromptState,
   ArticleSummaryDto, ArticleDto, ArticleImageDto, ArticleFormat,
   NewsletterSummaryDto, NewsletterCursorDto,
   JobRunDto, JobRunSummaryDto,
@@ -191,22 +191,28 @@ export const api = {
 
   // Daily Notes (global 'red' / 'green' books)
   getNotes: (book: 'red' | 'green') => req<NoteDto[]>(`/api/notes/${book}`),
-  // Notes v2 — prompts and their FSRS schedule. Reviews are recorded through the MCP tools in chat;
-  // the tab reads, edits and retires prompts.
-  getNoteSrsStats: () => req<NoteSrsStatsDto>('/api/notes/srs/stats'),
-  getNotePromptOverview: (book: 'red' | 'green') => req<NotePromptOverviewDto[]>(`/api/notes/srs/overview/${book}`),
-  getNotePrompts: (book: 'red' | 'green', dayNumber: number) => req<NotePromptDto[]>(`/api/notes/${book}/${dayNumber}/prompts`),
-  createNotePrompts: (book: 'red' | 'green', dayNumber: number, prompts: { question: string; answer: string }[]) =>
-    req<NotePromptDto[]>(`/api/notes/${book}/${dayNumber}/prompts`, { method: 'POST', body: JSON.stringify({ prompts }) }),
+  // Notes v2 — flashcards (independent of the daily notes). Cards and prompts are mostly written by the
+  // skills in chat; the tab reads them, fixes prompts, and runs the in-app flashcard review.
+  getFlashcards: (book?: 'red' | 'green', withoutPrompts = false) =>
+    req<FlashcardDto[]>(`/api/flashcards/?${book ? `book=${book}&` : ''}${withoutPrompts ? 'withoutPrompts=true&' : ''}limit=2000`),
+  getFlashcard: (id: string) => req<FlashcardDto>(`/api/flashcards/${id}`),
+  getFlashcardStats: () => req<FlashcardStatsDto>('/api/flashcards/stats'),
+  createFlashcard: (book: 'red' | 'green', content: string, entryDate?: string, prompts?: { question: string; answer: string }[]) =>
+    req<FlashcardDto>('/api/flashcards/', { method: 'POST', body: JSON.stringify({ book, content, entryDate, prompts }) }),
+  updateFlashcard: (id: string, content: string) =>
+    req<FlashcardDto>(`/api/flashcards/${id}`, { method: 'PUT', body: JSON.stringify({ content }) }),
+  deleteFlashcard: (id: string) => req<void>(`/api/flashcards/${id}`, { method: 'DELETE' }),
+  addFlashcardPrompts: (id: string, prompts: { question: string; answer: string }[]) =>
+    req<FlashcardPromptDto[]>(`/api/flashcards/${id}/prompts`, { method: 'POST', body: JSON.stringify({ prompts }) }),
   // PATCH semantics: omit a field to keep it. reset restarts the schedule (for a rewritten leech).
-  updateNotePrompt: (id: string, patch: { question?: string; answer?: string; state?: NotePromptState; reset?: boolean }) =>
-    req<NotePromptDto>(`/api/notes/prompts/${id}`, { method: 'PUT', body: JSON.stringify(patch) }),
-  deleteNotePrompt: (id: string) => req<void>(`/api/notes/prompts/${id}`, { method: 'DELETE' }),
-  // The flashcard mode: start (or resume) today's capped queue, then record each self-graded answer.
-  startNoteReview: (book?: 'red' | 'green') =>
-    req<NoteSrsSessionDto>(`/api/notes/srs/session${book ? `?book=${book}` : ''}`, { method: 'POST' }),
-  recordNotePromptReview: (id: string, grade: NoteGrade, answer?: string, note?: string) =>
-    req<NotePromptReviewResultDto>(`/api/notes/prompts/${id}/review`, { method: 'POST', body: JSON.stringify({ grade, answer, note }) }),
+  updateFlashcardPrompt: (id: string, patch: { question?: string; answer?: string; state?: FlashcardPromptState; reset?: boolean }) =>
+    req<FlashcardPromptDto>(`/api/flashcards/prompts/${id}`, { method: 'PUT', body: JSON.stringify(patch) }),
+  deleteFlashcardPrompt: (id: string) => req<void>(`/api/flashcards/prompts/${id}`, { method: 'DELETE' }),
+  // The flashcard review: start (or resume) today's capped queue, then record each self-graded answer.
+  startFlashcardReview: (book?: 'red' | 'green') =>
+    req<FlashcardSessionDto>(`/api/flashcards/session${book ? `?book=${book}` : ''}`, { method: 'POST' }),
+  recordFlashcardReview: (id: string, grade: FlashcardGrade, answer?: string, note?: string) =>
+    req<FlashcardReviewResultDto>(`/api/flashcards/prompts/${id}/review`, { method: 'POST', body: JSON.stringify({ grade, answer, note }) }),
 
   // Articles (global reading library; Markdown or HTML body; marking read earns 3 pts/hour)
   getArticles: () => req<ArticleSummaryDto[]>('/api/articles'),

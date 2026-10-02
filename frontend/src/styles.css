@@ -851,6 +851,9 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
   --ic-newsletter:  #008300;  /* green   */
   --ic-english:     #e87ba4;  /* magenta */
   --ic-notes:       #2a78d6;  /* blue    */
+  /* Notes v2 sits right under Notes (blue) in Track, so it takes the aqua: Habits is its only other
+     user and lives in the scoped group, far above. */
+  --ic-notesv2:     #1baf7a;  /* aqua    */
   --ic-nutrition:   #e34948;  /* red     */
   --ic-jobs:        #4a3aa7;  /* violet  */
   /* Experiences sits at the foot of Track, under Notes (blue), Nutrition (red) and Jobs (violet),
@@ -880,6 +883,7 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
   --ic-newsletter:  #008300;
   --ic-english:     #d55181;
   --ic-notes:       #3987e5;
+  --ic-notesv2:     #199e70;
   --ic-nutrition:   #e66767;
   --ic-jobs:        #9085e9;
   --ic-experiences: #d95926;

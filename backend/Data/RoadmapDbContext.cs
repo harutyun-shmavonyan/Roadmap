@@ -30,8 +30,9 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
     public DbSet<Note> Notes => Set<Note>();
     public DbSet<VocabEntry> VocabEntries => Set<VocabEntry>();
     public DbSet<VocabReview> VocabReviews => Set<VocabReview>();
-    public DbSet<NotePrompt> NotePrompts => Set<NotePrompt>();
-    public DbSet<NotePromptReview> NotePromptReviews => Set<NotePromptReview>();
+    public DbSet<Flashcard> Flashcards => Set<Flashcard>();
+    public DbSet<FlashcardPrompt> FlashcardPrompts => Set<FlashcardPrompt>();
+    public DbSet<FlashcardReview> FlashcardReviews => Set<FlashcardReview>();
     public DbSet<JobRun> JobRuns => Set<JobRun>();
     public DbSet<JobPosting> JobPostings => Set<JobPosting>();
     public DbSet<Article> Articles => Set<Article>();
@@ -561,28 +562,37 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.HasIndex(r => new { r.VocabEntryId, r.ReviewedAt });
         });
 
-        // ===== Notes v2: FSRS-scheduled prompts extracted from daily notes =====
-        modelBuilder.Entity<NotePrompt>(e =>
+        // ===== Notes v2: flashcards — a system of its own, nothing shared with `notes` =====
+        modelBuilder.Entity<Flashcard>(e =>
         {
-            e.ToTable("note_prompts");
+            e.ToTable("flashcards");
+            e.HasKey(c => c.Id);
+            e.Property(c => c.Book).HasMaxLength(16).IsRequired();
+            e.HasIndex(c => new { c.Book, c.EntryDate }).IsUnique();
+            e.HasIndex(c => new { c.Book, c.DayNumber }).IsUnique();
+        });
+
+        modelBuilder.Entity<FlashcardPrompt>(e =>
+        {
+            e.ToTable("flashcard_prompts");
             e.HasKey(p => p.Id);
-            e.HasOne(p => p.Note).WithMany(n => n.Prompts)
-                .HasForeignKey(p => p.NoteId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(p => p.Flashcard).WithMany(c => c.Prompts)
+                .HasForeignKey(p => p.FlashcardId).OnDelete(DeleteBehavior.Cascade);
             e.Property(p => p.Question).IsRequired();
             e.Property(p => p.Answer).IsRequired();
             e.Property(p => p.State).HasConversion<string>().HasMaxLength(16);
-            e.HasIndex(p => new { p.NoteId, p.SortOrder });
+            e.HasIndex(p => new { p.FlashcardId, p.SortOrder });
             // The daily session is "active and due on or before today" — the hot path.
             e.HasIndex(p => new { p.State, p.DueOn });
         });
 
-        modelBuilder.Entity<NotePromptReview>(e =>
+        modelBuilder.Entity<FlashcardReview>(e =>
         {
-            e.ToTable("note_prompt_reviews");
+            e.ToTable("flashcard_reviews");
             e.HasKey(r => r.Id);
-            e.HasOne(r => r.NotePrompt).WithMany(p => p.ReviewHistory)
-                .HasForeignKey(r => r.NotePromptId).OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(r => new { r.NotePromptId, r.ReviewedAt });
+            e.HasOne(r => r.FlashcardPrompt).WithMany(p => p.ReviewHistory)
+                .HasForeignKey(r => r.FlashcardPromptId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(r => new { r.FlashcardPromptId, r.ReviewedAt });
             // The daily cap counts today's rows.
             e.HasIndex(r => r.ReviewDate);
         });

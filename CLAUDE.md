@@ -73,23 +73,28 @@ that day or not), which "Log to any item" uses to badge and preview the weighted
 achievements are deliberately left alone: they store fixed points at the nominal rate and never
 touch an item, so they bypass weighting, progress and the bank — the user chose to keep them so.
 
-## Notes v2 — adaptive prompts (FSRS)
+## Notes v2 — flashcards (FSRS), a system of its own
 
-Daily notes (Red/Green books) are the source documents; what is *scheduled* is the **prompt** — one
-question/answer pair per fact, extracted when the note is written (`add-daily-note` skill →
-`create_note_prompts`) or later by the quiz's backfill. One grade per fact is the whole point: a grade
-for a whole note lets the parts you know drag the parts you don't. Entities `NotePrompt` /
-`NotePromptReview`, scheduler `Fsrs` (FSRS-4.5, default parameters, pure functions like `Sm2`), rules
-in `NoteSrsLogic` — shared by the REST endpoints (Notes tab) and the MCP tools (quiz skill) so they
-cannot drift on what "due" means. The old fixed-offset quiz (v1) still runs read-only on the notes
-themselves; the skill asks which version to run until v2 is proven.
+A separate feature beside the v1 daily notes: its own tables (`flashcards`, `flashcard_prompts`,
+`flashcard_reviews`), its own tab (**Notes v2**), REST (`/api/flashcards`) and MCP tools
+(`create_flashcard`, `get_due_flashcard_prompts`, `record_flashcard_review`, …). **Nothing is shared
+with `notes`** — no foreign key, no shared logic — so either system can be killed later without
+touching the other. During the trial the skills write both: `add-daily-note` saves the v1 note *and*
+the v2 card, and `interval-repeat-quiz` asks which engine to run.
+
+The model: a **flashcard is one day's learning in one book** (red/green), one card per (book, date),
+same-day additions append — the v2 counterpart of a daily note. What is *scheduled* is the card's
+**prompts**: one question/answer pair per fact, **as many as the subpoints need** (no small ceiling;
+`MaxPromptsPerCard` is a sanity limit of 50). One grade per fact is the whole point. Scheduler `Fsrs`
+(FSRS-4.5, default parameters, pure functions like `Sm2`); rules in `FlashcardLogic`, shared by REST
+and MCP so they cannot drift on what "due" means.
 
 The decisions, each simulated before being adopted:
-- **Writing the note is the first exposure.** A new prompt starts in the state a Good first rating
+- **Writing the card is the first exposure.** A new prompt starts in the state a Good first rating
   gives (stability ≈ 4 days, due in 4 days). Intake is never limited — the user's call — and nothing
   new ever spends a slot of the cap. Asking first exposures ahead of reviews was simulated and held
   *fewer* memories, because it starved the reviews of things already learned.
-- **The cap is 25 recorded questions per day** (`NoteSrsLogic.DailyCap`, Asia/Yerevan day, both
+- **The cap is 25 recorded questions per day** (`FlashcardLogic.DailyCap`, Asia/Yerevan day, both
   books together). Reviews are never capped per prompt. At steady state each carried prompt costs
   about 7 questions a day at 0.9 retention, so the cap carries ≈ 3.6 new prompts a day; the tab
   shows that number so a growing backlog is visible rather than silent.
@@ -97,21 +102,27 @@ The decisions, each simulated before being adopted:
   highest first. A prompt at 85% is cheap to reinforce and leaps to a long interval; one at 30% is
   mostly gone and costs the same to relearn next week.
 - **Overflow below 50% predicted recall is parked** (`State = Parked`), not deleted, and pulled
-  back in on a day with spare slots. Overflow above it simply stays due. Parking happens only in
-  `get_due_note_prompts` (the MCP session); the tab's `/srs/session` is a read-only preview.
-- **Backfill is spread, not dumped.** `create_note_prompts(backfill=true)` (any note older than today)
-  makes the note's own date the exposure — so a fact still recalled after months leaps to a long
+  back in on a day with spare slots. Overflow above it simply stays due. Parking happens only in a
+  real session (`get_due_flashcard_prompts`, `POST /api/flashcards/session`); `GET …/session` is a
+  read-only preview.
+- **Backfill is spread, not dumped.** `backfill=true` (the default for a card dated before today)
+  makes the card's own date the exposure — so a fact still recalled after months leaps to a long
   interval on its first pass, and a lost one comes back tomorrow — and puts the first review on the
-  first day from +4 with fewer than `BackfillPerDay` (10) backfilled prompts due. The 2026-10-02
-  migration of the 259 pre-v2 notes went through this.
-- **Grades are again / hard / good / easy.** The grader is the quiz skill; "O" from the user means
-  "I know this perfectly" and is recorded as easy. Lapses come back tomorrow flagged `Relearning`;
-  the eighth lapse suspends the prompt as a leech (`update_note_prompt reset=true` after a rewrite).
+  first day from +4 with fewer than `BackfillPerDay` (10) backfilled prompts due.
+- **Grades are again / hard / good / easy.** In chat the quiz skill grades; in the tab the learner
+  self-grades. "O" from the user means "I know this perfectly" and is recorded as easy. Lapses come
+  back tomorrow flagged `Relearning`; the eighth lapse suspends the prompt as a leech
+  (`update_flashcard_prompt reset=true` after a rewrite).
 - **Desired retention 0.9.** Lowering it buys almost no capacity (≈ 7.2 → 6.4 questions per carried
   prompt at 0.8), so the cap is the only knob. `TrueRetention30d` in the stats should hover near
-  0.9; drifting away means the parameters want re-fitting from `note_prompt_reviews`.
+  0.9; drifting away means the parameters want re-fitting from `flashcard_reviews`.
 - Same EF caveat as `VocabStore.ApplyReview`: the review row is returned unattached and added by
   the caller, never through the navigation.
+
+**Seeding (migration `FlashcardsV2`, 2026-10-02).** Every v1 note was *copied* into a card (new ids,
+same book/day/date/content), and the 544 prompts written that day for the first, note-bound attempt
+were moved onto the cards with their schedule intact; the note-bound tables were then dropped. The
+copies are snapshots — a later edit to a v1 note does not reach its card, by design.
 
 The skills live in `skills/` in this repo (`interval-repeat-quiz`, `add-daily-note`); the copies
 Claude actually runs are synced from the user's account, so a change here has to be uploaded there.
