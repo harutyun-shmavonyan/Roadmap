@@ -2,28 +2,27 @@
 
 ## Deploying (do NOT skip)
 
-This app is deployed to **Railway** from the Docker image
-**`h317280/roadmap-app:latest`**. Railway pulls that image — it does **not** build from git.
+This app is deployed to **Railway**, which since 2026-10-02 **builds the root `Dockerfile` from the
+GitHub repo `harutyun-shmavonyan/Roadmap`, branch `master`** (project `66371d0b-1c97-49f4-90b8-1f33106deb75`,
+service `9271cb87-e63a-45e9-aa3c-74324561f4d3`, environment `43921fe0-f892-4f9e-97bd-bd3fd9b6e67f`).
+Before that it pulled the image `h317280/roadmap-app:latest`, which needed a Docker daemon the
+remote Claude sessions do not have; the switch was made so a deploy is a `git push`.
 
-**After ANY change to `backend/` or `frontend/`, you MUST run, from the repo root:**
+**To ship a change to `backend/` or `frontend/`: land it on `master` and push.** A push to a feature
+branch does not deploy. Railway starts the build on the push (multi-stage image: `npm run build`,
+`dotnet publish`), typically a few minutes; the Railway MCP `list-deployments` / `get-logs` tools
+follow it, and `get-deployment-diagnosis` explains a failed one.
 
-```bash
-docker build -t h317280/roadmap-app:latest .
-docker push h317280/roadmap-app:latest
-```
-
-- A `git push` alone does **not** deploy. The image push is what ships the change.
-- **The image push alone does not deploy either** — Railway does not watch the tag. After pushing,
-  trigger a redeploy (dashboard, or the Railway MCP `redeploy` tool with project
-  `66371d0b-1c97-49f4-90b8-1f33106deb75`, service `9271cb87-e63a-45e9-aa3c-74324561f4d3`,
-  environment `43921fe0-f892-4f9e-97bd-bd3fd9b6e67f`); it re-pulls `:latest`. It takes ~15 s.
 - **Verify, do not assume.** `https://roadmap-app.up.railway.app/mcp` needs no secret, so
-  `tools/list` over JSON-RPC is the cheapest proof of what is actually running. On 2026-09-26 an
-  image push looked done while production was still a day-old build.
-- Docs-only changes (this file, `README.md`) are not in the image, so they don't need a rebuild.
-- The Docker build compiles the frontend (`npm run build`) and backend (`dotnet publish`) inside
-  the image, so a clean working tree isn't required — but note the build ships the **entire
-  working tree**, including any unrelated uncommitted changes.
+  `tools/list` over JSON-RPC is the cheapest proof of what is actually running — look for a tool the
+  change added. On 2026-09-26 an image push looked done while production was still a day-old build.
+- Every push to `master` rebuilds, docs included (`*.md` is outside the image via `.dockerignore`, so
+  a docs-only push is a wasted but harmless build). Keep docs changes in the same push as code when
+  you can.
+- The build ships the **committed tree**, not the working tree: uncommitted edits never deploy.
+- Rollback: the Railway MCP `redeploy` tool with a previous `deploymentId`, or revert on `master`.
+- The service's variables (`AUTH_PASSWORD`, `DATABASE_URL`, `JWT_SECRET`) are untouched by the
+  source switch; `PORT` is injected by Railway.
 
 ## Jobs tab — application tracking
 
