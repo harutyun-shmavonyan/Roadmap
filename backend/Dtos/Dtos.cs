@@ -299,9 +299,12 @@ public record FlashcardSessionDto(string Date, int DailyCap, int AskedToday, int
     int Overflow, int ParkedNow, int Unparked, int ParkedTotal, double CarryCapacityPerDay, double DesiredRetention,
     List<FlashcardPromptDto> Prompts);
 public record DayLoadDto(string Date, int Due);
-// The memory snapshot behind the Notes v2 dashboard: per prompt only what the forgetting curve needs, so the
-// tab can project recall N days ahead on the client (same formula as Fsrs.Retrievability) as a slider moves.
-public record FlashcardMemoryPointDto(string Book, string State, double Stability, int ElapsedDays);
+// The memory history behind the Notes v2 dashboard: per prompt only what the forgetting curve needs to rebuild its
+// state on any past day — first exposure (date + starting stability) and each review's date and resulting
+// stability — so the tab can draw recall as it was N days ago on the client (same curve as Fsrs.Retrievability).
+public record FlashcardMemoryReviewDto(string Date, double StabilityAfter);
+public record FlashcardMemoryPointDto(string Book, string State, double Stability, int ElapsedDays,
+    string Exposure, double InitialStability, List<FlashcardMemoryReviewDto> Reviews);
 public record FlashcardMemoryDto(string Today, double DesiredRetention, List<FlashcardMemoryPointDto> Prompts);
 public record FlashcardStatsDto(int Flashcards, int FlashcardsWithPrompts, int FlashcardsWithoutPrompts, int Prompts,
     int Active, int Parked, int Suspended, int Leeches, int DueToday, int AskedToday, int DailyCap, int Remaining,

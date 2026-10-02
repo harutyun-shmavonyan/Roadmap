@@ -491,9 +491,23 @@ public static class FlashcardLogic
         var today = AppClock.Today();
         var q = db.FlashcardPrompts.AsNoTracking().Include(p => p.Flashcard).Where(p => p.Flashcard!.Book == book);
         var rows = await q.ToListAsync();
-        return new FlashcardMemoryDto(today.ToString("yyyy-MM-dd"), DesiredRetention,
-            rows.Select(p => new FlashcardMemoryPointDto(p.Flashcard?.Book ?? "", p.State.ToString(),
-                Math.Round(p.Stability, 3), ElapsedDays(p, today))).ToList());
+        var ids = rows.Select(p => p.Id).ToList();
+        var reviews = (await db.FlashcardReviews.AsNoTracking().Where(r => ids.Contains(r.FlashcardPromptId))
+                .OrderBy(r => r.ReviewedAt).ToListAsync())
+            .ToLookup(r => r.FlashcardPromptId);
+        return new FlashcardMemoryDto(today.ToString("yyyy-MM-dd"), DesiredRetention, rows.Select(p =>
+        {
+            var history = reviews[p.Id].ToList();
+            // The first exposure: before any review it is LastReviewedAt itself; once reviewed, the first review
+            // records how long after the exposure it came and the stability it started from.
+            var first = history.FirstOrDefault();
+            var exposure = first is null ? LastReviewDate(p) : first.ReviewDate.AddDays(-first.ElapsedDays);
+            var initial = first is null ? p.Stability : first.StabilityBefore;
+            return new FlashcardMemoryPointDto(p.Flashcard?.Book ?? "", p.State.ToString(),
+                Math.Round(p.Stability, 3), ElapsedDays(p, today),
+                exposure.ToString("yyyy-MM-dd"), Math.Round(initial, 3),
+                history.Select(r => new FlashcardMemoryReviewDto(r.ReviewDate.ToString("yyyy-MM-dd"), Math.Round(r.StabilityAfter, 3))).ToList());
+        }).ToList());
     }
 
     // ===== DTOs =====

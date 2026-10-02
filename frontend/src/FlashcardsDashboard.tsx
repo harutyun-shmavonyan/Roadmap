@@ -2,15 +2,28 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FlashcardMemoryDto } from './types';
 import { api } from './api';
 
-// Notes v2 dashboard. Panel 1: how your prompts' predicted recall is spread, today or N days from now if
-// you reviewed nothing until then. Recall comes from the same forgetting curve the server schedules with
+// Notes v2 dashboard. Panel 1: how your prompts' predicted recall was spread on any day of the past year,
+// today by default. Each prompt's state on that day is rebuilt from its own history (first exposure, then
+// every review up to that day); prompts from notes written after that day did not exist yet and are left out. Recall comes from the same forgetting curve the server schedules with
 // (Fsrs.Retrievability): R(t) = (1 + 19/81 · t / S)^-0.5, so R equals 90% when t equals the stability S.
 
 
 const FACTOR = 19 / 81;
 const DECAY = -0.5;
 const BINS = 10;
-const MAX_DAYS = 365;
+const MAX_DAYS_BACK = 365;
+const DAY_MS = 86_400_000;
+
+/** yyyy-mm-dd → whole days since the epoch, timezone-free (the server sends dates in Asia/Yerevan). */
+function dayIndex(iso: string): number {
+  const [y, m, d] = iso.split('-').map(Number);
+  return Math.round(Date.UTC(y, m - 1, d) / DAY_MS);
+}
+
+function fromDayIndex(i: number): Date {
+  const d = new Date(i * DAY_MS);
+  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
 
 function recall(stability: number, days: number): number {
   if (days <= 0) return 1;
@@ -112,30 +125,37 @@ function RecallHistogram({ bins, total }: { bins: number[]; total: number }) {
 export function FlashcardsDashboard({ book }: { book: 'red' | 'green' }) {
   const [data, setData] = useState<FlashcardMemoryDto | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [days, setDays] = useState(0);
+  // Days back from today: 0 is today (the slider's right end), MAX_DAYS_BACK a year ago (its left end).
+  const [daysBack, setDaysBack] = useState(0);
   const [showTable, setShowTable] = useState(false);
 
   useEffect(() => { setData(null); api.getFlashcardMemory(book).then(setData).catch(e => setError(String(e))); }, [book]);
 
   const view = useMemo(() => {
     if (!data) return null;
-    // Suspended prompts are out of rotation, so they are not part of what you are expected to remember.
-    const pts = data.prompts.filter(p => p.state !== 'Suspended');
+    const day = dayIndex(data.today) - daysBack;
     const bins = new Array(BINS).fill(0);
-    let sum = 0, atTarget = 0, below50 = 0;
-    for (const p of pts) {
-      const r = recall(p.stability, p.elapsedDays + days);
-      bins[Math.min(BINS - 1, Math.floor(r * BINS))]++;
-      sum += r;
-      if (r >= data.desiredRetention) atTarget++;
-      if (r < 0.5) below50++;
+    let n = 0, sum = 0, atTarget = 0, below50 = 0;
+    for (const p of data.prompts) {
+      // Suspended prompts are out of rotation, so they are not part of what you are expected to remember.
+      if (p.state === 'Suspended') continue;
+      const exposure = dayIndex(p.exposure);
+      if (exposure > day) continue; // not written yet on that day
+      // State on that day: the last review on or before it, or the first exposure if none.
+      let stability = p.initialStability, lastSeen = exposure;
+      for (const r of p.reviews) {
+        const rd = dayIndex(r.date);
+        if (rd > day) break;
+        stability = r.stabilityAfter; lastSeen = rd;
+      }
+      const rec = recall(stability, day - lastSeen);
+      bins[Math.min(BINS - 1, Math.floor(rec * BINS))]++;
+      n++; sum += rec;
+      if (rec >= data.desiredRetention) atTarget++;
+      if (rec < 0.5) below50++;
     }
-    const n = pts.length;
-    return { bins, n, mean: n ? sum / n : 0, atTarget: n ? atTarget / n : 0, below50: n ? below50 / n : 0 };
-  }, [data, days]);
-
-  const when = new Date();
-  when.setDate(when.getDate() + days);
+    return { bins, n, mean: n ? sum / n : 0, atTarget: n ? atTarget / n : 0, below50: n ? below50 / n : 0, date: fromDayIndex(day) };
+  }, [data, daysBack]);
 
   if (error) return <div style={{ padding: 24, color: '#e5484d', fontSize: 13 }}>{error}</div>;
   if (!data || !view) return <div style={{ padding: 24, color: 'var(--text-muted)' }}>Loading…</div>;
@@ -146,7 +166,7 @@ export function FlashcardsDashboard({ book }: { book: 'red' | 'green' }) {
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>Predicted recall across prompts</h3>
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            {days === 0 ? 'today' : `in ${days} day${days === 1 ? '' : 's'} · ${fmtDate(when)}`} · if nothing is reviewed until then
+            {daysBack === 0 ? `today · ${fmtDate(view.date)}` : `${daysBack} day${daysBack === 1 ? '' : 's'} ago · ${fmtDate(view.date)}`}
           </span>
         </div>
 
@@ -166,26 +186,28 @@ export function FlashcardsDashboard({ book }: { book: 'red' | 'green' }) {
           </div>
           <div>
             <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)' }}>{view.n}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>prompts in the {book} book</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>prompts in the {book} book{daysBack ? ' then' : ''}</div>
           </div>
         </div>
 
-        {/* Days slider */}
+        {/* Days slider: a year ago on the left, today on the right (the default) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '14px 0 8px' }}>
-          <label htmlFor="recall-days" style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Days from now</label>
-          <input id="recall-days" type="range" min={0} max={MAX_DAYS} step={1} value={days}
-            onChange={e => setDays(Number(e.target.value))} style={{ flex: 1, accentColor: 'var(--chart-1)' }} />
-          <span style={{ fontSize: 13, fontWeight: 700, minWidth: 64, textAlign: 'right', color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{days} d</span>
-          <button className="btn btn-sm" onClick={() => setDays(0)} disabled={days === 0}>Today</button>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>1 year ago</span>
+          <input id="recall-days" type="range" min={-MAX_DAYS_BACK} max={0} step={1} value={-daysBack}
+            aria-label="Day to show, from one year ago to today" aria-valuetext={daysBack === 0 ? 'today' : `${daysBack} days ago`}
+            onChange={e => setDaysBack(-Number(e.target.value))} style={{ flex: 1, accentColor: 'var(--chart-1)' }} />
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>today</span>
+          <span style={{ fontSize: 13, fontWeight: 700, minWidth: 72, textAlign: 'right', color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{daysBack === 0 ? 'today' : `−${daysBack} d`}</span>
+          <button className="btn btn-sm" onClick={() => setDaysBack(0)} disabled={daysBack === 0}>Today</button>
         </div>
 
         {view.n === 0
-          ? <div style={{ padding: '24px 0', fontSize: 13, color: 'var(--text-muted)' }}>No prompts to show.</div>
+          ? <div style={{ padding: '24px 0', fontSize: 13, color: 'var(--text-muted)' }}>No prompts existed in the {book} book on that day.</div>
           : <RecallHistogram bins={view.bins} total={view.n} />}
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6 }}>
           <button className="btn btn-sm" onClick={() => setShowTable(t => !t)}>{showTable ? 'Hide table' : 'Show table'}</button>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Suspended prompts are left out. Reviewing changes these numbers; the slider shows decay without reviews.</span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Past days are rebuilt from each prompt's review history and the forgetting curve. Prompts from later notes, and suspended ones, are left out.</span>
         </div>
         {showTable && (
           <table style={{ marginTop: 10, borderCollapse: 'collapse', fontSize: 13, fontVariantNumeric: 'tabular-nums', color: 'var(--text-primary)' }}>

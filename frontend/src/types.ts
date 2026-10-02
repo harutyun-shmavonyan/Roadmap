@@ -175,7 +175,12 @@ export interface FlashcardReviewResultDto {
   prompt: FlashcardPromptDto; grade: 'Again' | 'Hard' | 'Good' | 'Easy'; passed: boolean; retrievabilityBefore: number;
   elapsedDays: number; intervalDays: number; leech: boolean; askedToday: number; remaining: number; dailyCap: number;
 }
-export interface FlashcardMemoryPointDto { book: string; state: FlashcardPromptState; stability: number; elapsedDays: number; }
+export interface FlashcardMemoryReviewDto { date: string; stabilityAfter: number; }
+export interface FlashcardMemoryPointDto {
+  book: string; state: FlashcardPromptState; stability: number; elapsedDays: number;
+  /** First exposure (yyyy-mm-dd) and the stability it started with; then each review's date and resulting stability. */
+  exposure: string; initialStability: number; reviews: FlashcardMemoryReviewDto[];
+}
 export interface FlashcardMemoryDto { today: string; desiredRetention: number; prompts: FlashcardMemoryPointDto[]; }
 export interface FlashcardStatsDto {
   flashcards: number; flashcardsWithPrompts: number; flashcardsWithoutPrompts: number; prompts: number; active: number;
