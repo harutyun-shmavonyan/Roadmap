@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, type CSSProperties } from 'react';
 import { marked } from 'marked';
 import type { NoteDto, NotePromptDto, NotePromptOverviewDto, NoteSrsStatsDto, NotePromptState } from './types';
 import { api } from './api';
+import { NotesReview } from './NotesReview';
 
 type Book = 'red' | 'green';
 
@@ -257,6 +258,7 @@ function AddPromptForm({ book, dayNumber, onAdded }: { book: Book; dayNumber: nu
 }
 
 export function NotesPage() {
+  const [mode, setMode] = useState<'notes' | 'review'>('notes');
   const [book, setBook] = useState<Book>('red');
   const [notes, setNotes] = useState<NoteDto[]>([]);
   const [overview, setOverview] = useState<Record<number, NotePromptOverviewDto>>({});
@@ -291,6 +293,15 @@ export function NotesPage() {
     return () => { cancelled = true; };
   }, [book, selected]);
 
+  // Back from a review: due dates moved, so the badges, the selected note's prompts and the totals re-fetch.
+  useEffect(() => {
+    if (mode !== 'notes') return;
+    loadOverview(book);
+    loadStats();
+    if (selected !== null) api.getNotePrompts(book, selected).then(setPrompts).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
   // After any prompt write: the note's prompts, the day-list badges and the totals all move.
   const refreshPrompts = () => {
     if (selected !== null) api.getNotePrompts(book, selected).then(setPrompts).catch(() => undefined);
@@ -304,9 +315,20 @@ export function NotesPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Red / Green subtabs + the spaced-repetition totals (global — the cap is shared by both books) */}
+      {/* Mode switch, Red / Green subtabs, and the spaced-repetition totals (global — the cap is shared by both books) */}
       <div style={{ display: 'flex', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
-        {(['red', 'green'] as Book[]).map(b => {
+        <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginRight: 6 }}>
+          {(['notes', 'review'] as const).map(m => {
+            const active = mode === m;
+            return (
+              <button key={m} onClick={() => setMode(m)} style={{
+                padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none', textTransform: 'capitalize',
+                background: active ? 'var(--accent, #5b8def)' : 'var(--bg-secondary)', color: active ? '#fff' : 'var(--text-secondary)',
+              }}>{m === 'review' ? `Review${stats && stats.dueToday > 0 ? ` · ${Math.min(stats.dueToday, stats.remaining)}` : ''}` : 'Notes'}</button>
+            );
+          })}
+        </div>
+        {mode === 'notes' && (['red', 'green'] as Book[]).map(b => {
           const active = book === b;
           const c = b === 'red' ? '#e5484d' : '#30a46c';
           return (
@@ -341,7 +363,9 @@ export function NotesPage() {
         )}
       </div>
 
-      {loading ? (
+      {mode === 'review' ? (
+        <NotesReview onStatsChanged={loadStats} />
+      ) : loading ? (
         <div style={{ padding: 24, color: 'var(--text-muted)' }}>Loading...</div>
       ) : notes.length === 0 ? (
         <div style={{ padding: 24, color: 'var(--text-muted)' }}>No notes in the {book} book yet.</div>

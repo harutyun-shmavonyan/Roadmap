@@ -29,6 +29,47 @@ public static class NoteSrsEndpoints
             return Results.Ok(await NoteSrsLogic.BuildSessionAsync(db, bk, persist: false));
         });
 
+        // Start or resume today's session in the app. Same triage and the same parking/unparking side
+        // effects as the MCP tool, so a session begun in chat and continued in the tab is one session.
+        g.MapPost("/srs/session", async (string? book, RoadmapDbContext db) =>
+        {
+            string? bk = null;
+            if (!string.IsNullOrWhiteSpace(book))
+            {
+                bk = book.Trim().ToLowerInvariant();
+                if (bk is not ("red" or "green")) return Results.BadRequest("Invalid book. Use 'red' or 'green'.");
+            }
+            return Results.Ok(await NoteSrsLogic.BuildSessionAsync(db, bk, persist: true));
+        });
+
+        // Record one graded answer from the flashcard view. The learner grades themselves here; in chat the
+        // skill grades. Either way the server owns the schedule.
+        g.MapPost("/prompts/{id:guid}/review", async (Guid id, RecordNotePromptReviewRequest req, RoadmapDbContext db) =>
+        {
+            if (!NoteSrsLogic.TryParseGrade(req.Grade, out var grade))
+                return Results.BadRequest($"invalid grade '{req.Grade}'. Use again | hard | good | easy.");
+            var p = await db.NotePrompts.Include(x => x.Note).FirstOrDefaultAsync(x => x.Id == id);
+            if (p is null) return Results.NotFound();
+
+            var today = AppClock.Today();
+            var review = NoteSrsLogic.ApplyReview(p, grade, req.Answer, req.Note, today, DateTime.UtcNow);
+            db.NotePromptReviews.Add(review);
+            await db.SaveChangesAsync();
+
+            var askedToday = await NoteSrsLogic.AskedTodayAsync(db, today);
+            return Results.Ok(new NotePromptReviewResultDto(
+                NoteSrsLogic.ToDto(p, today, includeHistory: false),
+                grade.ToString(),
+                grade != FsrsGrade.Again,
+                Math.Round(review.Retrievability, 3),
+                review.ElapsedDays,
+                p.DueOn.DayNumber - today.DayNumber,
+                NoteSrsLogic.IsLeech(p),
+                askedToday,
+                Math.Max(0, NoteSrsLogic.DailyCap - askedToday),
+                NoteSrsLogic.DailyCap));
+        });
+
         g.MapGet("/srs/overview/{book}", async (string book, RoadmapDbContext db) =>
         {
             var bk = book.Trim().ToLowerInvariant();

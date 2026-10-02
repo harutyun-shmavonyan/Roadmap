@@ -159,6 +159,17 @@ export interface NotePromptDto {
   dueOn: string; isDue: boolean; relearning: boolean; lapses: number; reviews: number;
   lastReviewedAt: string; createdAt: string; reviewHistory: NotePromptReviewDto[];
 }
+// Today's queue (POST starts or resumes it, with the same parking side effects as the MCP session).
+export interface NoteSrsSessionDto {
+  date: string; dailyCap: number; askedToday: number; remaining: number; dueTotal: number; returned: number;
+  overflow: number; parkedNow: number; unparked: number; parkedTotal: number; carryCapacityPerDay: number;
+  desiredRetention: number; prompts: NotePromptDto[];
+}
+export type NoteGrade = 'again' | 'hard' | 'good' | 'easy';
+export interface NotePromptReviewResultDto {
+  prompt: NotePromptDto; grade: 'Again' | 'Hard' | 'Good' | 'Easy'; passed: boolean; retrievabilityBefore: number;
+  elapsedDays: number; intervalDays: number; leech: boolean; askedToday: number; remaining: number; dailyCap: number;
+}
 export interface NotePromptOverviewDto { dayNumber: number; promptCount: number; due: number; parked: number; suspended: number; nextDueOn: string | null; }
 export interface NoteSrsStatsDto {
   prompts: number; active: number; parked: number; suspended: number; leeches: number;

@@ -3,7 +3,7 @@ import type { RoadmapSummary, RoadmapTree, NodeDto, CreateNodeRequest, Actionabl
   WeekPlan, WeekPlanGoal, WorkLogHistory, HabitDto, SprintHabitDto, ScheduleHabitDto,
   SingleTaskDto, ScheduleTaskDto, CustomLogDto, ScheduleBlockDef, ScheduleBlockMode, SprintGoalDto,
   NodeSubPointDto, ScheduleSubPointDto, NoteDto,
-  NotePromptDto, NotePromptOverviewDto, NoteSrsStatsDto, NotePromptState,
+  NotePromptDto, NotePromptOverviewDto, NoteSrsStatsDto, NotePromptState, NoteSrsSessionDto, NoteGrade, NotePromptReviewResultDto,
   ArticleSummaryDto, ArticleDto, ArticleImageDto, ArticleFormat,
   NewsletterSummaryDto, NewsletterCursorDto,
   JobRunDto, JobRunSummaryDto,
@@ -202,6 +202,11 @@ export const api = {
   updateNotePrompt: (id: string, patch: { question?: string; answer?: string; state?: NotePromptState; reset?: boolean }) =>
     req<NotePromptDto>(`/api/notes/prompts/${id}`, { method: 'PUT', body: JSON.stringify(patch) }),
   deleteNotePrompt: (id: string) => req<void>(`/api/notes/prompts/${id}`, { method: 'DELETE' }),
+  // The flashcard mode: start (or resume) today's capped queue, then record each self-graded answer.
+  startNoteReview: (book?: 'red' | 'green') =>
+    req<NoteSrsSessionDto>(`/api/notes/srs/session${book ? `?book=${book}` : ''}`, { method: 'POST' }),
+  recordNotePromptReview: (id: string, grade: NoteGrade, answer?: string, note?: string) =>
+    req<NotePromptReviewResultDto>(`/api/notes/prompts/${id}/review`, { method: 'POST', body: JSON.stringify({ grade, answer, note }) }),
 
   // Articles (global reading library; Markdown or HTML body; marking read earns 3 pts/hour)
   getArticles: () => req<ArticleSummaryDto[]>('/api/articles'),

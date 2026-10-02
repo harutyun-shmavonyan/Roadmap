@@ -286,6 +286,10 @@ public record NoteSrsStatsDto(int Prompts, int Active, int Parked, int Suspended
     int NotesWithoutPrompts, int DueToday, int AskedToday, int DailyCap, int Remaining, double CarryCapacityPerDay,
     double DesiredRetention, int ReviewsAllTime, int ReviewsLast7Days, double? TrueRetention30d, int Lapses,
     double AverageStability, List<DayLoadDto> UpcomingLoad);
+// In-app review (the Notes tab's flashcard mode): grade is again | hard | good | easy; answer "O" = declared known.
+public record RecordNotePromptReviewRequest(string Grade, string? Answer, string? Note);
+public record NotePromptReviewResultDto(NotePromptDto Prompt, string Grade, bool Passed, double RetrievabilityBefore,
+    int ElapsedDays, int IntervalDays, bool Leech, int AskedToday, int Remaining, int DailyCap);
 // Per-note summary for the Notes tab's day list.
 public record NotePromptOverviewDto(int DayNumber, int PromptCount, int Due, int Parked, int Suspended, string? NextDueOn);
 
