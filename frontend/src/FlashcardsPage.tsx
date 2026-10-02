@@ -10,7 +10,6 @@ import { FlashcardsDashboard } from './FlashcardsDashboard';
 // fixed and reviewed. Nothing on this page touches the v1 Notes tab or its data.
 
 type Book = 'red' | 'green';
-type BookFilter = 'all' | Book;
 
 /** A card's title: its first line without the bullet marker. */
 function cardTitle(content: string): string {
@@ -253,8 +252,7 @@ function AddPromptForm({ cardId, onAdded }: { cardId: string; onAdded: () => voi
 }
 
 /** Create a card by hand: book, date (today by default) and the day's bullets. Prompts come after, per bullet. */
-function NewCardForm({ defaultBook, onCreated }: { defaultBook: Book; onCreated: (card: FlashcardDto) => void }) {
-  const [book, setBook] = useState<Book>(defaultBook);
+function NewCardForm({ book, onCreated }: { book: Book; onCreated: (card: FlashcardDto) => void }) {
   const [open, setOpen] = useState(false);
   const [date, setDate] = useState('');
   const [content, setContent] = useState('');
@@ -276,11 +274,7 @@ function NewCardForm({ defaultBook, onCreated }: { defaultBook: Book; onCreated:
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12, borderRadius: 'var(--radius-md)', border: '1px dashed var(--border)', marginBottom: 12 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <select value={book} onChange={e => setBook(e.target.value as Book)}
-          style={{ padding: '5px 8px', fontSize: 13, borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-          <option value="red">red</option><option value="green">green</option>
-        </select>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>date</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{book} book · date</span>
         <input type="date" value={date} onChange={e => setDate(e.target.value)}
           style={{ padding: '5px 8px', fontSize: 13, borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>(empty = today)</span>
@@ -297,7 +291,11 @@ function NewCardForm({ defaultBook, onCreated }: { defaultBook: Book; onCreated:
 
 export function FlashcardsPage() {
   const [mode, setMode] = useState<'cards' | 'review' | 'dashboard'>('cards');
-  const [book, setBook] = useState<BookFilter>('all');
+  // Red and green are separate worlds: the book is chosen first and everything below belongs to it.
+  const [book, setBookState] = useState<Book>(() => {
+    try { return localStorage.getItem('notesv2.book') === 'green' ? 'green' : 'red'; } catch { return 'red'; }
+  });
+  const setBook = (b: Book) => { setBookState(b); try { localStorage.setItem('notesv2.book', b); } catch { /* private mode */ } };
   const [date, setDate] = useState('');
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
@@ -312,9 +310,9 @@ export function FlashcardsPage() {
   // Debounce the search box so typing does not fire a request per key.
   useEffect(() => { const t = setTimeout(() => setQuery(search.trim()), 250); return () => clearTimeout(t); }, [search]);
 
-  const loadStats = useCallback(() => { api.getFlashcardStats().then(setStats).catch(() => setStats(null)); }, []);
+  const loadStats = useCallback(() => { api.getFlashcardStats(book).then(setStats).catch(() => setStats(null)); }, [book]);
   const loadCards = useCallback((keepSelection: boolean) => {
-    return api.getFlashcards({ book: book === 'all' ? undefined : book, date: date || undefined, search: query || undefined }).then(list => {
+    return api.getFlashcards(book, { date: date || undefined, search: query || undefined }).then(list => {
       setCards(list);
       setSelected(prev => (keepSelection && prev && list.some(c => c.id === prev)) ? prev : (list[0]?.id ?? null));
     });
@@ -378,8 +376,26 @@ export function FlashcardsPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Mode switch, Red / Green, and the totals (global — the cap is shared by both books) */}
+      {/* Book first (red and green share nothing), then the view, then that book's totals */}
       <div style={{ display: 'flex', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
+        {(['red', 'green'] as Book[]).map(b => {
+          const active = book === b;
+          const c = bookColor(b);
+          return (
+            <button key={b} onClick={() => setBook(b)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 7, padding: '7px 16px',
+                borderRadius: 'var(--radius-md)', cursor: 'pointer', fontSize: 14, fontWeight: 700, textTransform: 'capitalize',
+                border: `1px solid ${active ? c : 'var(--border)'}`,
+                background: active ? c : 'var(--bg-secondary)',
+                color: active ? '#fff' : 'var(--text-secondary)',
+              }}>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: active ? '#fff' : c, display: 'inline-block' }} />
+              {b}
+            </button>
+          );
+        })}
+        <span style={{ width: 1, alignSelf: 'stretch', background: 'var(--border-subtle)', margin: '0 4px' }} />
         <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginRight: 6 }}>
           {(['cards', 'review', 'dashboard'] as const).map(m => {
             const active = mode === m;
@@ -391,23 +407,6 @@ export function FlashcardsPage() {
             );
           })}
         </div>
-        {mode === 'cards' && (['all', 'red', 'green'] as BookFilter[]).map(b => {
-          const active = book === b;
-          const c = b === 'all' ? 'var(--accent, #5b8def)' : bookColor(b);
-          return (
-            <button key={b} onClick={() => setBook(b)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 7, padding: '7px 14px',
-                borderRadius: 'var(--radius-md)', cursor: 'pointer', fontSize: 14, fontWeight: 600, textTransform: 'capitalize',
-                border: `1px solid ${active ? c : 'var(--border)'}`,
-                background: active ? c : 'var(--bg-secondary)',
-                color: active ? '#fff' : 'var(--text-secondary)',
-              }}>
-              {b !== 'all' && <span style={{ width: 10, height: 10, borderRadius: '50%', background: active ? '#fff' : c, display: 'inline-block' }} />}
-              {b}
-            </button>
-          );
-        })}
         {stats && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginLeft: 'auto', alignItems: 'stretch' }}>
             <Stat label="cards" value={stats.flashcards} title={`${stats.flashcardsWithPrompts} with prompts, ${stats.flashcardsWithoutPrompts} without`} />
@@ -427,9 +426,9 @@ export function FlashcardsPage() {
       </div>
 
       {mode === 'review' ? (
-        <FlashcardsReview onStatsChanged={loadStats} />
+        <FlashcardsReview key={book} book={book} onStatsChanged={loadStats} />
       ) : mode === 'dashboard' ? (
-        <FlashcardsDashboard />
+        <FlashcardsDashboard key={book} book={book} />
       ) : loading ? (
         <div style={{ padding: 24, color: 'var(--text-muted)' }}>Loading...</div>
       ) : (
@@ -444,7 +443,7 @@ export function FlashcardsPage() {
               </div>
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search cards and questions…"
                 style={{ padding: '6px 10px', fontSize: 13, borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
-              <NewCardForm defaultBook={book === 'green' ? 'green' : 'red'} onCreated={c => { loadCards(false).then(() => setSelected(c.id)); loadStats(); }} />
+              <NewCardForm book={book} onCreated={c => { loadCards(false).then(() => setSelected(c.id)); loadStats(); }} />
               <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{cards.length} card{cards.length === 1 ? '' : 's'}{date ? ` on ${fmtDate(date)}` : ''}</div>
             </div>
             {cards.length === 0 && <div style={{ padding: '12px 10px', fontSize: 13, color: 'var(--text-muted)' }}>No cards match.</div>}

@@ -194,17 +194,17 @@ export const api = {
   getNotes: (book: 'red' | 'green') => req<NoteDto[]>(`/api/notes/${book}`),
   // Notes v2 — flashcards (independent of the daily notes). Cards and prompts are mostly written by the
   // skills in chat; the tab reads them, fixes prompts, and runs the in-app flashcard review.
-  getFlashcards: (f: { book?: 'red' | 'green'; date?: string; search?: string; withoutPrompts?: boolean } = {}) => {
-    const q = new URLSearchParams({ limit: '5000' });
-    if (f.book) q.set('book', f.book);
+  getFlashcards: (book: 'red' | 'green', f: { date?: string; search?: string; withoutPrompts?: boolean } = {}) => {
+    const q = new URLSearchParams({ limit: '5000', book });
     if (f.date) q.set('date', f.date);
     if (f.search) q.set('search', f.search);
     if (f.withoutPrompts) q.set('withoutPrompts', 'true');
     return req<FlashcardDto[]>(`/api/flashcards/?${q}`);
   },
   getFlashcard: (id: string) => req<FlashcardDto>(`/api/flashcards/${id}`),
-  getFlashcardStats: () => req<FlashcardStatsDto>('/api/flashcards/stats'),
-  getFlashcardMemory: () => req<FlashcardMemoryDto>('/api/flashcards/memory'),
+  // Red and green are separate worlds: every set-level read takes the book.
+  getFlashcardStats: (book: 'red' | 'green') => req<FlashcardStatsDto>(`/api/flashcards/stats?book=${book}`),
+  getFlashcardMemory: (book: 'red' | 'green') => req<FlashcardMemoryDto>(`/api/flashcards/memory?book=${book}`),
   createFlashcard: (book: 'red' | 'green', content: string, entryDate?: string, prompts?: { question: string; answer: string }[]) =>
     req<FlashcardDto>('/api/flashcards/', { method: 'POST', body: JSON.stringify({ book, content, entryDate, prompts }) }),
   updateFlashcard: (id: string, content: string) =>
@@ -217,8 +217,8 @@ export const api = {
     req<FlashcardPromptDto>(`/api/flashcards/prompts/${id}`, { method: 'PUT', body: JSON.stringify(patch) }),
   deleteFlashcardPrompt: (id: string) => req<void>(`/api/flashcards/prompts/${id}`, { method: 'DELETE' }),
   // The flashcard review: start (or resume) today's capped queue, then record each self-graded answer.
-  startFlashcardReview: (book?: 'red' | 'green') =>
-    req<FlashcardSessionDto>(`/api/flashcards/session${book ? `?book=${book}` : ''}`, { method: 'POST' }),
+  startFlashcardReview: (book: 'red' | 'green') =>
+    req<FlashcardSessionDto>(`/api/flashcards/session?book=${book}`, { method: 'POST' }),
   recordFlashcardReview: (id: string, grade: FlashcardGrade, answer?: string, note?: string) =>
     req<FlashcardReviewResultDto>(`/api/flashcards/prompts/${id}/review`, { method: 'POST', body: JSON.stringify({ grade, answer, note }) }),
 

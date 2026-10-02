@@ -39,8 +39,8 @@ public sealed class FlashcardMcpTools(RoadmapDbContext db)
         "is just a property of the card). Content is the note — one top-level bullet with its subpoints (Markdown). Prompts are atomic " +
         "question/answer pairs — as many as the subpoints need, one fact each, the question carrying no hint of the answer. Writing the " +
         "card counts as the first exposure, so each prompt is already scheduled: first review in about 4 days, nothing asked today. For " +
-        "a card dated before today, backfill defaults to true: the card's date counts as the exposure and first reviews are spread at 10 " +
-        "a day so a bulk import never floods one date. Returns { flashcard_id, prompts_created, first_review_in_days }.")]
+        "a card dated before today, backfill defaults to true: the card's date counts as the exposure, so its prompts are due when they " +
+        "would have been (card date + 4 days — today for anything older); the daily cap paces a backlog. Returns { flashcard_id, prompts_created, first_review_in_days }.")]
     public async Task<string> CreateFlashcard(
         [Description("Book: 'red' or 'green'")] string book,
         [Description("The note: one top-level bullet and its subpoints, Markdown")] string content,
@@ -85,11 +85,11 @@ public sealed class FlashcardMcpTools(RoadmapDbContext db)
     }
 
     [McpServerTool(Name = "list_flashcards"), Description(
-        "Notes v2: cards newest first (by date), with content and prompt counts (no prompt bodies). Filter by book, by an exact date " +
+        "Notes v2: one book's cards newest first (by date), with content and prompt counts (no prompt bodies). Filter by an exact date " +
         "(all the cards learned that day), by a from/to date range, by text (matches content or a prompt question), or " +
         "without_prompts_only=true for the backfill list — cards that still need prompts (give them with add_flashcard_prompts).")]
     public async Task<string> ListFlashcards(
-        [Description("Restrict to one book: 'red' or 'green'. Omit for both.")] string? book = null,
+        [Description("Book: 'red' or 'green' — the two books are separate; there is no combined listing")] string book,
         [Description("Only cards of this date (YYYY-MM-DD)")] string? date = null,
         [Description("Only cards on or after this date (YYYY-MM-DD)")] string? from_date = null,
         [Description("Only cards on or before this date (YYYY-MM-DD)")] string? to_date = null,
@@ -97,8 +97,7 @@ public sealed class FlashcardMcpTools(RoadmapDbContext db)
         [Description("Only cards with no prompts yet (default false)")] bool without_prompts_only = false,
         [Description("Max cards (default 20, max 200)")] int limit = 20)
     {
-        string? bk = null;
-        if (!string.IsNullOrWhiteSpace(book)) { if (!FlashcardLogic.TryBook(book, out bk)) return J(new { error = "Invalid book. Use 'red' or 'green'." }); }
+        if (!FlashcardLogic.TryBook(book, out var bk)) return J(new { error = "Invalid book. Use 'red' or 'green'." });
         if (!TryDate(date, out var d) || !TryDate(from_date, out var f) || !TryDate(to_date, out var t)) return J(new { error = "Invalid date. Use YYYY-MM-DD." });
         if (limit is < 1 or > 200) limit = 20;
         var (total, cards) = await FlashcardLogic.ListCardsAsync(db, bk, d, f, t, search, without_prompts_only, limit);
@@ -152,7 +151,7 @@ public sealed class FlashcardMcpTools(RoadmapDbContext db)
     [McpServerTool(Name = "add_flashcard_prompts"), Description(
         "Notes v2: attach more prompts to an existing card — as many as its subpoints need, one fact each. Duplicates of a question " +
         "already on the card are refused. backfill defaults to true when the card is dated before today (exposure dated to the card, " +
-        "first reviews spread at 10 a day).")]
+        "due at card date + 4 days, i.e. today for anything older).")]
     public async Task<string> AddFlashcardPrompts(
         [Description("Flashcard UUID")] Guid flashcard_id,
         [Description("The prompts: each { question, answer }")] FlashcardPromptInput[] prompts,
@@ -206,17 +205,17 @@ public sealed class FlashcardMcpTools(RoadmapDbContext db)
     // ===== The daily session =====
 
     [McpServerTool(Name = "get_due_flashcard_prompts"), Description(
-        "Notes v2: today's review queue, already triaged under the daily cap of 25 questions (remaining = cap minus what was already " +
-        "recorded today, across both books). Ask the prompts IN THE ORDER RETURNED: yesterday's lapses lead, then due prompts by " +
+        "Notes v2: today's review queue for ONE book, already triaged under that book's daily cap of 25 questions (remaining = cap minus " +
+        "what was already recorded today in that book; red and green each have their own cap). Ask the prompts IN THE ORDER RETURNED: yesterday's lapses lead, then due prompts by " +
         "predicted recall, highest first. Each prompt carries its answer for grading — never show it before the learner answers. Record " +
         "every answer with record_flashcard_review; a prompt you skip stays due. Calling this again the same day returns what is still due " +
         "within the remaining budget, so it is safe to resume. Side effects: due prompts that did not fit and have fallen below 50% " +
-        "predicted recall are parked (not deleted); on a day with spare slots parked prompts are pulled back in.")]
+        "predicted recall and were answered before are parked (not deleted); never-answered prompts stay due. On a day with spare slots " +
+        "parked prompts are pulled back in.")]
     public async Task<string> GetDueFlashcardPrompts(
-        [Description("Restrict to one book: 'red' or 'green'. Omit for both (the default — the cap is shared anyway).")] string? book = null)
+        [Description("Book: 'red' or 'green'")] string book)
     {
-        string? bk = null;
-        if (!string.IsNullOrWhiteSpace(book)) { if (!FlashcardLogic.TryBook(book, out bk)) return J(new { error = "Invalid book. Use 'red' or 'green'." }); }
+        if (!FlashcardLogic.TryBook(book, out var bk)) return J(new { error = "Invalid book. Use 'red' or 'green'." });
         return J(await FlashcardLogic.BuildSessionAsync(db, bk, persist: true));
     }
 
@@ -240,7 +239,7 @@ public sealed class FlashcardMcpTools(RoadmapDbContext db)
         db.FlashcardReviews.Add(review);
         await db.SaveChangesAsync();
 
-        var askedToday = await FlashcardLogic.AskedTodayAsync(db, today);
+        var askedToday = await FlashcardLogic.AskedTodayAsync(db, today, p.Flashcard!.Book);
         return J(new
         {
             status = g == FsrsGrade.Again ? "failed" : "passed",
@@ -266,9 +265,10 @@ public sealed class FlashcardMcpTools(RoadmapDbContext db)
     }
 
     [McpServerTool(Name = "get_flashcard_stats"), Description(
-        "Notes v2 totals: cards with and without prompts, prompts by state, due today, asked today vs the daily cap, carry capacity, " +
+        "Notes v2 totals for ONE book: cards with and without prompts, prompts by state, due today, asked today vs the daily cap, carry capacity, " +
         "true retention over 30 days (target 0.9), lapses, and the due count for each of the next 7 days.")]
-    public async Task<string> GetFlashcardStats() => J(await FlashcardLogic.StatsAsync(db));
+    public async Task<string> GetFlashcardStats([Description("Book: 'red' or 'green'")] string book) =>
+        FlashcardLogic.TryBook(book, out var bk) ? J(await FlashcardLogic.StatsAsync(db, bk)) : J(new { error = "Invalid book. Use 'red' or 'green'." });
 }
 
 /// <summary>One part of a split_flashcard call, in the snake_case the MCP tools speak.</summary>

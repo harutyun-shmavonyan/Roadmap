@@ -17,17 +17,20 @@ namespace Roadmap.Api;
 /// an accurate grade; a card has as many prompts as its subpoints need. The date is only a filter.</item>
 /// <item><b>Writing the card is the first exposure.</b> A new prompt starts as if graded Good and is due
 /// in about four days. Intake is never limited; nothing new spends a slot of the cap.</item>
-/// <item><b>The cap is on questions per day</b> (<see cref="DailyCap"/>), never on reviews per prompt. At
+/// <item><b>Red and green are two separate worlds.</b> Every session, cap, stat and dashboard belongs to one
+/// book; nothing here ever aggregates across them, so either book could be dropped on its own.</item>
+/// <item><b>The cap is on questions per day, per book</b> (<see cref="DailyCap"/>), never on reviews per prompt. At
 /// steady state each carried prompt costs about <see cref="ReviewsPerCarriedPrompt"/> questions a day,
 /// so the cap carries roughly cap/7 new prompts a day; the tab shows that number.</item>
 /// <item><b>Triage inside the cap:</b> yesterday's lapses first, then due prompts by predicted recall,
 /// highest first — a prompt at 85% is cheap to reinforce and leaps to a long interval; one at 30% is
 /// mostly gone and costs the same to relearn next week.</item>
-/// <item><b>Overflow that fell below <see cref="ParkBelow"/> is parked</b>, not deleted, and pulled back in
-/// on a day with spare slots. Overflow above it just stays due.</item>
-/// <item><b>Backfill is spread, not dumped:</b> a card older than today makes its own date the exposure
-/// and its first review lands on the first day from +4 with fewer than <see cref="BackfillPerDay"/>
-/// backfilled prompts due.</item>
+/// <item><b>Reviewed overflow that fell below <see cref="ParkBelow"/> is parked</b>, not deleted, and pulled
+/// back in on a day with spare slots. Never-answered prompts are never parked: a backlog of first answers
+/// stays visibly due and is worked through under the cap, most recallable first.</item>
+/// <item><b>A backdated card is due when it would have been:</b> its own date is the exposure, so its
+/// first review is that date + 4 days — today, for anything older than that. No spreading: the cap and
+/// the triage order pace a backlog, and the due count shows it shrinking day by day.</item>
 /// <item><b>Leeches are suspended</b> after <see cref="LeechLapses"/> lapses and flagged for rewriting:
 /// repeated failure almost always means a badly formed prompt.</item>
 /// </list>
@@ -37,7 +40,7 @@ public static class FlashcardLogic
     /// <summary>Review when predicted recall falls to this. 0.9 means the interval equals FSRS stability.</summary>
     public const double DesiredRetention = 0.9;
 
-    /// <summary>Recorded reviews per calendar day (Asia/Yerevan), across both books.</summary>
+    /// <summary>Recorded reviews per calendar day (Asia/Yerevan), per book — red and green each have their own.</summary>
     public const int DailyCap = 25;
 
     /// <summary>Due prompts that do not fit the cap and whose predicted recall is below this are parked.</summary>
@@ -45,9 +48,6 @@ public static class FlashcardLogic
 
     /// <summary>Lapses after which a prompt is suspended as a leech.</summary>
     public const int LeechLapses = 8;
-
-    /// <summary>Backfilled prompts are spread so no day gets more than this many of their first reviews.</summary>
-    public const int BackfillPerDay = 10;
 
     /// <summary>A sanity ceiling only — a card has as many prompts as its subpoints need.</summary>
     public const int MaxPromptsPerCard = 50;
@@ -228,15 +228,7 @@ public static class FlashcardLogic
         var today = AppClock.Today();
         var sort = existing.Count == 0 ? 0 : existing.Max(p => p.SortOrder) + 1;
 
-        Dictionary<DateOnly, int>? dueCounts = null;
-        var firstDay = today.AddDays(Fsrs.IntervalDays(Fsrs.Initial(FsrsGrade.Good).Stability, DesiredRetention));
-        if (backfill)
-        {
-            dueCounts = await db.FlashcardPrompts
-                .Where(p => p.State == FlashcardPromptState.Active && p.DueOn >= firstDay)
-                .GroupBy(p => p.DueOn).Select(g => new { Day = g.Key, N = g.Count() })
-                .ToDictionaryAsync(x => x.Day, x => x.N);
-        }
+        var firstInterval = Fsrs.IntervalDays(Fsrs.Initial(FsrsGrade.Good).Stability, DesiredRetention);
 
         var created = new List<FlashcardPrompt>();
         foreach (var input in inputs)
@@ -246,14 +238,12 @@ public static class FlashcardLogic
             var key = input.Question.Trim().ToLowerInvariant();
             if (!seen.Add(key)) return ([], $"duplicate question: \"{input.Question.Trim()}\"");
             var p = NewPrompt(card, input.Question, input.Answer, sort++, nowUtc, today);
-            if (backfill && dueCounts is not null)
+            if (backfill && card.EntryDate < today)
             {
-                var exposure = AppClock.StartOfDayUtc(card.EntryDate);
-                p.LastReviewedAt = exposure < nowUtc ? exposure : nowUtc;
-                var day = firstDay;
-                while (dueCounts.GetValueOrDefault(day) >= BackfillPerDay) day = day.AddDays(1);
-                dueCounts[day] = dueCounts.GetValueOrDefault(day) + 1;
-                p.DueOn = day;
+                // Written on the card's date and never answered since: due when it would have been.
+                p.LastReviewedAt = AppClock.StartOfDayUtc(card.EntryDate);
+                var due = card.EntryDate.AddDays(firstInterval);
+                p.DueOn = due < today ? today : due;
             }
             p.Flashcard = card;
             db.FlashcardPrompts.Add(p);
@@ -342,23 +332,24 @@ public static class FlashcardLogic
 
     // ===== Queries =====
 
-    public static Task<int> AskedTodayAsync(RoadmapDbContext db, DateOnly today) =>
-        db.FlashcardReviews.CountAsync(r => r.ReviewDate == today);
+    /// <summary>Reviews recorded today for prompts of one book — what that book's cap counts.</summary>
+    public static Task<int> AskedTodayAsync(RoadmapDbContext db, DateOnly today, string book) =>
+        db.FlashcardReviews.CountAsync(r => r.ReviewDate == today && r.FlashcardPrompt!.Flashcard!.Book == book);
 
     /// <summary>
     /// Today's queue under the cap. <paramref name="persist"/> false (the tab's read-only preview) computes
     /// the same queue without parking or unparking anything; a real session passes true.
     /// </summary>
-    public static async Task<FlashcardSessionDto> BuildSessionAsync(RoadmapDbContext db, string? book, bool persist)
+    public static async Task<FlashcardSessionDto> BuildSessionAsync(RoadmapDbContext db, string book, bool persist)
     {
         var today = AppClock.Today();
         var nowUtc = DateTime.UtcNow;
-        var askedToday = await AskedTodayAsync(db, today);
+        var askedToday = await AskedTodayAsync(db, today, book);
         var remaining = Math.Max(0, DailyCap - askedToday);
 
         IQueryable<FlashcardPrompt> q = db.FlashcardPrompts.Include(p => p.Flashcard)
             .Where(p => (p.State == FlashcardPromptState.Active && p.DueOn <= today) || p.State == FlashcardPromptState.Parked);
-        if (book is not null) q = q.Where(p => p.Flashcard!.Book == book);
+        q = q.Where(p => p.Flashcard!.Book == book);
         if (!persist) q = q.AsNoTracking();
         var candidates = await q.ToListAsync();
 
@@ -374,7 +365,8 @@ public static class FlashcardLogic
         var overflow = queue.Skip(remaining).ToList();
 
         var parkedNow = 0;
-        foreach (var p in overflow.Where(p => !p.Relearning && Retrievability(p, today) < ParkBelow))
+        // Only reviewed prompts are parked; a never-answered backlog stays due so its size stays visible.
+        foreach (var p in overflow.Where(p => !p.Relearning && p.Reviews > 0 && Retrievability(p, today) < ParkBelow))
         {
             if (persist) { p.State = FlashcardPromptState.Parked; p.UpdatedAt = nowUtc; }
             parkedNow++;
@@ -401,21 +393,22 @@ public static class FlashcardLogic
             CarryCapacityPerDay: CarryCapacityPerDay, DesiredRetention: DesiredRetention, Prompts: prompts);
     }
 
-    public static async Task<FlashcardStatsDto> StatsAsync(RoadmapDbContext db)
+    public static async Task<FlashcardStatsDto> StatsAsync(RoadmapDbContext db, string book)
     {
         var today = AppClock.Today();
-        var prompts = await db.FlashcardPrompts.AsNoTracking()
+        var prompts = await db.FlashcardPrompts.AsNoTracking().Where(p => p.Flashcard!.Book == book)
             .Select(p => new { p.FlashcardId, p.State, p.DueOn, p.Stability, p.Lapses })
             .ToListAsync();
-        var cardCount = await db.Flashcards.CountAsync();
+        var cardCount = await db.Flashcards.CountAsync(c => c.Book == book);
         var cardsWith = prompts.Select(p => p.FlashcardId).Distinct().Count();
-        var askedToday = await AskedTodayAsync(db, today);
+        var askedToday = await AskedTodayAsync(db, today, book);
 
         var weekAgo = DateTime.UtcNow.AddDays(-7);
         var monthAgo = today.AddDays(-30);
-        var reviewsAll = await db.FlashcardReviews.CountAsync();
-        var reviews7 = await db.FlashcardReviews.CountAsync(r => r.ReviewedAt >= weekAgo);
-        var recent = await db.FlashcardReviews.AsNoTracking()
+        var bookReviews = db.FlashcardReviews.Where(r => r.FlashcardPrompt!.Flashcard!.Book == book);
+        var reviewsAll = await bookReviews.CountAsync();
+        var reviews7 = await bookReviews.CountAsync(r => r.ReviewedAt >= weekAgo);
+        var recent = await bookReviews.AsNoTracking()
             .Where(r => r.ReviewDate >= monthAgo && !r.WasRelearning)
             .Select(r => r.Grade).ToListAsync();
         double? trueRetention = recent.Count == 0 ? null : Math.Round(recent.Count(g => g > (int)FsrsGrade.Again) / (double)recent.Count, 3);
@@ -455,12 +448,11 @@ public static class FlashcardLogic
     /// Cards newest first (by date, then creation), filtered by book, an exact date or a date range,
     /// a text search, and "no prompts yet". Counts only — no prompt bodies. Returns (total matching, page).
     /// </summary>
-    public static async Task<(int Total, List<FlashcardDto> Cards)> ListCardsAsync(RoadmapDbContext db, string? book,
+    public static async Task<(int Total, List<FlashcardDto> Cards)> ListCardsAsync(RoadmapDbContext db, string book,
         DateOnly? date, DateOnly? from, DateOnly? to, string? search, bool withoutPromptsOnly, int limit)
     {
         var today = AppClock.Today();
-        var q = db.Flashcards.AsNoTracking().AsQueryable();
-        if (book is not null) q = q.Where(c => c.Book == book);
+        var q = db.Flashcards.AsNoTracking().Where(c => c.Book == book);
         if (date is { } d) q = q.Where(c => c.EntryDate == d);
         if (from is { } f) q = q.Where(c => c.EntryDate >= f);
         if (to is { } t) q = q.Where(c => c.EntryDate <= t);
@@ -494,11 +486,10 @@ public static class FlashcardLogic
     /// for the dashboard, which projects recall forward on the client. Suspended prompts are included and
     /// flagged by state; the tab decides what to show.
     /// </summary>
-    public static async Task<FlashcardMemoryDto> MemoryAsync(RoadmapDbContext db, string? book)
+    public static async Task<FlashcardMemoryDto> MemoryAsync(RoadmapDbContext db, string book)
     {
         var today = AppClock.Today();
-        var q = db.FlashcardPrompts.AsNoTracking().Include(p => p.Flashcard).AsQueryable();
-        if (book is not null) q = q.Where(p => p.Flashcard!.Book == book);
+        var q = db.FlashcardPrompts.AsNoTracking().Include(p => p.Flashcard).Where(p => p.Flashcard!.Book == book);
         var rows = await q.ToListAsync();
         return new FlashcardMemoryDto(today.ToString("yyyy-MM-dd"), DesiredRetention,
             rows.Select(p => new FlashcardMemoryPointDto(p.Flashcard?.Book ?? "", p.State.ToString(),

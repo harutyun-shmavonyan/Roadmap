@@ -20,8 +20,7 @@ public static class FlashcardEndpoints
         // Cards newest first. Filters: book, an exact date, a from/to range, a text search, "no prompts yet".
         g.MapGet("/", async (string? book, string? date, string? from, string? to, string? search, int? limit, bool? withoutPrompts, RoadmapDbContext db) =>
         {
-            string? bk = null;
-            if (!string.IsNullOrWhiteSpace(book)) { if (!FlashcardLogic.TryBook(book, out bk)) return BadBook(); }
+            if (!FlashcardLogic.TryBook(book, out var bk)) return BadBook();
             DateOnly? d = null, f = null, t = null;
             if (!string.IsNullOrWhiteSpace(date)) { if (!DateOnly.TryParse(date, out var x)) return Results.BadRequest("Invalid date."); d = x; }
             if (!string.IsNullOrWhiteSpace(from)) { if (!DateOnly.TryParse(from, out var x)) return Results.BadRequest("Invalid from."); f = x; }
@@ -31,29 +30,27 @@ public static class FlashcardEndpoints
             return Results.Ok(cards);
         });
 
-        g.MapGet("/stats", async (RoadmapDbContext db) => Results.Ok(await FlashcardLogic.StatsAsync(db)));
+        g.MapGet("/stats", async (string? book, RoadmapDbContext db) =>
+            FlashcardLogic.TryBook(book, out var bk) ? Results.Ok(await FlashcardLogic.StatsAsync(db, bk)) : BadBook());
 
         // The dashboard's memory snapshot: stability and days-since-seen per prompt.
         g.MapGet("/memory", async (string? book, RoadmapDbContext db) =>
         {
-            string? bk = null;
-            if (!string.IsNullOrWhiteSpace(book)) { if (!FlashcardLogic.TryBook(book, out bk)) return BadBook(); }
+            if (!FlashcardLogic.TryBook(book, out var bk)) return BadBook();
             return Results.Ok(await FlashcardLogic.MemoryAsync(db, bk));
         });
 
         // Preview of today's queue — no parking, no unparking.
         g.MapGet("/session", async (string? book, RoadmapDbContext db) =>
         {
-            string? bk = null;
-            if (!string.IsNullOrWhiteSpace(book)) { if (!FlashcardLogic.TryBook(book, out bk)) return BadBook(); }
+            if (!FlashcardLogic.TryBook(book, out var bk)) return BadBook();
             return Results.Ok(await FlashcardLogic.BuildSessionAsync(db, bk, persist: false));
         });
 
         // Start or resume today's session in the app: same triage and side effects as the MCP tool.
         g.MapPost("/session", async (string? book, RoadmapDbContext db) =>
         {
-            string? bk = null;
-            if (!string.IsNullOrWhiteSpace(book)) { if (!FlashcardLogic.TryBook(book, out bk)) return BadBook(); }
+            if (!FlashcardLogic.TryBook(book, out var bk)) return BadBook();
             return Results.Ok(await FlashcardLogic.BuildSessionAsync(db, bk, persist: true));
         });
 
@@ -157,7 +154,7 @@ public static class FlashcardEndpoints
             db.FlashcardReviews.Add(review);
             await db.SaveChangesAsync();
 
-            var askedToday = await FlashcardLogic.AskedTodayAsync(db, today);
+            var askedToday = await FlashcardLogic.AskedTodayAsync(db, today, p.Flashcard!.Book);
             return Results.Ok(new FlashcardReviewResultDto(
                 FlashcardLogic.ToPromptDto(p, today, includeHistory: false), grade.ToString(), grade != FsrsGrade.Again,
                 Math.Round(review.Retrievability, 3), review.ElapsedDays, p.DueOn.DayNumber - today.DayNumber,

@@ -7,7 +7,6 @@ import { api } from './api';
 // once, so a session begun here and finished in chat (or the other way round) is one session.
 // Failures are shown once more at the end, unrecorded: the real retest is tomorrow.
 
-type Scope = 'both' | 'red' | 'green';
 type Phase = 'loading' | 'review' | 'relearn' | 'done' | 'error';
 interface Outcome { grade: FlashcardGrade; intervalDays: number; leech: boolean; }
 
@@ -46,15 +45,6 @@ function Pill({ text, color }: { text: string; color: string }) {
   );
 }
 
-function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} style={{
-      padding: '5px 12px', borderRadius: 'var(--radius-md)', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-      textTransform: 'capitalize', border: `1px solid ${active ? 'var(--accent, #5b8def)' : 'var(--border)'}`,
-      background: active ? 'var(--accent, #5b8def)' : 'var(--bg-secondary)', color: active ? '#fff' : 'var(--text-secondary)',
-    }}>{children}</button>
-  );
-}
 
 function Card({ p, children }: { p: FlashcardPromptDto; children: React.ReactNode }) {
   return (
@@ -79,8 +69,7 @@ const answerBox: React.CSSProperties = {
   border: '1px solid var(--border-subtle)', fontSize: 15, lineHeight: 1.5, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap',
 };
 
-export function FlashcardsReview({ onStatsChanged }: { onStatsChanged: () => void }) {
-  const [scope, setScope] = useState<Scope>('both');
+export function FlashcardsReview({ book, onStatsChanged }: { book: 'red' | 'green'; onStatsChanged: () => void }) {
   const [session, setSession] = useState<FlashcardSessionDto | null>(null);
   const [phase, setPhase] = useState<Phase>('loading');
   const [error, setError] = useState<string | null>(null);
@@ -93,10 +82,10 @@ export function FlashcardsReview({ onStatsChanged }: { onStatsChanged: () => voi
   const [askedToday, setAskedToday] = useState(0);
   const [cap, setCap] = useState(25);
 
-  const start = useCallback(async (s: Scope) => {
+  const start = useCallback(async (b: 'red' | 'green') => {
     setPhase('loading'); setError(null); setOutcomes({}); setLast(null); setIndex(0); setRevealed(false); setRelearn([]);
     try {
-      const sess = await api.startFlashcardReview(s === 'both' ? undefined : s);
+      const sess = await api.startFlashcardReview(b);
       setSession(sess); setAskedToday(sess.askedToday); setCap(sess.dailyCap);
       setPhase(sess.prompts.length ? 'review' : 'done');
     } catch (e) {
@@ -104,7 +93,7 @@ export function FlashcardsReview({ onStatsChanged }: { onStatsChanged: () => voi
     }
   }, []);
 
-  useEffect(() => { void start(scope); }, [scope, start]);
+  useEffect(() => { void start(book); }, [book, start]);
 
   const queue = session?.prompts ?? [];
   const current: FlashcardPromptDto | undefined = phase === 'review' ? queue[index] : phase === 'relearn' ? relearn[index] : undefined;
@@ -163,7 +152,7 @@ export function FlashcardsReview({ onStatsChanged }: { onStatsChanged: () => voi
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 24px 32px' }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', maxWidth: 720, width: '100%', margin: '0 auto 14px' }}>
-        {(['both', 'red', 'green'] as Scope[]).map(s => <Chip key={s} active={scope === s} onClick={() => setScope(s)}>{s}</Chip>)}
+        <Pill text={`${book} book`} color={BOOK_COLOR[book]} />
         <span style={{ flex: 1 }} />
         {session && phase !== 'loading' && (
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -182,7 +171,7 @@ export function FlashcardsReview({ onStatsChanged }: { onStatsChanged: () => voi
       {phase === 'error' && (
         <div style={{ maxWidth: 720, margin: '0 auto', color: '#e5484d', fontSize: 13 }}>
           {error}
-          <div><button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => start(scope)}>Retry</button></div>
+          <div><button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => start(book)}>Retry</button></div>
         </div>
       )}
 
@@ -267,7 +256,7 @@ export function FlashcardsReview({ onStatsChanged }: { onStatsChanged: () => voi
                 {Object.values(outcomes).some(o => o.leech) && <div style={{ color: '#e5484d' }}>A prompt was suspended as a leech — rewrite it on its card and restart its schedule.</div>}
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-                <button className="btn btn-sm" onClick={() => start(scope)}>Check for more</button>
+                <button className="btn btn-sm" onClick={() => start(book)}>Check for more</button>
               </div>
             </>
           )}

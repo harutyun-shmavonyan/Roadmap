@@ -10,15 +10,20 @@ Runs a spaced-repetition quiz on the user's knowledge books, stored in the
 engines live side by side while v2 is being proven; the user picks one at the
 start of every session.
 
-## Step 0 — Ask which version (every session)
+## Step 0 — Ask which version and which book (every session)
 
-Before anything else, ask one short question and wait for the answer:
+Before anything else, ask and wait for the answer:
 
 > v1 (fixed intervals, whole notes) or v2 (adaptive, 25 questions/day)?
+> Red or Green book?
 
-Use `ask_user_input_v0` with the two options if it is available, otherwise plain
-text. Do **not** assume a default. Skip the question only when the trigger
-already names a version ("run v2", "quiz me on v1", "adaptive review").
+Use `ask_user_input_v0` with the options if it is available (two questions in
+one call), otherwise plain text. Do **not** assume a default version. Skip a
+question only when the trigger already answers it ("run v2", "quiz me on v1",
+"review my Red book"). The book matters most in v2: **Red and Green are two
+separate worlds there** — each has its own queue, its own cap of 25 and its own
+stats, and a session never mixes them. (v1 keeps its old default of Green when
+no book is named, so for v1 the book question may be skipped.)
 
 Then follow **Version 1** or **Version 2** below. The two never mix in one
 session.
@@ -216,8 +221,8 @@ how each answer went.
 Load via `tool_search` (query: "flashcard prompts due review") if not already
 available.
 
-- `get_due_flashcard_prompts(book?)` → today's queue, already triaged under the
-  daily cap of **25 recorded questions** (shared by both books): yesterday's
+- `get_due_flashcard_prompts(book)` → today's queue for that book, already
+  triaged under **that book's** daily cap of **25 recorded questions**: yesterday's
   lapses first, then due prompts by predicted recall, highest first. Fields:
   `Date, DailyCap, AskedToday, Remaining, DueTotal, Returned, Overflow,
   ParkedNow, Unparked, ParkedTotal, CarryCapacityPerDay, Prompts[]`. Each prompt:
@@ -229,27 +234,26 @@ available.
   due_on, relearning, lapses, leech, asked_today, remaining_today`.
 - `update_flashcard_prompt(prompt_id, question?, answer?, state?, reset?)` —
   fix a prompt; `reset=true` restarts its schedule (for a rewritten leech).
-- `list_flashcards(book?, date?, from_date?, to_date?, search?,
+- `list_flashcards(book, date?, from_date?, to_date?, search?,
   without_prompts_only?, limit?)` → cards newest first with content and prompt
   counts; `date` gives all cards of one day; `without_prompts_only=true` is the
   backfill list.
 - `get_flashcard(flashcard_id)` → one card with its prompts.
 - `add_flashcard_prompts(flashcard_id, prompts)` — attach `{question, answer}`
   prompts to a card (backfill mode is automatic for a card older than today).
-- `get_flashcard_stats()` → totals: cards, due today, asked/cap, parked,
+- `get_flashcard_stats(book)` → that book's totals: cards, due today, asked/cap, parked,
   leeches, true retention over 30 days, carry capacity, due per day next week.
 
 ## Workflow
 
 ### Step 1 — Pull the queue
 
-Call `get_due_flashcard_prompts()` for both books, or with `book` when the user
-named one. Then:
+Call `get_due_flashcard_prompts(book)` with the book chosen in Step 0. Then:
 
 - `Returned == 0` and `Remaining == 0` → "Daily cap of 25 reached — nothing more
   today." Stop (offer backfill, Step 6).
 - `Returned == 0` and `DueTotal == 0` → "Nothing due today." Say when the next
-  prompts come due if `get_flashcard_stats().UpcomingLoad` shows some, then offer
+  prompts come due if `get_flashcard_stats(book).UpcomingLoad` shows some, then offer
   backfill (Step 6). Stop.
 - Otherwise continue with the returned prompts **in the order returned**. Do not
   re-sort, group by note, or drop any.
@@ -327,7 +331,7 @@ Asked K/25 today · M still due beyond the cap · P parked · L leeches
 ```
 
 `K` = the last `asked_today`; `M` = `Overflow` from Step 1 (omit the clause
-when 0); `P` = `ParkedTotal`; `L` from `get_flashcard_stats().Leeches` (omit
+when 0); `P` = `ParkedTotal`; `L` from `get_flashcard_stats(book).Leeches` (omit
 when 0). If `ParkedNow > 0`, add one line: "The cap was full — {ParkedNow}
 prompts below 50% recall were parked; they come back on a lighter day." One
 short line on a visible pattern is fine. No praise, no encouragement padding.
@@ -337,15 +341,15 @@ short line on a visible pattern is fine. No praise, no encouragement padding.
 Some cards have no prompts yet (the old notes were migrated into one card per
 note on 2026-10-02; most got prompts, the rest were skipped as cue-only). At
 the close — or when the queue was empty — call
-`list_flashcards(without_prompts_only=true, limit=3)`. If `total > 0`:
+`list_flashcards(book, without_prompts_only=true, limit=3)`. If `total > 0`:
 
 > {total} cards have no prompts yet. Write prompts for the 3 newest?
 
 On yes, for each returned card write its prompts by the rules below — one per
 subpoint worth recalling — show the questions (not the answers), and call
 `add_flashcard_prompts(flashcard_id, prompts)`. Backfill mode is automatic
-for a card older than today: its own date counts as the exposure and first
-reviews are spread ten a day, so even a large backfill never floods one date.
+for a card older than today: its own date counts as the exposure, so its
+prompts are due right away and the daily cap of 25 paces them.
 Three cards per session is the default; honor a request for more.
 
 ## Prompt rules (for backfill and rewrites)

@@ -6,7 +6,6 @@ import { api } from './api';
 // you reviewed nothing until then. Recall comes from the same forgetting curve the server schedules with
 // (Fsrs.Retrievability): R(t) = (1 + 19/81 · t / S)^-0.5, so R equals 90% when t equals the stability S.
 
-type BookFilter = 'all' | 'red' | 'green';
 
 const FACTOR = 19 / 81;
 const DECAY = -0.5;
@@ -28,11 +27,6 @@ function niceStep(max: number): number {
   return 25;
 }
 
-const chip = (active: boolean) => ({
-  padding: '6px 12px', borderRadius: 'var(--radius-md)', cursor: 'pointer', fontSize: 13, fontWeight: 600,
-  textTransform: 'capitalize' as const, border: `1px solid ${active ? 'var(--accent, #5b8def)' : 'var(--border)'}`,
-  background: active ? 'var(--accent, #5b8def)' : 'var(--bg-secondary)', color: active ? '#fff' : 'var(--text-secondary)',
-});
 
 function RecallHistogram({ bins, total }: { bins: number[]; total: number }) {
   const [hover, setHover] = useState<number | null>(null);
@@ -115,19 +109,18 @@ function RecallHistogram({ bins, total }: { bins: number[]; total: number }) {
   );
 }
 
-export function FlashcardsDashboard() {
+export function FlashcardsDashboard({ book }: { book: 'red' | 'green' }) {
   const [data, setData] = useState<FlashcardMemoryDto | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [book, setBook] = useState<BookFilter>('all');
   const [days, setDays] = useState(0);
   const [showTable, setShowTable] = useState(false);
 
-  useEffect(() => { api.getFlashcardMemory().then(setData).catch(e => setError(String(e))); }, []);
+  useEffect(() => { setData(null); api.getFlashcardMemory(book).then(setData).catch(e => setError(String(e))); }, [book]);
 
   const view = useMemo(() => {
     if (!data) return null;
     // Suspended prompts are out of rotation, so they are not part of what you are expected to remember.
-    const pts = data.prompts.filter(p => p.state !== 'Suspended' && (book === 'all' || p.book === book));
+    const pts = data.prompts.filter(p => p.state !== 'Suspended');
     const bins = new Array(BINS).fill(0);
     let sum = 0, atTarget = 0, below50 = 0;
     for (const p of pts) {
@@ -139,7 +132,7 @@ export function FlashcardsDashboard() {
     }
     const n = pts.length;
     return { bins, n, mean: n ? sum / n : 0, atTarget: n ? atTarget / n : 0, below50: n ? below50 / n : 0 };
-  }, [data, book, days]);
+  }, [data, days]);
 
   const when = new Date();
   when.setDate(when.getDate() + days);
@@ -149,11 +142,6 @@ export function FlashcardsDashboard() {
 
   return (
     <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 24px 32px' }}>
-      {/* Filters — one row, above the panels */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
-        {(['all', 'red', 'green'] as BookFilter[]).map(b => <button key={b} style={chip(book === b)} onClick={() => setBook(b)}>{b}</button>)}
-      </div>
-
       <section style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg, 12px)', background: 'var(--bg-secondary)', padding: '18px 20px', maxWidth: 900 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>Predicted recall across prompts</h3>
@@ -178,7 +166,7 @@ export function FlashcardsDashboard() {
           </div>
           <div>
             <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)' }}>{view.n}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>prompts{book !== 'all' ? ` · ${book} book` : ''}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>prompts in the {book} book</div>
           </div>
         </div>
 

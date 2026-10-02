@@ -48,11 +48,12 @@ if they aren't already available, then use:
     first exposure, so each prompt is already scheduled: first review in about
     4 days, nothing asked today.
   - `backfill`: leave unset. It defaults to true for a past date (the card's
-    date counts as the exposure and first reviews are spread 10 a day).
+    date counts as the exposure, so its prompts are due right away; the
+    daily cap paces any backlog).
 - `get_flashcard(flashcard_id)` → the card with its prompts.
 - `add_flashcard_prompts(flashcard_id, prompts)` — more prompts for an
   existing card (e.g. when the card was created without them).
-- `list_flashcards(book?, date?, search?)` → cards, e.g. all cards of a day.
+- `list_flashcards(book, date?, search?)` → one book's cards, e.g. all cards of a day.
 
 There is no number to look up beforehand and no memory cache to maintain — the
 database assigns and tracks the number. Do **not** read or write any

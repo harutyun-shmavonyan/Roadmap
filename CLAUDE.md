@@ -100,21 +100,27 @@ The decisions, each simulated before being adopted:
   gives (stability ≈ 4 days, due in 4 days). Intake is never limited — the user's call — and nothing
   new ever spends a slot of the cap. Asking first exposures ahead of reviews was simulated and held
   *fewer* memories, because it starved the reviews of things already learned.
-- **The cap is 25 recorded questions per day** (`FlashcardLogic.DailyCap`, Asia/Yerevan day, both
-  books together). Reviews are never capped per prompt. At steady state each carried prompt costs
+- **Red and green are two separate worlds** (the user's call). The tab chooses the book first and
+  every view, session, stat, dashboard and cap belongs to that book; no REST endpoint or MCP tool
+  aggregates across books (`book` is required on every set-level read).
+- **The cap is 25 recorded questions per day per book** (`FlashcardLogic.DailyCap`, Asia/Yerevan day;
+  red and green each have their own). Reviews are never capped per prompt. At steady state each carried prompt costs
   about 7 questions a day at 0.9 retention, so the cap carries ≈ 3.6 new prompts a day; the tab
   shows that number so a growing backlog is visible rather than silent.
 - **Triage inside the cap:** yesterday's lapses first, then due prompts by predicted recall,
   highest first. A prompt at 85% is cheap to reinforce and leaps to a long interval; one at 30% is
   mostly gone and costs the same to relearn next week.
-- **Overflow below 50% predicted recall is parked** (`State = Parked`), not deleted, and pulled
-  back in on a day with spare slots. Overflow above it simply stays due. Parking happens only in a
+- **Reviewed overflow below 50% predicted recall is parked** (`State = Parked`), not deleted, and
+  pulled back in on a day with spare slots. Overflow above it simply stays due. **Never-answered
+  prompts are never parked** — a backlog of first answers stays visibly due and shrinks under the cap. Parking happens only in a
   real session (`get_due_flashcard_prompts`, `POST /api/flashcards/session`); `GET …/session` is a
   read-only preview.
-- **Backfill is spread, not dumped.** `backfill=true` (the default for a card dated before today)
-  makes the card's own date the exposure — so a fact still recalled after months leaps to a long
-  interval on its first pass, and a lost one comes back tomorrow — and puts the first review on the
-  first day from +4 with fewer than `BackfillPerDay` (10) backfilled prompts due.
+- **A backdated card is due when it would have been.** `backfill=true` (the default for a card dated
+  before today) makes the card's own date the exposure — so a fact still recalled after months leaps
+  to a long interval on its first pass, and a lost one comes back tomorrow — and its first review is
+  that date + 4 days, i.e. today for anything older. (Until 2026-10-02 backfill was spread 10 a day
+  from +4; the user found nothing due and asked for the whole backlog now — migration
+  `FlashcardsDueFromExposure` re-dated every never-answered prompt the same way.)
 - **Grades are again / hard / good / easy.** In chat the quiz skill grades; in the tab the learner
   self-grades. "O" from the user means "I know this perfectly" and is recorded as easy. Lapses come
   back tomorrow flagged `Relearning`; the eighth lapse suspends the prompt as a leech
