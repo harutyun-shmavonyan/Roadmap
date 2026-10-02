@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Roadmap.Api.Data;
@@ -12,9 +13,11 @@ using Roadmap.Api.Data;
 namespace Roadmap.Api.Migrations
 {
     [DbContext(typeof(RoadmapDbContext))]
-    partial class RoadmapDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261001091625_StockSignals")]
+    partial class StockSignals
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -485,154 +488,6 @@ namespace Roadmap.Api.Migrations
                     b.HasIndex("ExperienceId", "SortOrder");
 
                     b.ToTable("experience_images", (string)null);
-                });
-
-            modelBuilder.Entity("Roadmap.Api.Entities.Flashcard", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Book")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<string>("Content")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateOnly>("EntryDate")
-                        .HasColumnType("date");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("EntryDate");
-
-                    b.HasIndex("Book", "EntryDate");
-
-                    b.ToTable("flashcards", (string)null);
-                });
-
-            modelBuilder.Entity("Roadmap.Api.Entities.FlashcardPrompt", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Answer")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<double>("Difficulty")
-                        .HasColumnType("double precision");
-
-                    b.Property<DateOnly>("DueOn")
-                        .HasColumnType("date");
-
-                    b.Property<Guid>("FlashcardId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Lapses")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("LastReviewedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Question")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("Relearning")
-                        .HasColumnType("boolean");
-
-                    b.Property<int>("Reviews")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<double>("Stability")
-                        .HasColumnType("double precision");
-
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("FlashcardId", "SortOrder");
-
-                    b.HasIndex("State", "DueOn");
-
-                    b.ToTable("flashcard_prompts", (string)null);
-                });
-
-            modelBuilder.Entity("Roadmap.Api.Entities.FlashcardReview", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Answer")
-                        .HasColumnType("text");
-
-                    b.Property<double>("DifficultyAfter")
-                        .HasColumnType("double precision");
-
-                    b.Property<double>("DifficultyBefore")
-                        .HasColumnType("double precision");
-
-                    b.Property<int>("ElapsedDays")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("FlashcardPromptId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Grade")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Note")
-                        .HasColumnType("text");
-
-                    b.Property<double>("Retrievability")
-                        .HasColumnType("double precision");
-
-                    b.Property<DateOnly>("ReviewDate")
-                        .HasColumnType("date");
-
-                    b.Property<DateTime>("ReviewedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<double>("StabilityAfter")
-                        .HasColumnType("double precision");
-
-                    b.Property<double>("StabilityBefore")
-                        .HasColumnType("double precision");
-
-                    b.Property<bool>("WasRelearning")
-                        .HasColumnType("boolean");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ReviewDate");
-
-                    b.HasIndex("FlashcardPromptId", "ReviewedAt");
-
-                    b.ToTable("flashcard_reviews", (string)null);
                 });
 
             modelBuilder.Entity("Roadmap.Api.Entities.Grade", b =>
@@ -1562,9 +1417,6 @@ namespace Roadmap.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<string>("Briefing")
-                        .HasColumnType("text");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -2347,28 +2199,6 @@ namespace Roadmap.Api.Migrations
                     b.Navigation("Experience");
                 });
 
-            modelBuilder.Entity("Roadmap.Api.Entities.FlashcardPrompt", b =>
-                {
-                    b.HasOne("Roadmap.Api.Entities.Flashcard", "Flashcard")
-                        .WithMany("Prompts")
-                        .HasForeignKey("FlashcardId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Flashcard");
-                });
-
-            modelBuilder.Entity("Roadmap.Api.Entities.FlashcardReview", b =>
-                {
-                    b.HasOne("Roadmap.Api.Entities.FlashcardPrompt", "FlashcardPrompt")
-                        .WithMany("ReviewHistory")
-                        .HasForeignKey("FlashcardPromptId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("FlashcardPrompt");
-                });
-
             modelBuilder.Entity("Roadmap.Api.Entities.Grade", b =>
                 {
                     b.HasOne("Roadmap.Api.Entities.Submission", "Submission")
@@ -2777,16 +2607,6 @@ namespace Roadmap.Api.Migrations
             modelBuilder.Entity("Roadmap.Api.Entities.Experience", b =>
                 {
                     b.Navigation("Images");
-                });
-
-            modelBuilder.Entity("Roadmap.Api.Entities.Flashcard", b =>
-                {
-                    b.Navigation("Prompts");
-                });
-
-            modelBuilder.Entity("Roadmap.Api.Entities.FlashcardPrompt", b =>
-                {
-                    b.Navigation("ReviewHistory");
                 });
 
             modelBuilder.Entity("Roadmap.Api.Entities.Habit", b =>

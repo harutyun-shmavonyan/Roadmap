@@ -859,6 +859,7 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
   /* Experiences sits at the foot of Track, under Notes (blue), Nutrition (red) and Jobs (violet),
      so it takes the orange: Schedule is its only other user, a dozen rows away at the top. */
   --ic-experiences: #d95926;  /* orange  */
+  --ic-signals:     #1baf7a;  /* aqua    */
 
   /* Delay acts on a task, so it borrows the task hue and badges it with the yellow. */
   --ic-delay:       #e87ba4;
@@ -887,6 +888,7 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
   --ic-nutrition:   #e66767;
   --ic-jobs:        #9085e9;
   --ic-experiences: #d95926;
+  --ic-signals:     #199e70;
 
   --ic-delay:       #d55181;
   --ic-delay-badge: #c98500;

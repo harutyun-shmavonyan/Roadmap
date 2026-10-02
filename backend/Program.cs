@@ -136,6 +136,7 @@ app.MapRoadmapEndpoints();
 app.MapCourseEndpoints();
 app.MapExperienceEndpoints();
 app.MapFlashcardEndpoints();
+app.MapSignalEndpoints();
 
 // MCP endpoint — protected by MCP_SECRET if configured
 app.MapMcp("/mcp").AddEndpointFilter(async (ctx, next) =>
