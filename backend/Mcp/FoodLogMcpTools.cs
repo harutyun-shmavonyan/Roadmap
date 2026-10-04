@@ -76,7 +76,8 @@ public sealed class FoodLogMcpTools(RoadmapDbContext db)
     [McpServerTool(Name = "list_food_log"), Description(
         "The food log, day by day, newest first: what was eaten each day (by slot) and the day's total " +
         "calories, protein, carbs and fat. Days with nothing logged are left out. incompleteEntries counts " +
-        "entries with an unknown macro, so that day's totals are a lower bound. Defaults to the last 7 days.")]
+        "entries with an unknown macro, so that day's totals are a lower bound. Each day carries `target`, the " +
+        "targets in effect that day (calories = maintenance), or null if none were set. Defaults to the last 7 days.")]
     public async Task<string> ListFoodLog(
         [Description("yyyy-MM-dd, first day; default `days` back from `to`")] string? from = null,
         [Description("yyyy-MM-dd, last day; default today")] string? to = null,
@@ -129,6 +130,34 @@ public sealed class FoodLogMcpTools(RoadmapDbContext db)
         entry.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         return J(new { status = "updated", entry = FoodLogLogic.ToDto(entry) });
+    }
+
+    [McpServerTool(Name = "set_nutrition_targets"), Description(
+        "Set the user's daily nutrition targets: maintenance calories (what a day costs — above it is a surplus, " +
+        "below a deficit) and optionally protein, carbs and fat in grams. They take effect from effective_from " +
+        "(default today) and hold until the next set, so days before keep the targets they were lived against; " +
+        "setting the same date again replaces it. The food log's charts draw these as lines, and list_food_log " +
+        "reports each day against them. Omit a figure (or pass 0) for no target on it.")]
+    public async Task<string> SetTargets(
+        [Description("Maintenance calories per day")] double? calories = null,
+        [Description("Protein grams per day")] double? protein_g = null,
+        [Description("Carb grams per day")] double? carbs_g = null,
+        [Description("Fat grams per day")] double? fat_g = null,
+        [Description("yyyy-MM-dd; default today")] string? effective_from = null)
+    {
+        if (!FoodLogLogic.TryParseDate(effective_from, out var from)) return J(new { error = "effective_from must be yyyy-MM-dd" });
+        var t = await FoodLogLogic.SetTargetsAsync(db, from, calories, protein_g, carbs_g, fat_g);
+        return J(new { status = "set", targets = FoodLogLogic.ToDto(t) });
+    }
+
+    [McpServerTool(Name = "get_nutrition_targets"), Description(
+        "The nutrition targets: the set in effect today (maintenance calories and macro goals) and every earlier set " +
+        "with the date it took effect.")]
+    public async Task<string> GetTargets()
+    {
+        var all = await FoodLogLogic.TargetsAsync(db);
+        var now = FoodLogLogic.TargetOn(all, AppClock.Today());
+        return J(new { current = now is null ? null : FoodLogLogic.ToDto(now), history = all.Select(FoodLogLogic.ToDto) });
     }
 
     [McpServerTool(Name = "delete_food_log_entry"), Description("Remove one entry from the food log.")]

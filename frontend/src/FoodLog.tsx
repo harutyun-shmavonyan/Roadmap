@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { FoodLogDayDto, FoodLogEntryDto, MacroTotals, MealDto, MealSlot } from './types';
+import type { FoodLogDayDto, FoodLogEntryDto, MacroTotals, MealDto, MealSlot, NutritionTargetDto } from './types';
 import { api } from './api';
 import { SLOTS, SLOT_EMOJI, KCAL_EMOJI, PROTEIN_EMOJI, CARBS_EMOJI, FAT_EMOJI } from './nutritionShared';
 
@@ -46,6 +46,16 @@ const toDec = (text: string): number | null => {
 // The range presets — one control scopes the charts and the day cards alike.
 const RANGES = [7, 14, 30, 90];
 
+/** The targets in effect on a day: the latest set starting on or before it (list oldest first). */
+function targetOn(targets: NutritionTargetDto[], dateIso: string): NutritionTargetDto | null {
+  let hit: NutritionTargetDto | null = null;
+  for (const t of targets) if (t.effectiveFrom <= dateIso) hit = t;
+  return hit;
+}
+
+// About 7,700 kcal of surplus or deficit is a kilogram of body fat — the usual rule of thumb.
+const KCAL_PER_KG = 7700;
+
 // ── the history view ──
 
 export function FoodLogView({ refreshKey }: { refreshKey: number }) {
@@ -56,13 +66,18 @@ export function FoodLogView({ refreshKey }: { refreshKey: number }) {
   const [error, setError] = useState<string | null>(null);
   // An entry opens it for editing; a date opens an empty form for that day.
   const [editing, setEditing] = useState<FoodLogEntryDto | { date: string } | null>(null);
+  const [targets, setTargets] = useState<NutritionTargetDto[]>([]);
+  const [showTargets, setShowTargets] = useState(false);
 
   const to = todayIso();
   const from = daysBefore(to, span - 1);
 
   const load = useCallback(async () => {
     setError(null);
-    try { setDays(await api.getFoodLog(from, to)); }
+    try {
+      const [d, t] = await Promise.all([api.getFoodLog(from, to), api.getNutritionTargets()]);
+      setDays(d); setTargets(t);
+    }
     catch { setError('Could not load the food log.'); }
     finally { setLoading(false); }
   }, [from, to]);
@@ -70,7 +85,7 @@ export function FoodLogView({ refreshKey }: { refreshKey: number }) {
   useEffect(() => { load(); }, [load, refreshKey]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setEditing(null); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setEditing(null); setShowTargets(false); } };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
@@ -97,7 +112,9 @@ export function FoodLogView({ refreshKey }: { refreshKey: number }) {
           {avgKcal != null && <> · {KCAL_EMOJI} avg {kcal(avgKcal)} kcal/day</>}
           {avgProtein != null && <> · {PROTEIN_EMOJI} {grams(Math.round(avgProtein))} g protein</>}
         </span>
-        <button className="btn btn-accent btn-sm" style={{ marginLeft: 'auto' }}
+        <button className="btn btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setShowTargets(true)}
+          title="Maintenance calories and macro targets">🎯 Targets</button>
+        <button className="btn btn-accent btn-sm"
           onClick={() => setEditing({ date: todayIso() })}>+ Log food</button>
       </div>
 
@@ -118,7 +135,8 @@ export function FoodLogView({ refreshKey }: { refreshKey: number }) {
               </div>
             )}
             {days.length > 0 && (
-              <DayByDay days={days} from={from} to={to} asTable={asTable} onToggle={() => setAsTable(t => !t)} />
+              <DayByDay days={days} targets={targets} from={from} to={to} asTable={asTable}
+                onToggle={() => setAsTable(t => !t)} onSetTargets={() => setShowTargets(true)} />
             )}
             {days.map(d => (
               <DayCard key={d.date} day={d} onOpen={e => setEditing(e)} onAdd={() => setEditing({ date: d.date })} />
@@ -133,6 +151,11 @@ export function FoodLogView({ refreshKey }: { refreshKey: number }) {
           date={editing.date}
           onCancel={() => setEditing(null)}
           onSaved={async () => { setEditing(null); await load(); }} />
+      )}
+
+      {showTargets && (
+        <TargetsForm targets={targets} onClose={() => setShowTargets(false)}
+          onSaved={async () => { setShowTargets(false); await load(); }} />
       )}
     </div>
   );
@@ -165,8 +188,9 @@ function datesBetween(from: string, to: string): string[] {
  * measure is the only honest way to put them side by side. Each is one series, so its title names
  * it and there is no legend box. The range above scopes these and the day cards alike.
  */
-function DayByDay({ days, from, to, asTable, onToggle }: {
-  days: FoodLogDayDto[]; from: string; to: string; asTable: boolean; onToggle: () => void;
+function DayByDay({ days, targets, from, to, asTable, onToggle, onSetTargets }: {
+  days: FoodLogDayDto[]; targets: NutritionTargetDto[]; from: string; to: string; asTable: boolean;
+  onToggle: () => void; onSetTargets: () => void;
 }) {
   const byDate = new Map(days.map(d => [d.date, d]));
   const dates = datesBetween(from, to);
@@ -189,6 +213,12 @@ function DayByDay({ days, from, to, asTable, onToggle }: {
           A faded bar is a day with unknown macros, so it is a lower bound.
         </div>
       )}
+      {!targets.some(t => t.calories != null) && !asTable && (
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 10 }}>
+          Set your maintenance calories to see each day against it.{' '}
+          <button className="btn btn-ghost btn-sm" style={{ padding: '0 4px' }} onClick={onSetTargets}>🎯 Set targets</button>
+        </div>
+      )}
       {asTable ? (
         <DayTable days={days} />
       ) : (
@@ -197,7 +227,8 @@ function DayByDay({ days, from, to, asTable, onToggle }: {
             <DailyChart key={m.key} measure={m} dates={dates}
               points={dates.map(d => {
                 const day = byDate.get(d);
-                return { date: d, value: day ? day.totals[m.key] : null, incomplete: !!day && day.incompleteEntries > 0, logged: !!day };
+                return { date: d, value: day ? day.totals[m.key] : null, incomplete: !!day && day.incompleteEntries > 0, logged: !!day,
+                  target: targetOn(targets, d)?.[m.key] ?? null };
               })} />
           ))}
         </div>
@@ -226,7 +257,7 @@ function niceStep(max: number): number {
   return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * pow;
 }
 
-type Point = { date: string; value: number | null; incomplete: boolean; logged: boolean };
+type Point = { date: string; value: number | null; incomplete: boolean; logged: boolean; target: number | null };
 
 function DailyChart({ measure, dates, points }: { measure: Measure; dates: string[]; points: Point[] }) {
   const [boxRef, width] = useWidth<HTMLDivElement>();
@@ -235,8 +266,10 @@ function DailyChart({ measure, dates, points }: { measure: Measure; dates: strin
   const innerW = Math.max(0, width - left - 4);
   const values = points.map(p => p.value).filter((v): v is number => v != null);
   const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
-  const step = niceStep(Math.max(...values, 1));
-  const max = Math.ceil(Math.max(...values, 1) / step) * step;
+  const targetVals = points.map(p => p.target).filter((v): v is number => v != null);
+  const top0 = Math.max(...values, ...targetVals, 1);
+  const step = niceStep(top0);
+  const max = Math.ceil(top0 / step) * step;
   const ticks = Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step);
   const plotH = H - top - bottom;
   const y = (v: number) => top + plotH - (v / max) * plotH;
@@ -267,6 +300,7 @@ function DailyChart({ measure, dates, points }: { measure: Measure; dates: strin
           </span>
         )}
       </div>
+      <OnTrack measure={measure} points={points} />
       <div ref={boxRef} style={{ position: 'relative' }} onPointerLeave={() => setHover(null)}>
         {width > 0 && (
           <svg width={width} height={H} role="img"
@@ -284,6 +318,30 @@ function DailyChart({ measure, dates, points }: { measure: Measure; dates: strin
             {dates.map((d, i) => (i % labelEvery === 0 || i === dates.length - 1) && (dates.length - 1 - i >= labelEvery || i === dates.length - 1) && (
               <text key={d} className="tick" x={left + i * slot + slot / 2} y={H - 4} textAnchor="middle">{shortDate(d)}</text>
             ))}
+            {/* The target (maintenance for calories) as a step line: it can change on a date, and each
+                day is read against the target in effect that day. */}
+            {(() => {
+              let d = '', prev: number | null = null;
+              points.forEach((p, i) => {
+                const x0 = left + i * slot, x1 = x0 + slot;
+                if (p.target == null) { prev = null; return; }
+                d += prev == null ? `M${x0},${y(p.target)} ` : prev !== p.target ? `L${x0},${y(p.target)} ` : '';
+                d += `L${x1},${y(p.target)} `;
+                prev = p.target;
+              });
+              const last = [...points].reverse().find(p => p.target != null);
+              return d && (
+                <g aria-hidden>
+                  <path d={d} fill="none" stroke="var(--text-primary)" strokeOpacity={0.75} strokeWidth={1.5} strokeDasharray="5 4" />
+                  {last && (
+                    <text x={width - 6} y={y(last.target!) - 5} textAnchor="end" fontSize={11} fontWeight={600}
+                      fill="var(--text-primary)" stroke="var(--bg-primary)" strokeWidth={3} paintOrder="stroke">
+                      {measure.key === 'calories' ? 'maintenance' : 'target'} {fmt(last.target!)}
+                    </text>
+                  )}
+                </g>
+              );
+            })()}
             {/* The hit target is the whole day's column, not the painted bar. */}
             {dates.map((d, i) => (
               <rect key={d} x={left + i * slot} y={top} width={slot} height={plotH} fill="transparent"
@@ -295,13 +353,52 @@ function DailyChart({ measure, dates, points }: { measure: Measure; dates: strin
           <div className="foodlog-tip" style={{ left: Math.min(Math.max(left + hover! * slot + slot / 2, 70), width - 70), top: hp.value ? y(hp.value) - 6 : top + plotH - 6 }}>
             <div style={{ color: 'var(--text-secondary)' }}>{dayLabel(hp.date)}</div>
             {hp.value != null ? (
-              <div><strong style={{ fontSize: 14 }}>{fmt(hp.value)}</strong> {measure.unit}{hp.incomplete && <span style={{ color: 'var(--text-secondary)' }}> · lower bound</span>}</div>
+              <>
+                <div><strong style={{ fontSize: 14 }}>{fmt(hp.value)}</strong> {measure.unit}{hp.incomplete && <span style={{ color: 'var(--text-secondary)' }}> · lower bound</span>}</div>
+                {hp.target != null && (
+                  <div style={{ color: 'var(--text-secondary)' }}>
+                    {versus(hp.value - hp.target, measure)} {measure.key === 'calories' ? 'maintenance' : 'target'} ({fmt(hp.target)})
+                  </div>
+                )}
+              </>
             ) : (
               <div style={{ color: 'var(--text-secondary)' }}>{hp.logged ? 'unknown' : 'nothing logged'}</div>
             )}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** "320 kcal under" / "12 g over" — direction in words and a glyph, never colour alone. */
+function versus(diff: number, m: Measure): string {
+  const n = m.unit === 'kcal' ? kcal(Math.abs(diff)) : grams(Math.round(Math.abs(diff)));
+  if (Math.abs(diff) < (m.unit === 'kcal' ? 1 : 0.5)) return 'on';
+  return `${diff < 0 ? '▼' : '▲'} ${n} ${m.unit} ${diff < 0 ? 'under' : 'over'}`;
+}
+
+/**
+ * Is the range on track: the average against the target, over the logged days that had a target
+ * and complete macros (an incomplete day undercounts what was eaten, so it would flatter a deficit).
+ * For calories it also says what the running balance adds up to in body fat.
+ */
+function OnTrack({ measure, points }: { measure: Measure; points: Point[] }) {
+  const used = points.filter(p => p.value != null && p.target != null && !p.incomplete);
+  const skipped = points.filter(p => p.value != null && p.target != null && p.incomplete).length;
+  if (used.length === 0) return null;
+  const diffs = used.map(p => p.value! - p.target!);
+  const avgDiff = diffs.reduce((a, b) => a + b, 0) / diffs.length;
+  const net = diffs.reduce((a, b) => a + b, 0);
+  const kg = net / KCAL_PER_KG;
+  return (
+    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6, lineHeight: 1.5 }}>
+      <strong style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{versus(avgDiff, measure)}</strong>
+      {' '}{measure.key === 'calories' ? 'maintenance' : 'target'} a day on average
+      {measure.key === 'calories' && Math.abs(net) >= 1 && (
+        <> · net {net < 0 ? '−' : '+'}{kcal(Math.abs(net))} kcal ≈ {kg < 0 ? '−' : '+'}{Math.abs(kg).toFixed(1)} kg over {used.length} day{used.length === 1 ? '' : 's'}</>
+      )}
+      {skipped > 0 && <> · {skipped} incomplete day{skipped === 1 ? '' : 's'} left out</>}
     </div>
   );
 }
@@ -346,6 +443,11 @@ function DayCard({ day, onOpen, onAdd }: {
 
       <div style={{ padding: '0 18px 12px' }}>
         <TotalsLine totals={day.totals} />
+        {day.target?.calories != null && day.totals.calories != null && day.incompleteEntries === 0 && (
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6 }}>
+            {versus(day.totals.calories - day.target.calories, MEASURES[0])} maintenance ({kcal(day.target.calories)} kcal)
+          </div>
+        )}
         {day.incompleteEntries === 0 && <MacroSplit totals={day.totals} />}
         {day.incompleteEntries > 0 && (
           <div style={{ fontSize: 12, color: 'var(--k5-ink)', marginTop: 6 }}
@@ -594,6 +696,87 @@ export function FoodLogForm({ entry, date, meal, onCancel, onSaved }: {
               {busy ? 'Saving...' : start ? 'Save' : 'Log it'}
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── targets ──
+
+/**
+ * Maintenance calories and macro targets, effective from a date. Setting new ones from today keeps
+ * every earlier day judged against what was set then; setting them for an earlier date reaches back.
+ */
+function TargetsForm({ targets, onClose, onSaved }: {
+  targets: NutritionTargetDto[]; onClose: () => void; onSaved: () => void | Promise<void>;
+}) {
+  const current = targetOn(targets, todayIso());
+  const [from, setFrom] = useState(todayIso());
+  const [calories, setCalories] = useState(current?.calories?.toString() ?? '');
+  const [protein, setProtein] = useState(current?.proteinG?.toString() ?? '');
+  const [carbs, setCarbs] = useState(current?.carbsG?.toString() ?? '');
+  const [fat, setFat] = useState(current?.fatG?.toString() ?? '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const save = async () => {
+    setBusy(true); setErr(null);
+    try {
+      await api.saveNutritionTargets({ effectiveFrom: from, calories: toDec(calories), proteinG: toDec(protein), carbsG: toDec(carbs), fatG: toDec(fat) });
+      await onSaved();
+    } catch { setErr('Could not save. Try again.'); setBusy(false); }
+  };
+  const remove = async (date: string) => {
+    setBusy(true);
+    try { await api.deleteNutritionTargets(date); await onSaved(); }
+    catch { setErr('Could not delete. Try again.'); setBusy(false); }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+        <h2>🎯 Daily targets</h2>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 14 }}>
+          Maintenance is what a day costs you: eating above it is a surplus, below it a deficit. Each set applies from
+          its date until the next, so earlier days keep the targets they were lived against. Leave a field blank for no target.
+        </div>
+
+        <label>{KCAL_EMOJI} Maintenance calories (kcal/day)</label>
+        <input type="number" min={0} value={calories} onChange={e => setCalories(e.target.value)} placeholder="2400" autoFocus />
+
+        <div className="form-row">
+          <div><label>{PROTEIN_EMOJI} Protein (g)</label><input type="number" min={0} value={protein} onChange={e => setProtein(e.target.value)} placeholder="150" /></div>
+          <div><label>{CARBS_EMOJI} Carbs (g)</label><input type="number" min={0} value={carbs} onChange={e => setCarbs(e.target.value)} placeholder="250" /></div>
+          <div><label>{FAT_EMOJI} Fat (g)</label><input type="number" min={0} value={fat} onChange={e => setFat(e.target.value)} placeholder="70" /></div>
+        </div>
+
+        <label>Effective from</label>
+        <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
+
+        {targets.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: 6 }}>History</div>
+            {[...targets].reverse().map(t => (
+              <div key={t.effectiveFrom} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, padding: '5px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                <span style={{ minWidth: 92 }}>from {shortDate(t.effectiveFrom)}</span>
+                <span style={{ flex: 1, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                  {t.calories != null ? `${kcal(t.calories)} kcal` : '— kcal'}
+                  {t.proteinG != null && ` · ${grams(t.proteinG)}P`}{t.carbsG != null && ` · ${grams(t.carbsG)}C`}{t.fatG != null && ` · ${grams(t.fatG)}F`}
+                </span>
+                <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => remove(t.effectiveFrom)}
+                  aria-label={`Remove the targets from ${shortDate(t.effectiveFrom)}`}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 8 }}>{err}</div>}
+        <div className="modal-actions">
+          <button type="button" className="btn btn-sm" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn btn-sm btn-accent" onClick={save} disabled={busy || !/^\d{4}-\d{2}-\d{2}$/.test(from)}>
+            {busy ? 'Saving...' : 'Save targets'}
+          </button>
         </div>
       </div>
     </div>

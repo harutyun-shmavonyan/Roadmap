@@ -45,6 +45,27 @@ public static class FoodLogEndpoints
             return Results.Ok(FoodLogLogic.ToDto(entry));
         });
 
+        // Targets: maintenance calories and macro goals, each set effective from a date.
+        log.MapGet("/targets", async (RoadmapDbContext db) =>
+            Results.Ok((await FoodLogLogic.TargetsAsync(db)).Select(FoodLogLogic.ToDto)));
+
+        log.MapPut("/targets", async (SaveNutritionTargetRequest req, RoadmapDbContext db) =>
+        {
+            if (!FoodLogLogic.TryParseDate(req.EffectiveFrom, out var from)) return Results.BadRequest("effectiveFrom must be yyyy-MM-dd.");
+            var t = await FoodLogLogic.SetTargetsAsync(db, from, req.Calories, req.ProteinG, req.CarbsG, req.FatG);
+            return Results.Ok(FoodLogLogic.ToDto(t));
+        });
+
+        log.MapDelete("/targets/{date}", async (string date, RoadmapDbContext db) =>
+        {
+            if (!FoodLogLogic.TryParseDate(date, out var d)) return Results.BadRequest("date must be yyyy-MM-dd.");
+            var t = await db.NutritionTargets.FirstOrDefaultAsync(x => x.EffectiveFrom == d);
+            if (t is null) return Results.NotFound();
+            db.NutritionTargets.Remove(t);
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        });
+
         log.MapDelete("/{id:guid}", async (Guid id, RoadmapDbContext db) =>
         {
             var entry = await db.FoodLog.FirstOrDefaultAsync(f => f.Id == id);

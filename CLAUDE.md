@@ -172,6 +172,14 @@ carbs and fat). REST `/api/food-log`, MCP `log_food`, `list_food_log`, `update_f
   `--macro-*` tokens over the validated `--k*` palette (calories teal, protein red, carbs blue, fat
   amber) — red and amber fail the dark-surface floor side by side (ΔE 13), so they never touch in
   the split bar's protein | carbs | fat order.
+- **Targets** (`nutrition_targets`, migration `NutritionTargets`): maintenance calories and optional
+  protein/carbs/fat grams, each set **effective from a date** (unique) and holding until the next,
+  so a changed maintenance never re-judges earlier days. `FoodLogLogic.TargetOn` picks the set for
+  a day; every `FoodLogDayDto` carries its `target`. REST `GET/PUT /api/food-log/targets`,
+  `DELETE /targets/{date}`; MCP `set_nutrition_targets`, `get_nutrition_targets` (0 or blank = no
+  target). The charts draw them as a dashed step line, and the "on track" line above each chart
+  averages value − target over logged days **with complete macros** (an incomplete day undercounts
+  intake and would flatter a deficit) and, for calories, turns the net into kg at 7,700 kcal/kg.
 
 ## Professional Newsletter tab
 

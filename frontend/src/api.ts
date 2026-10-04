@@ -8,7 +8,7 @@ import type { RoadmapSummary, RoadmapTree, NodeDto, CreateNodeRequest, Actionabl
   NewsletterSummaryDto, NewsletterCursorDto,
   JobRunDto, JobRunSummaryDto,
   VocabEntryDto, VocabStatsDto,
-  MealDto, MealSlot, SaveMealRequest, FoodLogDayDto, FoodLogEntryDto, SaveFoodLogEntryRequest,
+  MealDto, MealSlot, SaveMealRequest, FoodLogDayDto, FoodLogEntryDto, SaveFoodLogEntryRequest, NutritionTargetDto,
   CourseSummaryDto, CourseDetailDto, LessonDetailDto, CourseEventDto, CourseResumeDto,
   CourseStatus, LessonStatus,
   ExperienceDto, ExperienceImageDto, ExperienceStatus, SaveExperienceRequest,
@@ -316,6 +316,10 @@ export const api = {
   createFoodLogEntry: (body: SaveFoodLogEntryRequest) => req<FoodLogEntryDto>('/api/food-log', { method: 'POST', body: JSON.stringify(body) }),
   updateFoodLogEntry: (id: string, body: SaveFoodLogEntryRequest) => req<FoodLogEntryDto>(`/api/food-log/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteFoodLogEntry: (id: string) => req<void>(`/api/food-log/${id}`, { method: 'DELETE' }),
+  // Daily targets (maintenance calories, macro goals), each set effective from a date. Oldest first.
+  getNutritionTargets: () => req<NutritionTargetDto[]>('/api/food-log/targets'),
+  saveNutritionTargets: (body: NutritionTargetDto) => req<NutritionTargetDto>('/api/food-log/targets', { method: 'PUT', body: JSON.stringify(body) }),
+  deleteNutritionTargets: (date: string) => req<void>(`/api/food-log/targets/${date}`, { method: 'DELETE' }),
 
   // The meal photo (optional, one per meal). The tab only ever reads it — photos are set and
   // removed over MCP. The bytes sit behind the same bearer token as everything else, so an

@@ -55,6 +55,7 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
     public DbSet<Meal> Meals => Set<Meal>();
     public DbSet<MealImage> MealImages => Set<MealImage>();
     public DbSet<FoodLogEntry> FoodLog => Set<FoodLogEntry>();
+    public DbSet<NutritionTarget> NutritionTargets => Set<NutritionTarget>();
     public DbSet<Experience> Experiences => Set<Experience>();
     public DbSet<ExperienceImage> ExperienceImages => Set<ExperienceImage>();
 
@@ -557,6 +558,14 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.HasOne<Meal>().WithMany().HasForeignKey(f => f.MealId).OnDelete(DeleteBehavior.SetNull);
             // Every read is a range of days.
             e.HasIndex(f => f.Date);
+        });
+
+        modelBuilder.Entity<NutritionTarget>(e =>
+        {
+            e.ToTable("nutrition_targets");
+            e.HasKey(t => t.Id);
+            // One set of targets per date: setting targets again for a day replaces them.
+            e.HasIndex(t => t.EffectiveFrom).IsUnique();
         });
 
         modelBuilder.Entity<MealImage>(e =>

@@ -112,18 +112,56 @@ public static class FoodLogLogic
         e.Calories, e.ProteinG, e.CarbsG, e.FatG, TotalsOf(e), IsMissingMacros(e), e.Note,
         e.CreatedAt, e.UpdatedAt);
 
-    /// <summary>The entries grouped into days, newest day first; within a day, by slot then time logged.</summary>
-    public static List<FoodLogDayDto> ToDays(IEnumerable<FoodLogEntry> entries) =>
+    /// <summary>
+    /// The entries grouped into days, newest day first; within a day, by slot then time logged. Each
+    /// day carries the targets in effect on it (see <see cref="TargetOn"/>), or null if none were set.
+    /// </summary>
+    public static List<FoodLogDayDto> ToDays(IEnumerable<FoodLogEntry> entries, IReadOnlyList<NutritionTarget>? targets = null) =>
         entries.GroupBy(e => e.Date).OrderByDescending(g => g.Key).Select(g =>
         {
             var ordered = g.OrderBy(e => e.Slot).ThenBy(e => e.CreatedAt).ToList();
+            var t = targets is null ? null : TargetOn(targets, g.Key);
             return new FoodLogDayDto(g.Key.ToString("yyyy-MM-dd"), Sum(ordered.Select(TotalsOf)),
-                ordered.Count, ordered.Count(IsMissingMacros), ordered.Select(ToDto).ToList());
+                ordered.Count, ordered.Count(IsMissingMacros), ordered.Select(ToDto).ToList(),
+                t is null ? null : new MacroTotals(t.Calories, t.ProteinG, t.CarbsG, t.FatG));
         }).ToList();
 
     /// <summary>Every logged day in [from, to], newest first. Days with nothing logged are left out.</summary>
     public static async Task<List<FoodLogDayDto>> DaysAsync(RoadmapDbContext db, DateOnly from, DateOnly to) =>
-        ToDays(await db.FoodLog.AsNoTracking().Where(f => f.Date >= from && f.Date <= to).ToListAsync());
+        ToDays(await db.FoodLog.AsNoTracking().Where(f => f.Date >= from && f.Date <= to).ToListAsync(),
+            await TargetsAsync(db));
+
+    // ── targets ──
+
+    /// <summary>Every set of targets, oldest first.</summary>
+    public static Task<List<NutritionTarget>> TargetsAsync(RoadmapDbContext db) =>
+        db.NutritionTargets.AsNoTracking().OrderBy(t => t.EffectiveFrom).ToListAsync();
+
+    /// <summary>The targets in effect on a day: the latest set whose start is on or before it.</summary>
+    public static NutritionTarget? TargetOn(IReadOnlyList<NutritionTarget> oldestFirst, DateOnly day) =>
+        oldestFirst.LastOrDefault(t => t.EffectiveFrom <= day);
+
+    public static NutritionTargetDto ToDto(NutritionTarget t) =>
+        new(t.EffectiveFrom.ToString("yyyy-MM-dd"), t.Calories, t.ProteinG, t.CarbsG, t.FatG);
+
+    /// <summary>
+    /// Set the targets from a date: replaces the set starting that day, or adds one. Figures are
+    /// cleaned like macros (no negatives, one decimal); a zero target is treated as "none".
+    /// </summary>
+    public static async Task<NutritionTarget> SetTargetsAsync(RoadmapDbContext db, DateOnly from,
+        double? calories, double? protein, double? carbs, double? fat)
+    {
+        static double? Clean(double? v) => CleanMacro(v) is double d && d > 0 ? d : null;
+        var t = await db.NutritionTargets.FirstOrDefaultAsync(x => x.EffectiveFrom == from);
+        if (t is null) { t = new NutritionTarget { Id = Guid.NewGuid(), EffectiveFrom = from }; db.NutritionTargets.Add(t); }
+        t.Calories = Clean(calories);
+        t.ProteinG = Clean(protein);
+        t.CarbsG = Clean(carbs);
+        t.FatG = Clean(fat);
+        t.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        return t;
+    }
 
     /// <summary>
     /// Read a from/to pair: blank to is today, blank from is <paramref name="defaultDays"/> back from

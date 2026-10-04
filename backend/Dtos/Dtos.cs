@@ -449,7 +449,13 @@ public record FoodLogEntryDto(Guid Id, string Date, string Slot, Guid? MealId, s
 /// counts the entries with any macro unknown, so a day with gaps reads as incomplete rather than light.
 /// </summary>
 public record FoodLogDayDto(string Date, MacroTotals Totals, int EntryCount, int IncompleteEntries,
-    List<FoodLogEntryDto> Entries);
+    List<FoodLogEntryDto> Entries, MacroTotals? Target = null);
+
+/// <summary>Targets in effect from <see cref="EffectiveFrom"/> until the next set; Calories is maintenance.</summary>
+public record NutritionTargetDto(string EffectiveFrom, double? Calories, double? ProteinG, double? CarbsG, double? FatG);
+
+/// <summary>Set the targets from a date (default today). A null figure means "no target for this".</summary>
+public record SaveNutritionTargetRequest(string? EffectiveFrom, double? Calories, double? ProteinG, double? CarbsG, double? FatG);
 
 /// <summary>Create or replace an entry. Date is yyyy-MM-dd (defaults to today); macros are per serving.</summary>
 public record SaveFoodLogEntryRequest(string? Date, string? Slot, Guid? MealId, string? Name, double? Servings,

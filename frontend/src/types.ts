@@ -283,7 +283,10 @@ export interface MealDto { id: string; slot: MealSlot; name: string; summary: st
 // totals are them times servings. A null macro is unknown, never zero.
 export interface MacroTotals { calories: number | null; proteinG: number | null; carbsG: number | null; fatG: number | null; }
 export interface FoodLogEntryDto { id: string; date: string; slot: MealSlot; mealId: string | null; name: string; servings: number; calories: number | null; proteinG: number | null; carbsG: number | null; fatG: number | null; totals: MacroTotals; missingMacros: boolean; note: string | null; createdAt: string; updatedAt: string; }
-export interface FoodLogDayDto { date: string; totals: MacroTotals; entryCount: number; incompleteEntries: number; entries: FoodLogEntryDto[]; }
+// target: the targets in effect that day (calories = maintenance); null when none were set.
+export interface FoodLogDayDto { date: string; totals: MacroTotals; entryCount: number; incompleteEntries: number; entries: FoodLogEntryDto[]; target: MacroTotals | null; }
+// One set of daily targets, in effect from effectiveFrom until the next set. calories = maintenance.
+export interface NutritionTargetDto { effectiveFrom: string; calories: number | null; proteinG: number | null; carbsG: number | null; fatG: number | null; }
 export interface SaveFoodLogEntryRequest { date: string; slot: MealSlot; mealId: string | null; name: string; servings: number; calories: number | null; proteinG: number | null; carbsG: number | null; fatG: number | null; note: string | null; }
 export interface SaveMealRequest { slot: MealSlot; name: string; summary?: string | null; ingredients: string[]; steps: string[]; calories?: number | null; proteinG?: number | null; carbsG?: number | null; fatG?: number | null; prepMinutes?: number | null; tags: string[]; isFavorite?: boolean; }
 
