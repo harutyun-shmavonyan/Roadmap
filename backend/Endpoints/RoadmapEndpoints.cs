@@ -2919,11 +2919,15 @@ public static class RoadmapEndpoints
     /// <summary>
     /// Rebuild the sprint's commitment from its frozen inputs.
     ///
-    /// Everything is taken from the snapshot — rates, schedules, queue order, relax days, the
-    /// window — so adding a relax day, reordering the queue or changing a rate mid-sprint
-    /// cannot move what you are measured against. Only item *sizes* are re-read from the live
-    /// items, because a corrected estimate is the one thing that is allowed to reshape the
+    /// Almost everything is taken from the snapshot — rates, schedules, queue order, the window —
+    /// so changing a rate mid-sprint cannot move what you are measured against. Item *sizes* are
+    /// re-read from the live items, because a corrected estimate is allowed to reshape the
     /// commitment: it is rebuilt as though you had estimated correctly before the sprint began.
+    ///
+    /// Relax days are the other exception, by the user's call: a day declared off while the
+    /// sprint runs takes its sessions out of the commitment, exactly as the day view already
+    /// does. A running sprint reads them live; an ended one reads the snapshot, which
+    /// <see cref="ReplanStartedSprintsAsync"/> keeps in step while the sprint runs.
     ///
     /// An item closed by hand before reaching its amount is treated as having been that big all
     /// along — its true size is what it actually took. Work done faster than planned is *not* a
@@ -2984,7 +2988,8 @@ public static class RoadmapEndpoints
             .Where(kv => Guid.TryParse(kv.Key, out _))
             .ToDictionary(kv => Guid.Parse(kv.Key), kv => kv.Value);
 
-        var computed = ComputeSprintPlan(nodes, blocks, dates, loggedBefore, [.. snap.RelaxDays],
+        var relaxDays = sprint.EndDate >= AppClock.Today() ? ParseRelaxDays(sprint.RelaxDays) : [.. snap.RelaxDays];
+        var computed = ComputeSprintPlan(nodes, blocks, dates, loggedBefore, relaxDays,
             await LoadCompletionBoundariesAsync(db, sprint.RoadmapId), stopsClose: true);
         // The rate a session was priced at is decided by the planner — an item's own for a
         // per-item session, the pool's frozen average for a block one — so it comes straight out.
@@ -3414,11 +3419,19 @@ public static class RoadmapEndpoints
             var snap = await GetOrCapturePlanInputsAsync(db, sprint, persist: true);
 
             // Keep the commitment's queues on the live order too, so Performance plans the same
-            // item the day view does.
-            if (snap is not null && ReseatQueues(snap, allNodes, blocks) is { } reseated)
+            // item the day view does — and its relax days on the sprint's, so the days declared
+            // off while it ran stay off once it has ended and is read from the snapshot alone.
+            if (snap is not null)
             {
-                var tracked = await db.Sprints.FirstOrDefaultAsync(s => s.Id == sprint.Id);
-                if (tracked is not null) tracked.PlanInputs = JsonSerializer.Serialize(reseated);
+                var updated = ReseatQueues(snap, allNodes, blocks) ?? snap;
+                var relax = ParseRelaxDays(sprint.RelaxDays);
+                if (!relax.SetEquals(updated.RelaxDays))
+                    updated = updated with { RelaxDays = relax.Order().ToList() };
+                if (!ReferenceEquals(updated, snap))
+                {
+                    var tracked = await db.Sprints.FirstOrDefaultAsync(s => s.Id == sprint.Id);
+                    if (tracked is not null) tracked.PlanInputs = JsonSerializer.Serialize(updated);
+                }
             }
 
             var from = today > sprint.StartDate ? today : sprint.StartDate;

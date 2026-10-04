@@ -76,6 +76,13 @@ that day or not), which "Log to any item" uses to badge and preview the weighted
 achievements are deliberately left alone: they store fixed points at the nominal rate and never
 touch an item, so they bypass weighting, progress and the bank — the user chose to keep them so.
 
+**Relax days follow the sprint, even after Start** (the user's call). The commitment is otherwise
+frozen at Start Sprint, but a relax day added or removed while the sprint runs takes its sessions
+out of (or back into) the commitment — Performance, the week view and the weighted pricing — just
+as the day view always did. A running sprint reads `Sprint.RelaxDays` live in
+`ComputeCommitmentAsync`; `ReplanStartedSprintsAsync` copies them into the frozen snapshot, so an
+ended sprint keeps the relax days it actually had and a toggle on a closed sprint changes nothing.
+
 ## Notes v2 — flashcards (FSRS), a system of its own
 
 A separate feature beside the v1 daily notes: its own tables (`flashcards`, `flashcard_prompts`,
