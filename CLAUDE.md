@@ -184,6 +184,12 @@ carbs and fat). REST `/api/food-log`, MCP `log_food`, `list_food_log`, `update_f
   target). The charts draw them as a dashed step line, and the "on track" line above each chart
   averages value − target over logged days **with complete macros** (an incomplete day undercounts
   intake and would flatter a deficit) and, for calories, turns the net into kg at 7,700 kcal/kg.
+- **7-day moving average** on every chart (solid 2px line over a surface halo; target lines are
+  dashed; a key above the charts names both): the trailing mean of the day and the 6 before it over
+  days logged **with complete macros** (unlogged days are not zeros, incomplete ones undercount),
+  drawn only where at least 3 such days fall in the window (`MA_DAYS`, `MA_MIN_DAYS`). The view
+  fetches 6 days of lead-in before the range so the line is whole from the first day shown. Also in
+  the tooltip and the table view.
 
 ## Professional Newsletter tab
 

@@ -56,10 +56,31 @@ function targetOn(targets: NutritionTargetDto[], dateIso: string): NutritionTarg
 // About 7,700 kcal of surplus or deficit is a kilogram of body fat — the usual rule of thumb.
 const KCAL_PER_KG = 7700;
 
+// The moving average looks at the day and the six before it, and draws a point only when at
+// least this many of those days were logged with complete macros, so one lone day is not a trend.
+const MA_DAYS = 7, MA_MIN_DAYS = 3;
+
+/**
+ * The trailing 7-day average of a measure on a day: the mean over the logged days in the window
+ * whose macros are complete. Unlogged days are not zeros, and an incomplete day undercounts what
+ * was eaten, so both are left out. Null when fewer than MA_MIN_DAYS days qualify.
+ */
+function movingAvg(byDate: Map<string, FoodLogDayDto>, dateIso: string, key: keyof MacroTotals): number | null {
+  const xs: number[] = [];
+  for (let i = 0; i < MA_DAYS; i++) {
+    const d = byDate.get(daysBefore(dateIso, i));
+    const v = d && d.incompleteEntries === 0 ? d.totals[key] : null;
+    if (v != null) xs.push(v);
+  }
+  return xs.length >= MA_MIN_DAYS ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+}
+
 // ── the history view ──
 
 export function FoodLogView({ refreshKey }: { refreshKey: number }) {
-  const [days, setDays] = useState<FoodLogDayDto[]>([]);
+  // Fetched with MA_DAYS − 1 days of lead-in before the range, so the moving average is whole from
+  // the first day shown; everything else reads only the days inside the range.
+  const [fetched, setFetched] = useState<FoodLogDayDto[]>([]);
   const [span, setSpan] = useState(30);
   const [asTable, setAsTable] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -71,12 +92,13 @@ export function FoodLogView({ refreshKey }: { refreshKey: number }) {
 
   const to = todayIso();
   const from = daysBefore(to, span - 1);
+  const days = fetched.filter(d => d.date >= from);
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [d, t] = await Promise.all([api.getFoodLog(from, to), api.getNutritionTargets()]);
-      setDays(d); setTargets(t);
+      const [d, t] = await Promise.all([api.getFoodLog(daysBefore(from, MA_DAYS - 1), to), api.getNutritionTargets()]);
+      setFetched(d); setTargets(t);
     }
     catch { setError('Could not load the food log.'); }
     finally { setLoading(false); }
@@ -135,7 +157,7 @@ export function FoodLogView({ refreshKey }: { refreshKey: number }) {
               </div>
             )}
             {days.length > 0 && (
-              <DayByDay days={days} targets={targets} from={from} to={to} asTable={asTable}
+              <DayByDay days={days} withLeadIn={fetched} targets={targets} from={from} to={to} asTable={asTable}
                 onToggle={() => setAsTable(t => !t)} onSetTargets={() => setShowTargets(true)} />
             )}
             {days.map(d => (
@@ -188,11 +210,12 @@ function datesBetween(from: string, to: string): string[] {
  * measure is the only honest way to put them side by side. Each is one series, so its title names
  * it and there is no legend box. The range above scopes these and the day cards alike.
  */
-function DayByDay({ days, targets, from, to, asTable, onToggle, onSetTargets }: {
-  days: FoodLogDayDto[]; targets: NutritionTargetDto[]; from: string; to: string; asTable: boolean;
+function DayByDay({ days, withLeadIn, targets, from, to, asTable, onToggle, onSetTargets }: {
+  days: FoodLogDayDto[]; withLeadIn: FoodLogDayDto[]; targets: NutritionTargetDto[]; from: string; to: string; asTable: boolean;
   onToggle: () => void; onSetTargets: () => void;
 }) {
-  const byDate = new Map(days.map(d => [d.date, d]));
+  const byDate = new Map(withLeadIn.map(d => [d.date, d]));
+  const hasTargets = targets.some(t => t.calories != null || t.proteinG != null || t.carbsG != null || t.fatG != null);
   const dates = datesBetween(from, to);
   const anyIncomplete = days.some(d => d.incompleteEntries > 0);
   return (
@@ -213,6 +236,21 @@ function DayByDay({ days, targets, from, to, asTable, onToggle, onSetTargets }: 
           A faded bar is a day with unknown macros, so it is a lower bound.
         </div>
       )}
+      {!asTable && (
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 10 }}>
+          {/* Line keys mirror the marks: solid for the average, dashed for the target. */}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <svg width={22} height={8} aria-hidden><line x1={1} x2={21} y1={4} y2={4} stroke="var(--text-primary)" strokeWidth={2} strokeLinecap="round" /></svg>
+            7-day average (complete days only)
+          </span>
+          {hasTargets && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <svg width={22} height={8} aria-hidden><line x1={1} x2={21} y1={4} y2={4} stroke="var(--text-primary)" strokeOpacity={0.75} strokeWidth={1.5} strokeDasharray="5 4" /></svg>
+              maintenance / target
+            </span>
+          )}
+        </div>
+      )}
       {!targets.some(t => t.calories != null) && !asTable && (
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 10 }}>
           Set your maintenance calories to see each day against it.{' '}
@@ -220,7 +258,7 @@ function DayByDay({ days, targets, from, to, asTable, onToggle, onSetTargets }: 
         </div>
       )}
       {asTable ? (
-        <DayTable days={days} />
+        <DayTable days={days} maFor={(d, k) => movingAvg(byDate, d, k)} />
       ) : (
         <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 380px), 1fr))' }}>
           {MEASURES.map(m => (
@@ -228,7 +266,7 @@ function DayByDay({ days, targets, from, to, asTable, onToggle, onSetTargets }: 
               points={dates.map(d => {
                 const day = byDate.get(d);
                 return { date: d, value: day ? day.totals[m.key] : null, incomplete: !!day && day.incompleteEntries > 0, logged: !!day,
-                  target: targetOn(targets, d)?.[m.key] ?? null };
+                  target: targetOn(targets, d)?.[m.key] ?? null, ma: movingAvg(byDate, d, m.key) };
               })} />
           ))}
         </div>
@@ -257,7 +295,7 @@ function niceStep(max: number): number {
   return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * pow;
 }
 
-type Point = { date: string; value: number | null; incomplete: boolean; logged: boolean; target: number | null };
+type Point = { date: string; value: number | null; incomplete: boolean; logged: boolean; target: number | null; ma: number | null };
 
 function DailyChart({ measure, dates, points }: { measure: Measure; dates: string[]; points: Point[] }) {
   const [boxRef, width] = useWidth<HTMLDivElement>();
@@ -267,7 +305,8 @@ function DailyChart({ measure, dates, points }: { measure: Measure; dates: strin
   const values = points.map(p => p.value).filter((v): v is number => v != null);
   const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
   const targetVals = points.map(p => p.target).filter((v): v is number => v != null);
-  const top0 = Math.max(...values, ...targetVals, 1);
+  const maVals = points.map(p => p.ma).filter((v): v is number => v != null);
+  const top0 = Math.max(...values, ...targetVals, ...maVals, 1);
   const step = niceStep(top0);
   const max = Math.ceil(top0 / step) * step;
   const ticks = Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step);
@@ -334,10 +373,38 @@ function DailyChart({ measure, dates, points }: { measure: Measure; dates: strin
                 <g aria-hidden>
                   <path d={d} fill="none" stroke="var(--text-primary)" strokeOpacity={0.75} strokeWidth={1.5} strokeDasharray="5 4" />
                   {last && (
-                    <text x={width - 6} y={y(last.target!) - 5} textAnchor="end" fontSize={11} fontWeight={600}
+                    <text x={left + 4} y={y(last.target!) - 5} textAnchor="start" fontSize={11} fontWeight={600}
                       fill="var(--text-primary)" stroke="var(--bg-primary)" strokeWidth={3} paintOrder="stroke">
                       {measure.key === 'calories' ? 'maintenance' : 'target'} {fmt(last.target!)}
                     </text>
+                  )}
+                </g>
+              );
+            })()}
+            {/* The 7-day average: a 2px line through the day centres, broken where too few days
+                qualify, over a surface-coloured halo so it stays legible where it crosses the bars. */}
+            {(() => {
+              let d = '', open = false;
+              points.forEach((p, i) => {
+                if (p.ma == null) { open = false; return; }
+                d += `${open ? 'L' : 'M'}${left + i * slot + slot / 2},${y(p.ma)} `;
+                open = true;
+              });
+              let lastI = -1;
+              points.forEach((p, i) => { if (p.ma != null) lastI = i; });
+              const last = lastI >= 0 ? points[lastI] : null;
+              return d && (
+                <g aria-hidden>
+                  <path d={d} fill="none" stroke="var(--bg-primary)" strokeWidth={5} strokeLinejoin="round" strokeLinecap="round" />
+                  <path d={d} fill="none" stroke="var(--text-primary)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+                  {last?.ma != null && (
+                    <>
+                      <circle cx={left + lastI * slot + slot / 2} cy={y(last.ma)} r={4} fill="var(--text-primary)" stroke="var(--bg-primary)" strokeWidth={2} />
+                      <text x={width - 6} y={y(last.ma) - 9} textAnchor="end" fontSize={11} fontWeight={600}
+                        fill="var(--text-primary)" stroke="var(--bg-primary)" strokeWidth={3} paintOrder="stroke">
+                        7-day {kcal(last.ma)}
+                      </text>
+                    </>
                   )}
                 </g>
               );
@@ -350,7 +417,10 @@ function DailyChart({ measure, dates, points }: { measure: Measure; dates: strin
           </svg>
         )}
         {hp && (
-          <div className="foodlog-tip" style={{ left: Math.min(Math.max(left + hover! * slot + slot / 2, 70), width - 70), top: hp.value ? y(hp.value) - 6 : top + plotH - 6 }}>
+          // On the right half the tip opens leftwards and on the left half rightwards, so it never
+          // runs off the card, however long its lines are.
+          <div className="foodlog-tip" style={{ left: left + hover! * slot + slot / 2, top: hp.value ? y(hp.value) - 6 : top + plotH - 6,
+            transform: left + hover! * slot + slot / 2 > width / 2 ? 'translate(calc(-100% - 8px), -100%)' : 'translate(8px, -100%)' }}>
             <div style={{ color: 'var(--text-secondary)' }}>{dayLabel(hp.date)}</div>
             {hp.value != null ? (
               <>
@@ -364,6 +434,7 @@ function DailyChart({ measure, dates, points }: { measure: Measure; dates: strin
             ) : (
               <div style={{ color: 'var(--text-secondary)' }}>{hp.logged ? 'unknown' : 'nothing logged'}</div>
             )}
+            {hp.ma != null && <div style={{ color: 'var(--text-secondary)' }}>7-day avg {kcal(hp.ma)} {measure.unit}</div>}
           </div>
         )}
       </div>
@@ -404,7 +475,7 @@ function OnTrack({ measure, points }: { measure: Measure; points: Point[] }) {
 }
 
 /** The same figures as the charts, one row per logged day — the view that needs no hovering. */
-function DayTable({ days }: { days: FoodLogDayDto[] }) {
+function DayTable({ days, maFor }: { days: FoodLogDayDto[]; maFor: (date: string, key: keyof MacroTotals) => number | null }) {
   const cell = (v: number | null, unit: string) => (v == null ? '—' : `${unit === 'kcal' ? kcal(v) : grams(v)}`);
   return (
     <div style={{ overflowX: 'auto', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
@@ -418,7 +489,15 @@ function DayTable({ days }: { days: FoodLogDayDto[] }) {
               <th scope="row" style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0, fontSize: 13, color: 'var(--text-primary)' }}>
                 {dayLabel(d.date)}
               </th>
-              {MEASURES.map(m => <td key={m.key}>{cell(d.totals[m.key], m.unit)}</td>)}
+              {MEASURES.map(m => {
+                const ma = maFor(d.date, m.key);
+                return (
+                  <td key={m.key}>
+                    {cell(d.totals[m.key], m.unit)}
+                    {ma != null && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>7-day {kcal(ma)}</div>}
+                  </td>
+                );
+              })}
               <td style={{ color: 'var(--text-secondary)' }}>{d.incompleteEntries > 0 ? 'lower bound' : ''}</td>
             </tr>
           ))}
