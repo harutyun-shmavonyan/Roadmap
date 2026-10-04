@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { FoodLogDayDto, FoodLogEntryDto, MacroTotals, MealDto, MealSlot } from './types';
 import { api } from './api';
 import { SLOTS, SLOT_EMOJI, KCAL_EMOJI, PROTEIN_EMOJI, CARBS_EMOJI, FAT_EMOJI } from './nutritionShared';
@@ -43,13 +43,15 @@ const toDec = (text: string): number | null => {
   return Number.isFinite(n) ? Math.max(0, n) : null;
 };
 
-const RANGE_STEP = 30;
+// The range presets — one control scopes the charts and the day cards alike.
+const RANGES = [7, 14, 30, 90];
 
 // ── the history view ──
 
 export function FoodLogView({ refreshKey }: { refreshKey: number }) {
   const [days, setDays] = useState<FoodLogDayDto[]>([]);
-  const [span, setSpan] = useState(RANGE_STEP);
+  const [span, setSpan] = useState(30);
+  const [asTable, setAsTable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // An entry opens it for editing; a date opens an empty form for that day.
@@ -84,8 +86,14 @@ export function FoodLogView({ refreshKey }: { refreshKey: number }) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', flexWrap: 'wrap',
         borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+        <div className="nav-tabs" role="group" aria-label="Range">
+          {RANGES.map(r => (
+            <button key={r} className={`nav-tab ${span === r ? 'active' : ''}`} aria-pressed={span === r}
+              onClick={() => setSpan(r)}>{r} days</button>
+          ))}
+        </div>
         <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-          {days.length} day{days.length === 1 ? '' : 's'} logged in the last {span}
+          {days.length} day{days.length === 1 ? '' : 's'} logged
           {avgKcal != null && <> · {KCAL_EMOJI} avg {kcal(avgKcal)} kcal/day</>}
           {avgProtein != null && <> · {PROTEIN_EMOJI} {grams(Math.round(avgProtein))} g protein</>}
         </span>
@@ -99,7 +107,7 @@ export function FoodLogView({ refreshKey }: { refreshKey: number }) {
         ) : error ? (
           <div style={{ color: 'var(--danger)' }}>{error}</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760, margin: '0 auto' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 980, margin: '0 auto' }}>
             {days.length === 0 && (
               <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '60px 20px' }}>
                 <div style={{ fontSize: 32, marginBottom: 12 }}>🍽️</div>
@@ -109,13 +117,12 @@ export function FoodLogView({ refreshKey }: { refreshKey: number }) {
                 <button className="btn btn-accent btn-sm" onClick={() => setEditing({ date: todayIso() })}>+ Log what you ate today</button>
               </div>
             )}
+            {days.length > 0 && (
+              <DayByDay days={days} from={from} to={to} asTable={asTable} onToggle={() => setAsTable(t => !t)} />
+            )}
             {days.map(d => (
               <DayCard key={d.date} day={d} onOpen={e => setEditing(e)} onAdd={() => setEditing({ date: d.date })} />
             ))}
-            {days.length > 0 && (
-              <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'center' }}
-                onClick={() => setSpan(s => s + RANGE_STEP)}>Show {RANGE_STEP} more days</button>
-            )}
           </div>
         )}
       </div>
@@ -127,6 +134,199 @@ export function FoodLogView({ refreshKey }: { refreshKey: number }) {
           onCancel={() => setEditing(null)}
           onSaved={async () => { setEditing(null); await load(); }} />
       )}
+    </div>
+  );
+}
+
+// ── day by day: one chart per measure ──
+
+type Measure = { key: keyof MacroTotals; title: string; emoji: string; unit: string; color: string };
+const MEASURES: Measure[] = [
+  { key: 'calories', title: 'Calories', emoji: KCAL_EMOJI, unit: 'kcal', color: 'var(--macro-kcal)' },
+  { key: 'proteinG', title: 'Protein', emoji: PROTEIN_EMOJI, unit: 'g', color: 'var(--macro-protein)' },
+  { key: 'carbsG', title: 'Carbs', emoji: CARBS_EMOJI, unit: 'g', color: 'var(--macro-carbs)' },
+  { key: 'fatG', title: 'Fat', emoji: FAT_EMOJI, unit: 'g', color: 'var(--macro-fat)' },
+];
+
+const shortDate = (dateIso: string) => {
+  const [y, m, d] = dateIso.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+};
+
+/** Every date from..to, oldest first — days with nothing logged stay in as gaps. */
+function datesBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  for (let d = from; d <= to; d = daysBefore(d, -1)) out.push(d);
+  return out;
+}
+
+/**
+ * Four small multiples, not one chart: calories and grams are different scales, and one axis per
+ * measure is the only honest way to put them side by side. Each is one series, so its title names
+ * it and there is no legend box. The range above scopes these and the day cards alike.
+ */
+function DayByDay({ days, from, to, asTable, onToggle }: {
+  days: FoodLogDayDto[]; from: string; to: string; asTable: boolean; onToggle: () => void;
+}) {
+  const byDate = new Map(days.map(d => [d.date, d]));
+  const dates = datesBetween(from, to);
+  const anyIncomplete = days.some(d => d.incompleteEntries > 0);
+  return (
+    <section aria-labelledby="daybyday-h">
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: anyIncomplete && !asTable ? 4 : 10 }}>
+        <h3 id="daybyday-h" style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Day by day</h3>
+        <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={onToggle} aria-pressed={asTable}>
+          {asTable ? 'Show charts' : 'Show as table'}
+        </button>
+      </div>
+      {anyIncomplete && !asTable && (
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+          {/* The key mirrors the mark: a full bar beside a faded one. */}
+          <span aria-hidden style={{ display: 'inline-flex', gap: 2, alignItems: 'flex-end' }}>
+            <span style={{ width: 6, height: 12, borderRadius: '2px 2px 0 0', background: 'var(--text-secondary)' }} />
+            <span style={{ width: 6, height: 12, borderRadius: '2px 2px 0 0', background: 'var(--text-secondary)', opacity: 0.4 }} />
+          </span>
+          A faded bar is a day with unknown macros, so it is a lower bound.
+        </div>
+      )}
+      {asTable ? (
+        <DayTable days={days} />
+      ) : (
+        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 380px), 1fr))' }}>
+          {MEASURES.map(m => (
+            <DailyChart key={m.key} measure={m} dates={dates}
+              points={dates.map(d => {
+                const day = byDate.get(d);
+                return { date: d, value: day ? day.totals[m.key] : null, incomplete: !!day && day.incompleteEntries > 0, logged: !!day };
+              })} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function useWidth<T extends HTMLElement>(): [React.RefObject<T>, number] {
+  const ref = useRef<T>(null);
+  const [w, setW] = useState(0);
+  useEffect(() => {
+    if (!ref.current) return;
+    const ro = new ResizeObserver(([e]) => setW(e.contentRect.width));
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, w];
+}
+
+/** A clean step for ~3 gridlines: 1, 2 or 5 times a power of ten. */
+function niceStep(max: number): number {
+  const raw = max / 3;
+  const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+  const m = raw / pow;
+  return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * pow;
+}
+
+type Point = { date: string; value: number | null; incomplete: boolean; logged: boolean };
+
+function DailyChart({ measure, dates, points }: { measure: Measure; dates: string[]; points: Point[] }) {
+  const [boxRef, width] = useWidth<HTMLDivElement>();
+  const [hover, setHover] = useState<number | null>(null);
+  const H = 130, top = 6, bottom = 20, left = 40;
+  const innerW = Math.max(0, width - left - 4);
+  const values = points.map(p => p.value).filter((v): v is number => v != null);
+  const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+  const step = niceStep(Math.max(...values, 1));
+  const max = Math.ceil(Math.max(...values, 1) / step) * step;
+  const ticks = Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step);
+  const plotH = H - top - bottom;
+  const y = (v: number) => top + plotH - (v / max) * plotH;
+  const slot = dates.length ? innerW / dates.length : 0;
+  // Thin marks: at most 24px, and a 2px surface gap between neighbours.
+  const barW = Math.max(1, Math.min(24, slot - 2));
+  const x = (i: number) => left + i * slot + (slot - barW) / 2;
+  const labelEvery = Math.max(1, Math.ceil(dates.length / Math.max(2, Math.floor(innerW / 56))));
+  const fmt = (v: number) => (measure.unit === 'kcal' ? kcal(v) : grams(v));
+
+  // A bar with a 4px rounded data-end and a square foot on the baseline.
+  const bar = (i: number, v: number) => {
+    const x0 = x(i), y0 = y(v), h = top + plotH - y0;
+    if (h <= 0) return '';
+    const r = Math.min(4, barW / 2, h);
+    return `M${x0},${top + plotH} V${y0 + r} Q${x0},${y0} ${x0 + r},${y0} H${x0 + barW - r} Q${x0 + barW},${y0} ${x0 + barW},${y0 + r} V${top + plotH} Z`;
+  };
+  const hp = hover != null ? points[hover] : null;
+
+  return (
+    <div className="foodlog-chart">
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+        <span style={{ fontSize: 14, fontWeight: 600 }}>{measure.emoji} {measure.title}</span>
+        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{measure.unit}/day</span>
+        {avg != null && (
+          <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-secondary)' }}>
+            avg <strong style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{kcal(avg)}</strong> {measure.unit}
+          </span>
+        )}
+      </div>
+      <div ref={boxRef} style={{ position: 'relative' }} onPointerLeave={() => setHover(null)}>
+        {width > 0 && (
+          <svg width={width} height={H} role="img"
+            aria-label={`${measure.title} per day, ${dates.length} days${avg != null ? `, average ${kcal(avg)} ${measure.unit}` : ''}. The table view lists every value.`}>
+            {ticks.map(t => (
+              <g key={t}>
+                <line x1={left} x2={width - 4} y1={y(t)} y2={y(t)} stroke="var(--border-subtle)" strokeWidth={1} />
+                <text className="tick" x={left - 6} y={y(t) + 4} textAnchor="end">{fmt(t)}</text>
+              </g>
+            ))}
+            {points.map((p, i) => p.value != null && p.value > 0 && (
+              <path key={p.date} d={bar(i, p.value)} fill={measure.color}
+                opacity={(p.incomplete ? 0.4 : 1) * (hover === i ? 0.75 : 1)} />
+            ))}
+            {dates.map((d, i) => (i % labelEvery === 0 || i === dates.length - 1) && (dates.length - 1 - i >= labelEvery || i === dates.length - 1) && (
+              <text key={d} className="tick" x={left + i * slot + slot / 2} y={H - 4} textAnchor="middle">{shortDate(d)}</text>
+            ))}
+            {/* The hit target is the whole day's column, not the painted bar. */}
+            {dates.map((d, i) => (
+              <rect key={d} x={left + i * slot} y={top} width={slot} height={plotH} fill="transparent"
+                onPointerEnter={() => setHover(i)} />
+            ))}
+          </svg>
+        )}
+        {hp && (
+          <div className="foodlog-tip" style={{ left: Math.min(Math.max(left + hover! * slot + slot / 2, 70), width - 70), top: hp.value ? y(hp.value) - 6 : top + plotH - 6 }}>
+            <div style={{ color: 'var(--text-secondary)' }}>{dayLabel(hp.date)}</div>
+            {hp.value != null ? (
+              <div><strong style={{ fontSize: 14 }}>{fmt(hp.value)}</strong> {measure.unit}{hp.incomplete && <span style={{ color: 'var(--text-secondary)' }}> · lower bound</span>}</div>
+            ) : (
+              <div style={{ color: 'var(--text-secondary)' }}>{hp.logged ? 'unknown' : 'nothing logged'}</div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The same figures as the charts, one row per logged day — the view that needs no hovering. */
+function DayTable({ days }: { days: FoodLogDayDto[] }) {
+  const cell = (v: number | null, unit: string) => (v == null ? '—' : `${unit === 'kcal' ? kcal(v) : grams(v)}`);
+  return (
+    <div style={{ overflowX: 'auto', background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+      <table className="foodlog-table">
+        <thead>
+          <tr><th scope="col">Day</th>{MEASURES.map(m => <th key={m.key} scope="col">{m.title} ({m.unit})</th>)}<th scope="col">Note</th></tr>
+        </thead>
+        <tbody>
+          {days.map(d => (
+            <tr key={d.date}>
+              <th scope="row" style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0, fontSize: 13, color: 'var(--text-primary)' }}>
+                {dayLabel(d.date)}
+              </th>
+              {MEASURES.map(m => <td key={m.key}>{cell(d.totals[m.key], m.unit)}</td>)}
+              <td style={{ color: 'var(--text-secondary)' }}>{d.incompleteEntries > 0 ? 'lower bound' : ''}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

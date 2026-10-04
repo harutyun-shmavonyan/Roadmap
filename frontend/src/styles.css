@@ -1344,14 +1344,32 @@ button.xp-tag:focus-visible { outline: 2px solid var(--accent); outline-offset: 
 }
 
 /* ===== Nutrition — food log =====
-   The macro colours reuse three hues of the validated categorical palette (--k*), so they follow
-   the theme with it: protein red, carbs amber, fat blue. Each bar segment is also labelled with
-   its name and share underneath, so the colour is never the only cue. */
+   The macro colours reuse hues of the validated categorical palette (--k*), so they follow the
+   theme with it: calories teal, protein red, carbs blue, fat amber. Validated with the dataviz
+   validator on both surfaces in the order they touch in the split bar (protein | carbs | fat);
+   red and amber are too close on the dark surface (ΔE 13) to sit side by side, which is why fat is
+   the amber and carbs the blue. The four day-by-day charts are separate titled panels, so their
+   colours never have to be told apart from each other. Every bar segment is labelled with its name
+   and share, and the charts have a table view, so colour is never the only cue (and the amber's
+   2.2:1 against white is relieved by both). */
 :root {
+  --macro-kcal: var(--k6-hue);
   --macro-protein: var(--k8-hue);
-  --macro-carbs: var(--k5-hue);
-  --macro-fat: var(--k2-hue);
+  --macro-carbs: var(--k2-hue);
+  --macro-fat: var(--k5-hue);
 }
+.foodlog-chart { position: relative; background: var(--bg-primary); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md); padding: 12px 14px 8px; min-width: 0; }
+.foodlog-chart svg { display: block; overflow: visible; }
+.foodlog-chart .tick { font-size: 11px; fill: var(--text-muted); font-variant-numeric: tabular-nums; }
+.foodlog-tip { position: absolute; pointer-events: none; z-index: 2; background: var(--bg-primary);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg);
+  padding: 6px 9px; font-size: 12px; white-space: nowrap; transform: translate(-50%, -100%); }
+.foodlog-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.foodlog-table th, .foodlog-table td { padding: 7px 10px; border-bottom: 1px solid var(--border-subtle); text-align: right;
+  font-variant-numeric: tabular-nums; }
+.foodlog-table th:first-child, .foodlog-table td:first-child { text-align: left; }
+.foodlog-table th { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-secondary); }
 .foodlog-row {
   display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 18px;
   background: none; border: 0; border-bottom: 1px solid var(--border-subtle); text-align: left;

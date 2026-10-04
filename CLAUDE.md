@@ -165,6 +165,13 @@ carbs and fat). REST `/api/food-log`, MCP `log_food`, `list_food_log`, `update_f
 - Days with nothing logged are not returned. Slot defaults by the Asia/Yerevan hour
   (`SlotForNow`), or to the meal's own slot when logged from the book in the tab.
 - REST PUT replaces an entry; MCP `update_food_log_entry` patches (null keeps, empty note clears).
+- **Day by day charts** (`FoodLog.tsx`): four small multiples — calories, protein, carbs, fat — one
+  bar per day, each on its own axis (kcal and grams never share one). A range control (7/14/30/90
+  days) scopes the charts and the day cards alike; unlogged days are gaps, incomplete days faded
+  bars (lower bounds); hover per day column; a table view carries every value. Colours are
+  `--macro-*` tokens over the validated `--k*` palette (calories teal, protein red, carbs blue, fat
+  amber) — red and amber fail the dark-surface floor side by side (ΔE 13), so they never touch in
+  the split bar's protein | carbs | fat order.
 
 ## Professional Newsletter tab
 
