@@ -431,6 +431,30 @@ public record SaveMealRequest(string? Slot, string Name, string? Summary,
     int? Calories, int? ProteinG, int? CarbsG, int? FatG, int? PrepMinutes,
     List<string>? Tags, bool? IsFavorite);
 
+// ===== Food log (global — what was actually eaten, day by day, beside the meal book) =====
+
+/// <summary>Calories and macros summed over some entries; null when none of them knew the figure.</summary>
+public record MacroTotals(double? Calories, double? ProteinG, double? CarbsG, double? FatG);
+
+/// <summary>
+/// One logged entry. The macros are per serving (as stored); <see cref="Totals"/> is them times
+/// <see cref="Servings"/>, the figure the day adds up.
+/// </summary>
+public record FoodLogEntryDto(Guid Id, string Date, string Slot, Guid? MealId, string Name, double Servings,
+    double? Calories, double? ProteinG, double? CarbsG, double? FatG, MacroTotals Totals,
+    bool MissingMacros, string? Note, DateTime CreatedAt, DateTime UpdatedAt);
+
+/// <summary>
+/// One day of the log: every entry, in slot order, and the day's totals. <see cref="IncompleteEntries"/>
+/// counts the entries with any macro unknown, so a day with gaps reads as incomplete rather than light.
+/// </summary>
+public record FoodLogDayDto(string Date, MacroTotals Totals, int EntryCount, int IncompleteEntries,
+    List<FoodLogEntryDto> Entries);
+
+/// <summary>Create or replace an entry. Date is yyyy-MM-dd (defaults to today); macros are per serving.</summary>
+public record SaveFoodLogEntryRequest(string? Date, string? Slot, Guid? MealId, string? Name, double? Servings,
+    double? Calories, double? ProteinG, double? CarbsG, double? FatG, string? Note);
+
 // ===== Experiences (global — the plan of things to do, and the record of things done) =====
 
 /// <summary>A picture's metadata. The bytes come from /api/experiences/images/{id}.</summary>

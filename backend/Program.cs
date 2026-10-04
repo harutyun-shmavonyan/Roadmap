@@ -135,6 +135,7 @@ app.MapGet("/api/auth/check", (HttpContext ctx) =>
 app.MapRoadmapEndpoints();
 app.MapCourseEndpoints();
 app.MapExperienceEndpoints();
+app.MapFoodLogEndpoints();
 app.MapFlashcardEndpoints();
 app.MapSignalEndpoints();
 

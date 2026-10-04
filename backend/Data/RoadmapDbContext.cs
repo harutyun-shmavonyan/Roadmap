@@ -54,6 +54,7 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
     public DbSet<ArticleImage> ArticleImages => Set<ArticleImage>();
     public DbSet<Meal> Meals => Set<Meal>();
     public DbSet<MealImage> MealImages => Set<MealImage>();
+    public DbSet<FoodLogEntry> FoodLog => Set<FoodLogEntry>();
     public DbSet<Experience> Experiences => Set<Experience>();
     public DbSet<ExperienceImage> ExperienceImages => Set<ExperienceImage>();
 
@@ -543,6 +544,19 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             // The tab always reads one slot at a time; the ordering within it (by protein density)
             // is done in memory, so the index only has to narrow to the slot.
             e.HasIndex(m => new { m.Slot, m.SortOrder });
+        });
+
+        modelBuilder.Entity<FoodLogEntry>(e =>
+        {
+            e.ToTable("food_log");
+            e.HasKey(f => f.Id);
+            e.Property(f => f.Name).HasMaxLength(200).IsRequired();
+            e.Property(f => f.Note).HasMaxLength(512);
+            e.Property(f => f.Slot).HasConversion<string>().HasMaxLength(32);
+            // History outlives the meal book: deleting a meal only forgets where an entry came from.
+            e.HasOne<Meal>().WithMany().HasForeignKey(f => f.MealId).OnDelete(DeleteBehavior.SetNull);
+            // Every read is a range of days.
+            e.HasIndex(f => f.Date);
         });
 
         modelBuilder.Entity<MealImage>(e =>

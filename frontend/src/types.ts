@@ -278,6 +278,13 @@ export type MealSlot = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack';
 // hasImage/imageUpdatedAt describe the photo without carrying it — the bytes come from
 // /api/meals/{id}/image, and imageUpdatedAt is the cache key that busts a replaced photo.
 export interface MealDto { id: string; slot: MealSlot; name: string; summary: string | null; ingredients: string[]; steps: string[]; calories: number | null; proteinG: number | null; carbsG: number | null; fatG: number | null; prepMinutes: number | null; tags: string[]; isFavorite: boolean; sortOrder: number; hasImage: boolean; imageContentType: string | null; imageUpdatedAt: string | null; createdAt: string; updatedAt: string; }
+
+// The food log — what was actually eaten, day by day. Macros on an entry are per serving;
+// totals are them times servings. A null macro is unknown, never zero.
+export interface MacroTotals { calories: number | null; proteinG: number | null; carbsG: number | null; fatG: number | null; }
+export interface FoodLogEntryDto { id: string; date: string; slot: MealSlot; mealId: string | null; name: string; servings: number; calories: number | null; proteinG: number | null; carbsG: number | null; fatG: number | null; totals: MacroTotals; missingMacros: boolean; note: string | null; createdAt: string; updatedAt: string; }
+export interface FoodLogDayDto { date: string; totals: MacroTotals; entryCount: number; incompleteEntries: number; entries: FoodLogEntryDto[]; }
+export interface SaveFoodLogEntryRequest { date: string; slot: MealSlot; mealId: string | null; name: string; servings: number; calories: number | null; proteinG: number | null; carbsG: number | null; fatG: number | null; note: string | null; }
 export interface SaveMealRequest { slot: MealSlot; name: string; summary?: string | null; ingredients: string[]; steps: string[]; calories?: number | null; proteinG?: number | null; carbsG?: number | null; fatG?: number | null; prepMinutes?: number | null; tags: string[]; isFavorite?: boolean; }
 
 // Courses (a taught course: stages of lessons, each lesson a template's sections plus graded

@@ -147,6 +147,25 @@ it asks about. The copies are snapshots — a later edit to a v1 note does not r
 The skills live in `skills/` in this repo (`interval-repeat-quiz`, `add-daily-note`); the copies
 Claude actually runs are synced from the user's account, so a change here has to be uploaded there.
 
+## Nutrition tab — meal book and food log
+
+Two views in one tab: the **meal book** (`meals` — what is worth eating, a cookbook) and the
+**food log** (`food_log` — what was actually eaten, day by day, with each day's calories, protein,
+carbs and fat). REST `/api/food-log`, MCP `log_food`, `list_food_log`, `update_food_log_entry`,
+`delete_food_log_entry`; `FoodLogLogic` owns the rules for both.
+
+- **An entry is a snapshot.** Logging from the meal book (`mealId`, or "🍴 I ate this" on a meal)
+  copies the name and per-serving macros as they are now; a later edit to the meal never rewrites
+  history, and deleting the meal only nulls `MealId` (FK `ON DELETE SET NULL`).
+- **Macros are per serving** × `Servings` (fractions fine) — the same unit a meal stores, so changing
+  the portion is one field. Doubles, one decimal.
+- **Unknown is not zero.** A missing macro stays null; day totals add the known figures only and
+  `incompleteEntries` says how many entries had a gap, so the tab marks that day's totals as a lower
+  bound and hides its calorie split (protein/carbs 4 kcal/g, fat 9) rather than misstate it.
+- Days with nothing logged are not returned. Slot defaults by the Asia/Yerevan hour
+  (`SlotForNow`), or to the meal's own slot when logged from the book in the tab.
+- REST PUT replaces an entry; MCP `update_food_log_entry` patches (null keeps, empty note clears).
+
 ## Professional Newsletter tab
 
 Agent-published HTML editions of professional news, read in the app. The newsletter agent

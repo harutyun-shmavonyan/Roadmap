@@ -235,7 +235,7 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 .modal { background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 28px; width: 100%; max-width: 480px; box-shadow: var(--shadow-lg); max-height: 90vh; overflow-y: auto; }
 .modal h2 { font-size: 18px; font-weight: 600; margin-bottom: 20px; }
 .modal label { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
-.modal input[type="text"], .modal input[type="number"], .modal select, .modal textarea {
+.modal input[type="text"], .modal input[type="number"], .modal input[type="date"], .modal select, .modal textarea {
   width: 100%; padding: 11px 14px; background: var(--bg-primary); border: 1px solid var(--border);
   border-radius: var(--radius-sm); color: var(--text-primary); font-family: var(--font-body);
   font-size: 15px; outline: none; margin-bottom: 16px;
@@ -1341,4 +1341,26 @@ button.xp-tag:focus-visible { outline: 2px solid var(--accent); outline-offset: 
   flex: 1; min-width: 120px; width: auto; margin: 0; box-shadow: none; border-radius: 0;
   border: none; outline: none; background: transparent;
   font: inherit; font-size: 14px; color: var(--text-primary); padding: 3px 2px;
+}
+
+/* ===== Nutrition — food log =====
+   The macro colours reuse three hues of the validated categorical palette (--k*), so they follow
+   the theme with it: protein red, carbs amber, fat blue. Each bar segment is also labelled with
+   its name and share underneath, so the colour is never the only cue. */
+:root {
+  --macro-protein: var(--k8-hue);
+  --macro-carbs: var(--k5-hue);
+  --macro-fat: var(--k2-hue);
+}
+.foodlog-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 18px;
+  background: none; border: 0; border-bottom: 1px solid var(--border-subtle); text-align: left;
+  font: inherit; font-size: 14px; color: var(--text-primary); cursor: pointer;
+}
+li:last-child > .foodlog-row { border-bottom: 0; }
+.foodlog-row:hover { background: var(--bg-secondary); }
+.foodlog-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (max-width: 620px) {
+  .foodlog-row { flex-wrap: wrap; }
+  .foodlog-row > span:last-child { width: 100%; padding-left: 28px; }
 }

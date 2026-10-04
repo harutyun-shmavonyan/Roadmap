@@ -92,7 +92,8 @@ public sealed class MealMcpTools(RoadmapDbContext db, IHttpClientFactory httpFac
 
     [McpServerTool(Name = "create_meal"), Description(
         "Save a meal worth keeping to the Nutrition tab. This is a cookbook of what to eat, " +
-        "not a food log — save a meal when it earns a repeat, not to record that it was eaten. " +
+        "not a food log — save a meal when it earns a repeat; to record that something was eaten, " +
+        "use log_food. " +
         "Every macro is optional and can be filled in later. Meals are shown densest-protein-first, " +
         "so one saved without protein or calories sits at the bottom of its slot until they are filled in. " +
         "Photos are set separately: call set_meal_image_from_url (or set_meal_image) afterwards with " +

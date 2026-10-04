@@ -8,7 +8,7 @@ import type { RoadmapSummary, RoadmapTree, NodeDto, CreateNodeRequest, Actionabl
   NewsletterSummaryDto, NewsletterCursorDto,
   JobRunDto, JobRunSummaryDto,
   VocabEntryDto, VocabStatsDto,
-  MealDto, MealSlot, SaveMealRequest,
+  MealDto, MealSlot, SaveMealRequest, FoodLogDayDto, FoodLogEntryDto, SaveFoodLogEntryRequest,
   CourseSummaryDto, CourseDetailDto, LessonDetailDto, CourseEventDto, CourseResumeDto,
   CourseStatus, LessonStatus,
   ExperienceDto, ExperienceImageDto, ExperienceStatus, SaveExperienceRequest,
@@ -310,6 +310,12 @@ export const api = {
   updateMeal: (id: string, body: SaveMealRequest) => req<MealDto>(`/api/meals/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   toggleMealFavorite: (id: string) => req<MealDto>(`/api/meals/${id}/favorite`, { method: 'PATCH' }),
   deleteMeal: (id: string) => req<void>(`/api/meals/${id}`, { method: 'DELETE' }),
+
+  // The food log (global — what was eaten each day, with the day's totals). Newest day first.
+  getFoodLog: (from: string, to: string) => req<FoodLogDayDto[]>(`/api/food-log?from=${from}&to=${to}`),
+  createFoodLogEntry: (body: SaveFoodLogEntryRequest) => req<FoodLogEntryDto>('/api/food-log', { method: 'POST', body: JSON.stringify(body) }),
+  updateFoodLogEntry: (id: string, body: SaveFoodLogEntryRequest) => req<FoodLogEntryDto>(`/api/food-log/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteFoodLogEntry: (id: string) => req<void>(`/api/food-log/${id}`, { method: 'DELETE' }),
 
   // The meal photo (optional, one per meal). The tab only ever reads it — photos are set and
   // removed over MCP. The bytes sit behind the same bearer token as everything else, so an

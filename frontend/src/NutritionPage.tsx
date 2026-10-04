@@ -1,14 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { MealDto, MealSlot, SaveMealRequest } from './types';
 import { api } from './api';
-
-const SLOTS: MealSlot[] = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
-
-// One glyph per macro, used everywhere a macro is shown so the numbers are read by shape.
-const KCAL_EMOJI = '⚡';
-const PROTEIN_EMOJI = '🥩';
-const CARBS_EMOJI = '🍚';
-const FAT_EMOJI = '🧈';
+import { SLOTS, SLOT_EMOJI, KCAL_EMOJI, PROTEIN_EMOJI, CARBS_EMOJI, FAT_EMOJI } from './nutritionShared';
+import { FoodLogView, FoodLogForm } from './FoodLog';
 
 // Photos live behind the same bearer token as the rest of the API, so they are fetched as blobs
 // and rendered from object URLs. One URL per (meal, photo version): cached so a card re-render or
@@ -49,14 +43,6 @@ function useMealPhoto(meal: MealDto): string | null {
   return url;
 }
 
-// One glyph per slot so the tabs are found by shape before they are read.
-const SLOT_EMOJI: Record<MealSlot, string> = {
-  Breakfast: '🍳',
-  Lunch: '🥗',
-  Dinner: '🍽️',
-  Snack: '🍎',
-};
-
 // Split a textarea into a clean list (one item per line) and back again.
 const toLines = (text: string): string[] => text.split('\n').map(s => s.trim()).filter(Boolean);
 const toCsv = (text: string): string[] => text.split(',').map(s => s.trim()).filter(Boolean);
@@ -69,10 +55,20 @@ const toNum = (text: string): number | null => {
   return Number.isFinite(n) ? Math.max(0, Math.round(n)) : null;
 };
 
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
+};
+
 const avg = (xs: number[]): number | null =>
   xs.length === 0 ? null : Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
 
 export function NutritionPage() {
+  // The meal book (what is worth eating) and the food log (what was eaten) share the tab.
+  const [view, setView] = useState<'book' | 'log'>('book');
+  // A meal from the book being logged as eaten; bumping logKey makes the log reload.
+  const [logging, setLogging] = useState<MealDto | null>(null);
+  const [logKey, setLogKey] = useState(0);
   const [slot, setSlot] = useState<MealSlot>('Breakfast');
   const [meals, setMeals] = useState<MealDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -94,12 +90,13 @@ export function NutritionPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      if (editing) setEditing(null);
+      if (logging) setLogging(null);
+      else if (editing) setEditing(null);
       else if (detail) setDetail(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editing, detail]);
+  }, [editing, detail, logging]);
 
   const save = async (body: SaveMealRequest) => {
     const saved = editing && editing !== 'new'
@@ -127,8 +124,27 @@ export function NutritionPage() {
   const proteins = meals.map(m => m.proteinG).filter((n): n is number => n != null);
   const avgKcal = avg(kcals), avgProtein = avg(proteins);
 
+  const viewSwitch = (
+    <div className="nav-tabs" role="tablist" aria-label="Nutrition view">
+      <button role="tab" aria-selected={view === 'book'} className={`nav-tab ${view === 'book' ? 'active' : ''}`}
+        onClick={() => setView('book')}>📖 Meal book</button>
+      <button role="tab" aria-selected={view === 'log'} className={`nav-tab ${view === 'log' ? 'active' : ''}`}
+        onClick={() => setView('log')}>📅 Food log</button>
+    </div>
+  );
+
+  if (view === 'log') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div style={{ padding: '12px 20px 0', flexShrink: 0 }}>{viewSwitch}</div>
+        <div style={{ flex: 1, minHeight: 0 }}><FoodLogView refreshKey={logKey} /></div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ padding: '12px 20px 0', flexShrink: 0 }}>{viewSwitch}</div>
       {/* Slot switcher + the line that says how this slot is doing */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px',
         borderBottom: '1px solid var(--border-subtle)', flexShrink: 0, flexWrap: 'wrap' }}>
@@ -170,10 +186,16 @@ export function NutritionPage() {
         )}
       </div>
 
-      {detail && !editing && (
+      {detail && !editing && !logging && (
         <MealModal meal={detail} onClose={() => setDetail(null)}
           onEdit={() => setEditing(detail)} onDelete={() => remove(detail.id)}
-          onStar={() => toggleFavorite(detail.id)} />
+          onStar={() => toggleFavorite(detail.id)} onLog={() => setLogging(detail)} />
+      )}
+
+      {logging && (
+        <FoodLogForm entry={null} meal={logging} date={todayIso()}
+          onCancel={() => setLogging(null)}
+          onSaved={() => { setLogging(null); setDetail(null); setLogKey(k => k + 1); setView('log'); }} />
       )}
 
       {editing && (
@@ -270,8 +292,8 @@ function MealCard({ meal, onOpen, onStar }: { meal: MealDto; onOpen: () => void;
   );
 }
 
-function MealModal({ meal, onClose, onEdit, onDelete, onStar }: {
-  meal: MealDto; onClose: () => void; onEdit: () => void; onDelete: () => void; onStar: () => void;
+function MealModal({ meal, onClose, onEdit, onDelete, onStar, onLog }: {
+  meal: MealDto; onClose: () => void; onEdit: () => void; onDelete: () => void; onStar: () => void; onLog: () => void;
 }) {
   const [confirm, setConfirm] = useState(false);
   const photo = useMealPhoto(meal);
@@ -321,7 +343,8 @@ function MealModal({ meal, onClose, onEdit, onDelete, onStar }: {
           </button>
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" className="btn btn-sm" onClick={onClose}>Close</button>
-            <button type="button" className="btn btn-sm btn-accent" onClick={onEdit}>Edit</button>
+            <button type="button" className="btn btn-sm" onClick={onEdit}>Edit</button>
+            <button type="button" className="btn btn-sm btn-accent" onClick={onLog} title="Add it to the food log">🍴 I ate this</button>
           </div>
         </div>
       </div>
