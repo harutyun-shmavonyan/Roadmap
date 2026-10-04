@@ -13,6 +13,10 @@ branch does not deploy. Railway starts the build on the push (multi-stage image:
 `dotnet publish`), typically a few minutes; the Railway MCP `list-deployments` / `get-logs` tools
 follow it, and `get-deployment-diagnosis` explains a failed one.
 
+- **Never trigger a deploy yourself** (the user's call, 2026-10-04): no Railway `redeploy`, no
+  `connect-service-source` to kick a build, no other deploy action. Push to `master` and tell the
+  user; if Railway does not pick the push up, say so and leave the deploy to them. (On 2026-10-04
+  pushes were not starting builds, and re-attaching the source was used to force them — don't.)
 - **Verify, do not assume.** `https://roadmap-app.up.railway.app/mcp` needs no secret, so
   `tools/list` over JSON-RPC is the cheapest proof of what is actually running — look for a tool the
   change added. On 2026-09-26 an image push looked done while production was still a day-old build.
