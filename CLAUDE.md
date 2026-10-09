@@ -87,6 +87,20 @@ as the day view always did. A running sprint reads `Sprint.RelaxDays` live in
 `ComputeCommitmentAsync`; `ReplanStartedSprintsAsync` copies them into the frozen snapshot, so an
 ended sprint keeps the relax days it actually had and a toggle on a closed sprint changes nothing.
 
+## Schedule blocks — membership and order
+
+A schedule block is a recurring time slot; a **queue** block works through its items in
+`BlockSortOrder` (the first one still active or not started gets every session), a **pool** shares
+its sessions between the items in play (`IsActiveInBlock`). `ScheduleBlockLogic` owns the writes —
+assign (moves an item out of any other block, clears its own schedule, activates a NotStarted one,
+puts an item new to a pool in play), remove, reorder (listed ids first, the rest keep their order;
+every id must be a member) and in-play — so the tab's REST endpoints (`/api/roadmaps/{id}/blocks/…`)
+and the MCP tools (`list_schedule_blocks`, `assign_to_schedule_block` with a 1-based `position`,
+`reorder_schedule_block`, `remove_from_schedule_block`, `set_pool_items_in_play`) cannot drift.
+Every write re-plans the running sprints, and a queue's membership and order are followed by the
+commitment too (`ReseatQueues`), so reordering a queue moves which item is planned from today on.
+Blocks themselves (name, days, times, mode) are still created and edited from the tab only.
+
 ## Notes v2 — flashcards (FSRS), a system of its own
 
 A separate feature beside the v1 daily notes: its own tables (`flashcards`, `flashcard_prompts`,

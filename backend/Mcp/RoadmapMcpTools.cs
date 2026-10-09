@@ -341,7 +341,7 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
 
     // ===== Schedule =====
 
-    [McpServerTool(Name = "get_daily_schedule"), Description("Get the work schedule for a specific date: scheduled blocks with planned units, start times, and progress.")]
+    [McpServerTool(Name = "get_daily_schedule"), Description("Get the work schedule for a specific date: scheduled blocks with planned units, start times, and progress. Each block entry carries its blockId; list_schedule_blocks shows a block's whole order and the assign/reorder tools change it.")]
     public async Task<string> GetDailySchedule(
         [Description("Roadmap UUID")] Guid roadmap_id,
         [Description("Date (YYYY-MM-DD)")] string date)
@@ -425,7 +425,7 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
                 var dur = tmpl.GetDurationMinutes(dow);
                 var planned = projected.UnitsPerHour.HasValue ? (dur / 60.0) * projected.UnitsPerHour.Value : 0;
                 var logged = logTotals.GetValueOrDefault(projected.Id, 0);
-                blocks.Add(new { nodeId = projected.Id, title = projected.Title, path = BuildPath(projected, lk), unit = projected.Unit, plannedUnits = Math.Round(planned, 1), startMinute = tmpl.GetStartMinute(dow), durationMinutes = dur, totalLogged = logged, totalSize = projected.TotalSize });
+                blocks.Add(new { blockId = sblock.Id, blockName = sblock.Name, nodeId = projected.Id, title = projected.Title, path = BuildPath(projected, lk), unit = projected.Unit, plannedUnits = Math.Round(planned, 1), startMinute = tmpl.GetStartMinute(dow), durationMinutes = dur, totalLogged = logged, totalSize = projected.TotalSize });
                 scheduledIds.Add(projected.Id);
             }
 

@@ -1906,69 +1906,30 @@ public static class RoadmapEndpoints
             return Results.NoContent();
         });
 
-        // Assign item to block
+        // Assign item to block (appended to its order; moves it out of any other block)
         sblocks.MapPost("/{blockId:guid}/items", async (Guid roadmapId, Guid blockId, AssignToBlockRequest req, RoadmapDbContext db) =>
-        {
-            var sb = await db.ScheduleBlocks.FirstOrDefaultAsync(x => x.Id == blockId && x.RoadmapId == roadmapId);
-            if (sb is null) return Results.NotFound();
-            var node = await db.Nodes.FirstOrDefaultAsync(n => n.Id == req.NodeId && n.RoadmapId == roadmapId);
-            if (node is null) return Results.NotFound();
-            // Auto sort order: max + 1
-            var maxSort = await db.Nodes.Where(n => n.ScheduleBlockId == blockId).MaxAsync(n => (int?)n.BlockSortOrder) ?? -1;
-            node.ScheduleBlockId = blockId; node.BlockSortOrder = maxSort + 1;
-            // Clear self-schedule since block provides the schedule
-            node.ScheduleTemplate = null;
-            // Auto-activate if NotStarted
-            if (node.Status == ActionItemStatus.NotStarted)
-            {
-                var old = node.Status; node.Status = ActionItemStatus.Active;
-                db.StatusChanges.Add(new StatusChange { Id = Guid.NewGuid(), RoadmapId = roadmapId, NodeId = node.Id, OldStatus = old, NewStatus = ActionItemStatus.Active, Trigger = "block_assign" });
-            }
-            await db.SaveChangesAsync();
-            await ReplanStartedSprintsAsync(db, roadmapId);
-            return Results.NoContent();
-        });
+            BlockResult(await ScheduleBlockLogic.AssignAsync(db, roadmapId, blockId, req.NodeId, position: null)));
 
         // Remove item from block
         sblocks.MapDelete("/{blockId:guid}/items/{nodeId:guid}", async (Guid roadmapId, Guid blockId, Guid nodeId, RoadmapDbContext db) =>
-        {
-            var node = await db.Nodes.FirstOrDefaultAsync(n => n.Id == nodeId && n.ScheduleBlockId == blockId);
-            if (node is null) return Results.NotFound();
-            node.ScheduleBlockId = null; node.BlockSortOrder = 0;
-            await db.SaveChangesAsync();
-            await ReplanStartedSprintsAsync(db, roadmapId);
-            return Results.NoContent();
-        });
+            BlockResult(await ScheduleBlockLogic.RemoveAsync(db, roadmapId, nodeId, blockId)));
 
         // Reorder item within block
         sblocks.MapPatch("/{blockId:guid}/items/{nodeId:guid}/reorder", async (Guid roadmapId, Guid blockId, Guid nodeId, ReorderNodeRequest req, RoadmapDbContext db) =>
         {
-            var items = await db.Nodes.Where(n => n.ScheduleBlockId == blockId).OrderBy(n => n.BlockSortOrder).ToListAsync();
-            var item = items.FirstOrDefault(n => n.Id == nodeId);
-            if (item is null) return Results.NotFound();
-            var idx = items.IndexOf(item);
+            var ids = await db.Nodes.Where(n => n.ScheduleBlockId == blockId)
+                .OrderBy(n => n.BlockSortOrder).ThenBy(n => n.SortOrder).Select(n => n.Id).ToListAsync();
+            var idx = ids.IndexOf(nodeId);
+            if (idx < 0) return Results.NotFound();
             var newIdx = req.Direction == "up" ? idx - 1 : idx + 1;
-            if (newIdx < 0 || newIdx >= items.Count) return Results.BadRequest("Already at edge.");
-            (items[idx].BlockSortOrder, items[newIdx].BlockSortOrder) = (items[newIdx].BlockSortOrder, items[idx].BlockSortOrder);
-            await db.SaveChangesAsync();
-            await ReplanStartedSprintsAsync(db, roadmapId);
-            return Results.NoContent();
+            if (newIdx < 0 || newIdx >= ids.Count) return Results.BadRequest("Already at edge.");
+            (ids[idx], ids[newIdx]) = (ids[newIdx], ids[idx]);
+            return BlockResult(await ScheduleBlockLogic.ReorderAsync(db, roadmapId, blockId, ids));
         });
 
         // Batch reorder — set full order from an array of node IDs
         sblocks.MapPut("/{blockId:guid}/items/reorder", async (Guid roadmapId, Guid blockId, BatchReorderRequest req, RoadmapDbContext db) =>
-        {
-            var items = await db.Nodes.Where(n => n.ScheduleBlockId == blockId).ToListAsync();
-            var lookup = items.ToDictionary(n => n.Id);
-            for (int i = 0; i < req.NodeIds.Count; i++)
-            {
-                if (lookup.TryGetValue(req.NodeIds[i], out var node))
-                    node.BlockSortOrder = i;
-            }
-            await db.SaveChangesAsync();
-            await ReplanStartedSprintsAsync(db, roadmapId);
-            return Results.NoContent();
-        });
+            BlockResult(await ScheduleBlockLogic.ReorderAsync(db, roadmapId, blockId, req.NodeIds)));
 
         // ===== Custom Logs =====
         var clogs = app.MapGroup("/api/roadmaps/{roadmapId:guid}/customlogs").WithTags("CustomLogs");
@@ -2559,6 +2520,13 @@ public static class RoadmapEndpoints
         }
         catch { return null; }
     }
+
+    private static IResult BlockResult(ScheduleBlockLogic.Result r) => r.Outcome switch
+    {
+        ScheduleBlockLogic.Outcome.Ok => Results.NoContent(),
+        ScheduleBlockLogic.Outcome.NotFound => Results.NotFound(),
+        _ => Results.BadRequest(r.Error),
+    };
 
     /// <summary>Anything unrecognised (including null) is a queue — the mode blocks have always had.</summary>
     private static ScheduleBlockMode ParseBlockMode(string? mode) =>
