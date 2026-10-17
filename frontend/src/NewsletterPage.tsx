@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, type RefObject } from 'react';
 import type { NewsletterSummaryDto } from './types';
 import { api } from './api';
 
@@ -23,13 +23,29 @@ function published(iso: string): string {
 // Injected into the edition before it is framed. Editions are written by the newsletter agent as
 // standalone pages, so they may set a viewport-height layout; neutralising that is what lets the
 // frame auto-size to the content instead of ratcheting taller forever. The reporter is how a
-// sandboxed, opaque-origin document tells this page how tall it is.
+// sandboxed, opaque-origin document tells this page how tall it is — measured from the root's
+// box rather than scrollHeight, which never drops below the frame's own height and so could only
+// ever grow (an edition that hides sections, like a category filter, must be able to shrink it).
+//
+// Because the frame is as tall as its content it never scrolls, so two things are relayed:
+// - in-page links (`href="#…"`) ask this page to scroll the pane to their target;
+// - this page tells the edition which slice of it is on screen (`--nl-top`, `--nl-vh` on its
+//   root, `data-nl-framed` set), and the edition's Details modal — `position: fixed`, which in a
+//   full-height frame would centre on the middle of the whole document — is pinned to that slice.
 const FRAME_SHIM =
-  `<style>html,body{height:auto !important;min-height:0 !important}</style>` +
-  `<script>(function(){function p(){try{parent.postMessage({__nlHeight:document.documentElement.scrollHeight},'*')}catch(e){}}` +
+  `<style>html,body{height:auto !important;min-height:0 !important}` +
+  `[data-nl-framed] .modal{position:absolute !important;top:var(--nl-top,0px) !important;bottom:auto !important;height:var(--nl-vh,100vh) !important}` +
+  `[data-nl-framed] .mbox{max-height:calc(var(--nl-vh,100vh) * 0.88) !important}</style>` +
+  `<script>(function(){var de=document.documentElement;de.setAttribute('data-nl-framed','');` +
+  `function p(){try{parent.postMessage({__nlHeight:Math.ceil(de.getBoundingClientRect().height)},'*')}catch(e){}}` +
   `addEventListener('load',p);addEventListener('resize',p);document.addEventListener('load',p,true);` +
-  `if(window.ResizeObserver){try{new ResizeObserver(p).observe(document.documentElement)}catch(e){}}` +
-  `p();setTimeout(p,60);setTimeout(p,300);setTimeout(p,1200);})();<\/script>`;
+  `if(window.ResizeObserver){try{new ResizeObserver(p).observe(de)}catch(e){}}` +
+  `p();setTimeout(p,60);setTimeout(p,300);setTimeout(p,1200);` +
+  `document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a[href^="#"]');if(!a)return;` +
+  `var el=document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1)));if(!el)return;e.preventDefault();` +
+  `try{parent.postMessage({__nlScrollTo:el.getBoundingClientRect().top+(window.scrollY||0)},'*')}catch(x){}});` +
+  `addEventListener('message',function(e){var v=e.data&&e.data.__nlViewport;if(!v||e.source!==parent)return;` +
+  `de.style.setProperty('--nl-top',v.top+'px');de.style.setProperty('--nl-vh',v.height+'px')});})();<\/script>`;
 
 function withShim(html: string): string {
   return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, FRAME_SHIM + '</body>') : html + FRAME_SHIM;
@@ -43,25 +59,69 @@ function openInNewTab(html: string) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
+type FrameMessage = { __nlHeight?: unknown; __nlScrollTo?: unknown };
+
 // The edition in a sandboxed frame that grows to its content, so the page (not the frame) scrolls.
-function EditionFrame({ html }: { html: string }) {
+// `pane` is that scrolling page and `bar` its sticky header, which a scrolled-to target and the
+// visible slice reported to the edition both have to clear.
+function EditionFrame({ html, pane, bar }: {
+  html: string; pane: RefObject<HTMLDivElement>; bar: RefObject<HTMLDivElement>;
+}) {
+  const frame = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(600);
   const srcDoc = useMemo(() => withShim(html), [html]);
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
-      const h = e.data && typeof e.data === 'object' ? (e.data as { __nlHeight?: unknown }).__nlHeight : undefined;
+      if (!frame.current || e.source !== frame.current.contentWindow) return;
+      const d: FrameMessage = e.data && typeof e.data === 'object' ? e.data : {};
+      const h = d.__nlHeight;
       if (typeof h === 'number' && isFinite(h) && h > 0) {
         // Ignore jitter within the slack we add, so our height and the reported one can't chase
         // each other upward.
         const next = Math.ceil(h) + 4;
         setHeight(prev => (Math.abs(next - prev) > 4 ? next : prev));
       }
+      const y = d.__nlScrollTo;
+      const p = pane.current;
+      if (typeof y === 'number' && isFinite(y) && p) {
+        const top = frame.current.getBoundingClientRect().top - p.getBoundingClientRect().top
+          + p.scrollTop + y - (bar.current?.offsetHeight ?? 0) - 8;
+        p.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+      }
     };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
-  }, []);
+  }, [pane, bar]);
+
+  // Tell the edition which slice of it is on screen, on every scroll, resize and reload.
+  useEffect(() => {
+    const p = pane.current, f = frame.current;
+    if (!p || !f) return;
+    let raf = 0;
+    const post = () => {
+      raf = 0;
+      if (!f.contentWindow) return;
+      const fr = f.getBoundingClientRect(), pr = p.getBoundingClientRect();
+      const top = Math.max(0, pr.top + (bar.current?.offsetHeight ?? 0) - fr.top);
+      const bottom = Math.min(fr.height, pr.bottom - fr.top);
+      f.contentWindow.postMessage({ __nlViewport: { top: Math.round(top), height: Math.max(0, Math.round(bottom - top)) } }, '*');
+    };
+    const queue = () => { if (!raf) raf = requestAnimationFrame(post); };
+    p.addEventListener('scroll', queue, { passive: true });
+    window.addEventListener('resize', queue);
+    f.addEventListener('load', queue);
+    queue();
+    return () => {
+      p.removeEventListener('scroll', queue);
+      window.removeEventListener('resize', queue);
+      f.removeEventListener('load', queue);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [pane, bar, srcDoc, height]);
+
   return (
     <iframe
+      ref={frame}
       title="Newsletter edition"
       srcDoc={srcDoc}
       sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
@@ -81,6 +141,8 @@ export function NewsletterPage() {
   const [html, setHtml] = useState<{ id: string; body: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const pane = useRef<HTMLDivElement>(null);
+  const bar = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     const rows = await api.getNewsletters();
@@ -124,9 +186,9 @@ export function NewsletterPage() {
   }
 
   return (
-    <div style={{ height: '100%', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+    <div ref={pane} style={{ height: '100%', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
       {/* What this edition is and, above all, which stretch of news it considered. */}
-      <div style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--bg-primary)',
+      <div ref={bar} style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--bg-primary)',
         borderBottom: '1px solid var(--border-subtle)', padding: '12px 16px',
         display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0, flex: 1 }}>
@@ -154,7 +216,7 @@ export function NewsletterPage() {
       </div>
 
       {shownHtml ? (
-        <EditionFrame html={shownHtml} />
+        <EditionFrame html={shownHtml} pane={pane} bar={bar} />
       ) : (
         <div style={{ padding: 24, color: 'var(--text-muted)', fontSize: 14 }}>Rendering…</div>
       )}

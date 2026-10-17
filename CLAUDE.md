@@ -225,7 +225,22 @@ endpoints and the MCP tools cannot drift.
 
 The edition is rendered in a sandboxed iframe that auto-sizes to its content (same reason as the
 Articles reader: the pane scrolls, not the frame), and "Open in new tab" hands it over as a blob so
-it stays behind the app's auth.
+it stays behind the app's auth. Because the frame never scrolls, the shim in `NewsletterPage.tsx`
+relays three things: the height is measured from the root's box (not `scrollHeight`, which never
+drops below the frame's own height, so a filtered edition could not shrink it); an in-page link
+(`href="#…"`) asks the page to scroll the pane to its target, clearing the sticky bar; and the page
+posts which slice of the frame is on screen (`--nl-top`, `--nl-vh`, `data-nl-framed` on the
+edition's root), to which the edition's `.modal` / `.mbox` (the Details modal, `position: fixed`,
+which in a full-height frame centred on the middle of the whole document) are pinned.
+
+**The skill's source is `skills/ai-engineering-daily/`** — like the other skills, the copy Claude
+runs is synced from the user's account, so a change here has to be uploaded there. Editions come in
+eight categories (agent tips & workflows, coding agents & IDEs, models & APIs, agents & MCP, RAG &
+evals, local inference, data infrastructure, engineering craft) with a Top 10 overall and a
+breaking-changes strip, all scored on one 0-100 scale. The page is built by the bundled
+`scripts/render_edition.py`, not hand-written per run: it holds the approved design system, the
+CSS-only filter chips, the per-category cap (10, down to 8 for size) and the fit to the ~130 KB
+`publish_newsletter` limit, so changing the look means changing the script.
 
 ## Experiences tab
 
