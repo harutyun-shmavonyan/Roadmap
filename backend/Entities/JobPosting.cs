@@ -24,8 +24,11 @@ public class JobPosting
     public string Description { get; set; } = string.Empty;
 
     /// <summary>
-    /// Which output bucket the pipeline routed this to: "armenia-compatible"
-    /// (passed every rule) or "eu-allowed" (EU/EEA hiring target, needs an EOR check).
+    /// Which eligibility lane the scorer routed this to: "armenia-compatible" (doable
+    /// from Armenia — worldwide / EMEA / EOR / B2B), "eu-relocation" (a European role,
+    /// onsite, hybrid or remote-within-country, whose posting offers visa sponsorship
+    /// and/or relocation; added 2026-10-18) or "eu-allowed" (remote within the EU/EEA,
+    /// needs an EOR check). Validated in import_job_run, not by the database.
     /// </summary>
     public string Bucket { get; set; } = string.Empty;
 

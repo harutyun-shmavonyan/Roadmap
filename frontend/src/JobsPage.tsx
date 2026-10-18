@@ -18,6 +18,32 @@ function scoreColor(score: number): string {
 // Which detail modal is open for the current posting.
 type ModalKind = 'assessment' | 'fit' | 'changes';
 
+// The three eligibility lanes, in the order the import supplies them (lane-major,
+// each lane by score). The bucket is free text on the wire and validated by the
+// import tool, so an unknown value gets a neutral pill rather than a wrong claim.
+type Lane = { label: string; short: string; hint: string; color: string; bg: string };
+const LANES: Record<string, Lane> = {
+  'armenia-compatible': {
+    label: 'Armenia-eligible', short: 'Armenia',
+    hint: 'Doable from Armenia: worldwide, EMEA, EOR or B2B stated in the posting',
+    color: 'var(--success)', bg: 'var(--success-light)',
+  },
+  'eu-relocation': {
+    label: 'EU · relocation + visa', short: 'EU relocation',
+    hint: 'A role in Europe (onsite, hybrid or in-country remote) whose posting offers visa sponsorship or relocation',
+    color: 'var(--accent)', bg: 'var(--accent-light)',
+  },
+  'eu-allowed': {
+    label: 'EU · check EOR', short: 'EU remote',
+    hint: 'Remote but scoped to an EU/EEA country; needs the employer to run an EOR or B2B contract',
+    color: 'var(--warning)', bg: 'var(--warning-light)',
+  },
+};
+const LANE_ORDER = Object.keys(LANES);
+const laneOf = (bucket: string): Lane => LANES[bucket] ?? {
+  label: bucket, short: bucket, hint: 'Unknown lane', color: 'var(--text-muted)', bg: 'var(--bg-secondary)',
+};
+
 export function JobsPage() {
   const [runs, setRuns] = useState<JobRunSummaryDto[]>([]);
   const [run, setRun] = useState<JobRunDto | null>(null);
@@ -71,6 +97,12 @@ export function JobsPage() {
   const total = postings.length;
   const current: JobPostingDto | undefined = postings[idx];
 
+  // How the day splits across lanes — the card shows one posting at a time, so
+  // without this the grouping the import supplied is invisible.
+  const laneCounts = LANE_ORDER
+    .map(b => ({ lane: LANES[b], n: postings.filter(p => p.bucket === b).length }))
+    .filter(x => x.n > 0);
+
   const prev = useCallback(() => setIdx(i => Math.max(0, i - 1)), []);
   const next = useCallback(() => setIdx(i => Math.min(total - 1, i + 1)), [total]);
 
@@ -118,6 +150,17 @@ export function JobsPage() {
         <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
           {total} kept of {run.rawCount} scraped · last {run.maxAgeDays}d
         </span>
+        {laneCounts.length > 0 && (
+          <span style={{ display: 'inline-flex', gap: 10, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+            {laneCounts.map(({ lane, n }) => (
+              <span key={lane.label} title={lane.hint}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: lane.color, fontWeight: 600 }}>
+                <span style={{ width: 6, height: 6, borderRadius: 999, background: lane.color }} />
+                {n} {lane.short}
+              </span>
+            ))}
+          </span>
+        )}
         <span style={{ fontSize: 12, color: 'var(--text-muted)', opacity: 0.8 }}>
           {run.queries.join(' · ')}
         </span>
@@ -318,10 +361,10 @@ function PostingCard({ posting: p, onOpen, onApplicationSaved }: {
   onOpen: (k: ModalKind) => void;
   onApplicationSaved: (id: string, patch: Partial<JobPostingDto>) => void;
 }) {
-  const isEu = p.bucket === 'eu-allowed';
+  const lane = laneOf(p.bucket);
   const fit = p.cvFitScore;
-  const eligColor = isEu ? 'var(--warning)' : 'var(--success)';
-  const eligBg = isEu ? 'var(--warning-light)' : 'var(--success-light)';
+  const eligColor = lane.color;
+  const eligBg = lane.bg;
 
   const metas: string[] = [];
   if (p.postedAt) metas.push(`Posted ${fmtDate(p.postedAt)}`);
@@ -345,10 +388,11 @@ function PostingCard({ posting: p, onOpen, onApplicationSaved }: {
         {/* Header: eligibility pill + title + company | score tiles */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20 }}>
           <div style={{ minWidth: 0 }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700,
-              padding: '3px 10px 3px 8px', borderRadius: 999, color: eligColor, background: eligBg }}>
+            <span title={lane.hint}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700,
+              padding: '3px 10px 3px 8px', borderRadius: 999, color: eligColor, background: eligBg, cursor: 'help' }}>
               <span style={{ width: 6, height: 6, borderRadius: 999, background: eligColor }} />
-              {isEu ? 'EU · check EOR' : 'Armenia-eligible'}
+              {lane.label}
             </span>
             <h2 style={{ margin: '11px 0 3px', fontSize: 22, lineHeight: 1.25, fontWeight: 700,
               color: 'var(--text-primary)' }}>{p.title}</h2>
