@@ -1178,6 +1178,66 @@ namespace Roadmap.Api.Migrations
                     b.ToTable("newsletter_issues", (string)null);
                 });
 
+            modelBuilder.Entity("Roadmap.Api.Entities.NewsletterUpload", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly?>("CoveredFrom")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime?>("CoveredUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("IssueDate")
+                        .HasColumnType("date");
+
+                    b.Property<int?>("ItemCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("newsletter_uploads", (string)null);
+                });
+
+            modelBuilder.Entity("Roadmap.Api.Entities.NewsletterUploadPart", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Html")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("PartNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("UploadId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UploadId", "PartNumber")
+                        .IsUnique();
+
+                    b.ToTable("newsletter_upload_parts", (string)null);
+                });
+
             modelBuilder.Entity("Roadmap.Api.Entities.NodeCategoryLink", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2545,6 +2605,17 @@ namespace Roadmap.Api.Migrations
                     b.Navigation("Meal");
                 });
 
+            modelBuilder.Entity("Roadmap.Api.Entities.NewsletterUploadPart", b =>
+                {
+                    b.HasOne("Roadmap.Api.Entities.NewsletterUpload", "Upload")
+                        .WithMany("Parts")
+                        .HasForeignKey("UploadId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Upload");
+                });
+
             modelBuilder.Entity("Roadmap.Api.Entities.NodeCategoryLink", b =>
                 {
                     b.HasOne("Roadmap.Api.Entities.RoadmapNode", "Category")
@@ -2908,6 +2979,11 @@ namespace Roadmap.Api.Migrations
             modelBuilder.Entity("Roadmap.Api.Entities.Meal", b =>
                 {
                     b.Navigation("Image");
+                });
+
+            modelBuilder.Entity("Roadmap.Api.Entities.NewsletterUpload", b =>
+                {
+                    b.Navigation("Parts");
                 });
 
             modelBuilder.Entity("Roadmap.Api.Entities.NodeSubPoint", b =>

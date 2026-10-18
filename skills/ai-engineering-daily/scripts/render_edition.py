@@ -3,20 +3,28 @@
 
 The scoring is judgment and stays with the agent; this script only does what must come out the
 same every run: pick what fits each category, build the Top 10 and the breaking-change strip,
-render the fixed design system, and keep the document under the publish size limit.
+render the fixed design system, and split the document into parts when it is too large for one
+publish call.
 
     python3 render_edition.py --items items.json --details details.json --meta meta.json --out edition.html
 
 items.json   [{"title", "url", "source", "date": "YYYY-MM-DD", "score": 0-100, "category": <key>,
                "summary", "learn" (every category but tips) | "try" (tips; optional "try_code"),
                "flags": ["breaking", "dotnet"] (optional)}, ...]
-details.json {url: {"lead": str, "sections": [{"h": heading, "b": [bullet, ...]}, ...]}}  (optional)
+details.json {url: {"lead": str,
+                    "digest": [paragraph, ...] (1-3: the story retold, or the part worth reading),
+                    "focus": str (optional: which part the digest covers, when not the whole piece),
+                    "sections": [{"h": heading, "b": [bullet, ...]}, ...]}}  (optional)
 meta.json    {"date": "YYYY-MM-DD", "covered_from": "YYYY-MM-DD", "covered_until": ISO UTC,
               "sources": str, "notes": [str, ...] (optional)}
 
-Prints a JSON summary (stories, counts per category, what was dropped, the Details budget used and
-the size) — pass `stories` to publish_newsletter as item_count. Exits 1 with every problem listed
-when the input is invalid; nothing is written then.
+Writes the edition to --out. When it is larger than SINGLE_CALL_LIMIT it also writes the parts to
+publish it in — <out stem>.part1.html, .part2.html, … — each at most PART_SIZE bytes, which joined
+in order are exactly the edition. Prints a JSON summary: `stories` (publish_newsletter's
+item_count), counts per category, what was dropped, the size, and `publish` — "single" (one
+publish_newsletter call) or the list of part files (start_newsletter_upload, one
+append_newsletter_part per file, finish_newsletter_upload). Exits 1 with every problem listed when
+the input is invalid; nothing is written then.
 """
 import argparse
 import datetime as dt
@@ -38,11 +46,12 @@ CATEGORIES = [
 CAT = {k: (h, c) for k, h, c in CATEGORIES}
 MIN_SCORE = 60          # below the "context" band nothing is shown, so a slow category stays short
 CAP = 10                # per category, so a busy one cannot flood the edition
-MIN_CAP = 8             # lowered one step at a time when the Details would otherwise fall under FULL_BUDGET
 TOP_N = 10
-SIZE_LIMIT = 130_000    # bytes; one publish_newsletter call above ~135 KB has failed
-BUDGETS = range(850, 249, -50)  # Details characters per story, tried from the most generous down
-FULL_BUDGET = 400       # below this a panel is little more than its lead, so trim stories first
+DETAILS_BUDGET = 850    # characters of lead + bullets per Details panel (the digest is apart)
+DIGEST_MAX = 1800       # characters across a digest's paragraphs; longer is refused, not cut
+DIGEST_PARAS = 3
+SINGLE_CALL_LIMIT = 100_000  # bytes; above this, publish in parts (one call above ~135 KB has failed)
+PART_SIZE = 80_000      # bytes per part, well inside what one tool call carries
 SECTION_ORDER = ["What changed", "How it works", "Numbers", "Breaking changes", "Caveats", "Discussion"]
 TRIM_ORDER = ["Discussion", "How it works", "What changed", "Numbers", "Caveats", "Breaking changes"]
 FLAGS = {"breaking": ("pb", "Breaking change"), "dotnet": ("pn", ".NET")}
@@ -91,6 +100,17 @@ def validate(items, details):
     for url, d in (details or {}).items():
         if not isinstance(d, dict) or "lead" not in d:
             errors.append(f"details for {url}: needs a lead")
+            continue
+        dg = d.get("digest")
+        if dg is None:
+            continue
+        paras = [dg] if isinstance(dg, str) else dg
+        if not isinstance(paras, list) or not all(isinstance(p, str) and p.strip() for p in paras):
+            errors.append(f"details for {url}: digest must be 1-{DIGEST_PARAS} non-empty paragraphs")
+        elif len(paras) > DIGEST_PARAS:
+            errors.append(f"details for {url}: digest has {len(paras)} paragraphs; at most {DIGEST_PARAS}")
+        elif sum(len(p) for p in paras) > DIGEST_MAX:
+            errors.append(f"details for {url}: digest is {sum(len(p) for p in paras)} characters; shorten it to {DIGEST_MAX}")
     return errors
 
 def select(items, cap=CAP):
@@ -127,12 +147,20 @@ def modal(n, it, d, budget):
     kind = {"Breaking changes": " sb", "Caveats": " sc", "Numbers": " sn"}
     body = "".join(f'<div class="s{kind.get(h, "")}"><b>{t(h)}</b><ul>' + "".join(f"<li>{t(b)}</li>" for b in bs) + "</ul></div>"
                    for h, bs in secs)
+    paras = d.get("digest") or []
+    paras = [paras] if isinstance(paras, str) else paras
+    digest = ""
+    if paras:
+        label = f'The part worth reading &middot; {t(d["focus"])}' if d.get("focus") else "The story"
+        digest = f'<div class="dg"><b class="dl">{label}</b>' + "".join(f"<p>{t(p)}</p>" for p in paras) + "</div>"
+    if body:
+        body = '<b class="dl">Key facts</b>' + body if digest else body
     m = f"m{n}"
     return (f'<input type="checkbox" id="{m}" class="mtog"><label for="{m}" class="dbtn">Details</label>'
             f'<div class="modal"><label for="{m}" class="mback"></label><div class="mbox">'
             f'<label for="{m}" class="mclose">&times;</label>'
             f'<a class="mtitle" href="{a(it["url"])}">{t(it["title"])}&nbsp;&rarr;</a>'
-            f'<p class="mlead">{t(lead)}</p>{body}</div></div>')
+            f'<p class="mlead">{t(lead)}</p>{digest}{body}</div></div>')
 
 # ── render ──
 
@@ -206,8 +234,8 @@ def render(by_cat, details, meta, budget, cap=CAP):
         '<p><strong>Excluded.</strong> Research papers; funding and acquisitions; AGI and policy discourse; AWS region expansions and '
         'routine model listings; ClickHouse patch/LTS bumps without features; engagement bait; generic prompt listicles and sponsored roundups.</p>'
         f'<p><strong>Window.</strong> {t(meta.get("covered_from", ""))} &rarr; {t(until)}.</p>'
-        f'<p><strong>Details.</strong> Each Details panel was written from the fetched page, restructured into labelled bullets, and capped '
-        f'at {budget} characters to fit the publish size limit.</p>{notes}</footer>')
+        f'<p><strong>Details.</strong> Each Details panel was written from the fetched page: a digest of the story (or of the part '
+        f'worth reading, named when it is only a part), then the key facts in labelled bullets, capped at {budget} characters.</p>{notes}</footer>')
 
     return (
         '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -284,6 +312,9 @@ CSS = (
     'color:var(--learn-border);margin-bottom:4px}.sb b{color:var(--warn)}.sc b{color:var(--text-muted)}.sn b{color:var(--num)}'
     '.s ul{margin:0;padding:0;list-style:none}.s li{position:relative;padding-left:14px;font-size:14px;line-height:1.5;margin:2px 0}'
     '.s li:before{content:"";position:absolute;left:1px;top:0.6em;width:6px;height:6px;border-radius:50%;background:currentColor;opacity:0.55}'
+    '.dl{display:block;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin:0 0 6px}'
+    '.dg{margin:0 0 14px;padding:0 0 12px;border-bottom:1px solid var(--card-border)}'
+    '.dg p{font-size:14.5px;line-height:1.6;margin:0 0 10px}.dg p:last-child{margin-bottom:0}'
     'body:has(.mtog:checked){overflow:hidden}'
     '.footer{margin-top:28px;padding-top:20px;border-top:1px solid var(--footer-border);font-size:12.5px;line-height:1.6;color:var(--text-muted)}'
     '.footer strong{color:var(--text)}.footer p{margin:0 0 8px}'
@@ -309,30 +340,48 @@ def main():
         print("Not rendered:\n- " + "\n- ".join(errors), file=sys.stderr)
         sys.exit(1)
 
-    # Fit the publish size limit: the full cap with the most generous Details that fits; when
-    # that would leave the panels under FULL_BUDGET, drop the lowest-ranked stories (cap 10 → 8)
-    # before cutting the panels further.
-    plans = [(c, b) for c in range(CAP, MIN_CAP - 1, -1) for b in BUDGETS if b >= FULL_BUDGET]
-    plans += [(MIN_CAP, b) for b in BUDGETS if b < FULL_BUDGET]
-    for cap, budget in plans:
-        by_cat, dropped = select(items, cap)
-        doc, total, shown = render(by_cat, details, meta, budget, cap)
-        size = len(doc.encode("utf-8"))
-        if size <= SIZE_LIMIT:
-            break
+    by_cat, dropped = select(items)
+    doc, total, shown = render(by_cat, details, meta, DETAILS_BUDGET)
+    data = doc.encode("utf-8")
     with open(args.out, "w", encoding="utf-8") as f:
         f.write(doc)
+
+    publish = "single"
+    if len(data) > SINGLE_CALL_LIMIT:
+        stem = args.out[:-5] if args.out.endswith(".html") else args.out
+        publish = []
+        for n, chunk in enumerate(split(data), 1):
+            path = f"{stem}.part{n}.html"
+            with open(path, "wb") as f:
+                f.write(chunk)
+            publish.append(path)
+        assert b"".join(open(p, "rb").read() for p in publish) == data
+
     print(json.dumps({
         "stories": total,
         "categories": {k: len(by_cat[k]) for k in shown},
         "empty_categories": [k for k in CAT if k not in shown],
         "dropped_below_min": dropped["below_min"],
         "dropped_over_cap": dropped["over_cap"],
-        "cap_per_category": cap,
-        "details_budget": budget,
-        "bytes": size,
-        "over_size_limit": size > SIZE_LIMIT,
+        "bytes": len(data),
+        "publish": publish,
     }, indent=2))
+
+def split(data):
+    """The document in parts of at most PART_SIZE bytes, each ending just after a tag where one is
+    near the limit and never inside a UTF-8 character, so the parts read cleanly and join exactly."""
+    parts, i = [], 0
+    while i < len(data):
+        end = min(i + PART_SIZE, len(data))
+        if end < len(data):
+            gt = data.rfind(b">", end - 4096, end)
+            if gt > i:
+                end = gt + 1
+            while end > i and (data[end] & 0xC0) == 0x80:
+                end -= 1
+        parts.append(data[i:end])
+        i = end
+    return parts
 
 if __name__ == "__main__":
     main()

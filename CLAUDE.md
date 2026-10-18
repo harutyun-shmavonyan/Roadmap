@@ -215,7 +215,16 @@ Agent-published HTML editions of professional news, read in the app. The newslet
    leaving a gap. No read edition yet → the newest edition's end; empty tab → 7 days. Clamped to 14
    days (`cappedToMaxWindow` says when that bit).
 2. the agent's own scan/score/render.
-3. `publish_newsletter` — stores the edition as one self-contained HTML document.
+3. `publish_newsletter` — stores the edition as one self-contained HTML document. An agent cannot
+   write much more than ~135 KB into one tool call, so a larger edition goes up in parts instead:
+   `start_newsletter_upload` (the same metadata, checked up front) → `append_newsletter_part` per
+   part, numbered from 1 (a number sent again replaces that part, so retries are safe) →
+   `finish_newsletter_upload`, which joins the parts and publishes through the same
+   `NewsletterLogic.PublishAsync`. Nothing is published before the finish, which refuses while a
+   part is missing and keeps the upload so the gap can be filled; the upload is deleted in the
+   same save that publishes. Parts wait in `newsletter_uploads` / `newsletter_upload_parts`
+   (migration `NewsletterUploads`) so a restart midway loses nothing; uploads unfinished after
+   24 hours are cleared on the next start.
 
 **One edition per calendar date** (unique index on `IssueDate`): republishing a date replaces it and
 marks it unread again, because the tick is what the cursor reads and ticking a shorter edition was
@@ -239,8 +248,10 @@ eight categories (agent tips & workflows, coding agents & IDEs, models & APIs, a
 evals, local inference, data infrastructure, engineering craft) with a Top 10 overall and a
 breaking-changes strip, all scored on one 0-100 scale. The page is built by the bundled
 `scripts/render_edition.py`, not hand-written per run: it holds the approved design system, the
-CSS-only filter chips, the per-category cap (10, down to 8 for size) and the fit to the ~130 KB
-`publish_newsletter` limit, so changing the look means changing the script.
+CSS-only filter chips and the per-category cap (10), and when the edition is over 100 KB it also
+writes it as ≤80 KB part files for the upload above, so changing the look means changing the script.
+Each story's Details panel opens with a lead, then a **digest** — the story retold in 1-3
+paragraphs, or only the part worth reading, named in `focus` — then the key facts as bullets.
 
 ## Experiences tab
 

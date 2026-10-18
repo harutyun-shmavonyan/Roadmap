@@ -37,6 +37,8 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
     public DbSet<JobPosting> JobPostings => Set<JobPosting>();
     public DbSet<Article> Articles => Set<Article>();
     public DbSet<NewsletterIssue> NewsletterIssues => Set<NewsletterIssue>();
+    public DbSet<NewsletterUpload> NewsletterUploads => Set<NewsletterUpload>();
+    public DbSet<NewsletterUploadPart> NewsletterUploadParts => Set<NewsletterUploadPart>();
     public DbSet<SignalRun> SignalRuns => Set<SignalRun>();
     public DbSet<Signal> Signals => Set<Signal>();
 
@@ -459,6 +461,25 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.Property(n => n.Html).HasColumnType("text");
             // One edition per day — the publish path upserts on this rather than inserting.
             e.HasIndex(n => n.IssueDate).IsUnique();
+        });
+
+        // An edition uploaded in parts (see NewsletterUpload): nothing reaches newsletter_issues
+        // until the upload is finished, and its parts go with it.
+        modelBuilder.Entity<NewsletterUpload>(e =>
+        {
+            e.ToTable("newsletter_uploads");
+            e.HasKey(u => u.Id);
+            e.Property(u => u.Title).HasMaxLength(256);
+            e.HasMany(u => u.Parts).WithOne(p => p.Upload).HasForeignKey(p => p.UploadId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<NewsletterUploadPart>(e =>
+        {
+            e.ToTable("newsletter_upload_parts");
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Html).HasColumnType("text");
+            // A part number sent again replaces the part, so a retried call cannot duplicate it.
+            e.HasIndex(p => new { p.UploadId, p.PartNumber }).IsUnique();
         });
 
         modelBuilder.Entity<SignalRun>(e =>
