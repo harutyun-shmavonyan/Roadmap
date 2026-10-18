@@ -52,6 +52,17 @@ This is the pipeline's only feedback loop. Finder can measure how many postings
 it produced but not whether any of them converted, so a supply problem, a
 staleness problem and a CV problem are otherwise indistinguishable.
 
+**Three eligibility lanes since 2026-10-18** (the user's call), in the order the
+import supplies them: `armenia-compatible` (doable from Armenia — worldwide, EMEA,
+EOR or B2B stated), `eu-relocation` (a European role, onsite, hybrid or
+remote-within-country, whose posting itself offers visa sponsorship and/or
+relocation) and `eu-allowed` (remote but scoped to an EU/EEA country, EOR to
+check). `Bucket` is a free-text column; the only validation is `ValidBuckets` in
+`import_job_run`, so a new lane is a code change there and in the tab's `LANES`
+map (`JobsPage.tsx`: pill label, hint, colour — green / accent / amber), no
+migration. The import is lane-major, each lane by score, and the day header
+counts the lanes so the grouping is visible while paging one card at a time.
+
 ## Weighted sprint scoring
 
 A Weighted sprint moves points between items each day; planned points never move. Each morning

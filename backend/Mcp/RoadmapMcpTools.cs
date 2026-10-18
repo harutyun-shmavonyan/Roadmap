@@ -773,10 +773,11 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
         "Import a day's job-scouting results from the Finder pipeline. Creates one run for the given date " +
         "and attaches the postings. Re-importing the same date REPLACES that day's postings (idempotent — " +
         "safe to re-run the scout after re-scoring). Postings should be passed in the order you want them " +
-        "shown; the Jobs tab pages through them in that order, so put the best candidates first. " +
+        "shown; the Jobs tab pages through them in that order, so put the best candidates first — " +
+        "lane-major (armenia-compatible, then eu-relocation, then eu-allowed), each lane by score. " +
         "Returns { run_id, run_date, imported, action }.")]
     public async Task<string> ImportJobRun(
-        [Description("Postings to import, best-first. Each: title, company, url, source, bucket ('armenia-compatible' or 'eu-allowed'), and optionally location, posted_at (YYYY-MM-DD), description, seniority_class, ai_keyword_hits, geo_hints, queries, score (0-100), reasoning, cv_pdf_base64 (a tailored ATS-ready PDF résumé, base64-encoded), cv_changes (a short list of what that CV changed vs the master CV), cv_fit_score (0-100 CV-vs-JD fit), cv_fit_gaps (JSON array of {label, points, note} gaps keeping fit below 100, highest-impact first).")]
+        [Description("Postings to import, best-first. Each: title, company, url, source, bucket ('armenia-compatible' = doable from Armenia, 'eu-relocation' = a European role whose posting offers visa sponsorship/relocation, or 'eu-allowed' = remote within the EU, EOR to check), and optionally location, posted_at (YYYY-MM-DD), description, seniority_class, ai_keyword_hits, geo_hints, queries, score (0-100), reasoning, cv_pdf_base64 (a tailored ATS-ready PDF résumé, base64-encoded), cv_changes (a short list of what that CV changed vs the master CV), cv_fit_score (0-100 CV-vs-JD fit), cv_fit_gaps (JSON array of {label, points, note} gaps keeping fit below 100, highest-impact first).")]
         JobPostingInput[] postings,
         [Description("The queries the scout ran, e.g. ['senior backend engineer','staff backend engineer']")]
         string[] queries,
@@ -795,7 +796,7 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
             if (string.IsNullOrWhiteSpace(p.title) || string.IsNullOrWhiteSpace(p.company) || string.IsNullOrWhiteSpace(p.url))
                 return J(new { error = "Every posting needs a title, company, and url." });
             if (!ValidBuckets.Contains(p.bucket ?? ""))
-                return J(new { error = $"Invalid bucket '{p.bucket}' for '{p.title}'. Use 'armenia-compatible' or 'eu-allowed'." });
+                return J(new { error = $"Invalid bucket '{p.bucket}' for '{p.title}'. Use 'armenia-compatible', 'eu-relocation' or 'eu-allowed'." });
         }
 
         var existing = await db.JobRuns.Include(r => r.Postings).FirstOrDefaultAsync(r => r.RunDate == date);
@@ -927,7 +928,11 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
                 p.RespondedAt?.ToString("yyyy-MM-dd"), p.ApplicationNotes)).ToList()));
     }
 
-    private static readonly HashSet<string> ValidBuckets = ["armenia-compatible", "eu-allowed"];
+    // The three eligibility lanes, in the order the import supplies them. Free text in the
+    // column, so a new lane is a code change here and in the tab's LANES map, no migration.
+    // "eu-relocation" (2026-10-18): a European role — onsite, hybrid or remote-within-country —
+    // whose posting itself offers visa sponsorship and/or relocation.
+    private static readonly HashSet<string> ValidBuckets = ["armenia-compatible", "eu-relocation", "eu-allowed"];
 
     // The DB caps these columns; a scraped title or location can exceed them (HN
     // comments in particular are unbounded). Truncate rather than fail the import.
