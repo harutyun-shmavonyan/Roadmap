@@ -20,6 +20,8 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
     public DbSet<SprintHabit> SprintHabits => Set<SprintHabit>();
     public DbSet<HabitCheck> HabitChecks => Set<HabitCheck>();
     public DbSet<SingleTask> SingleTasks => Set<SingleTask>();
+    public DbSet<TaskProject> TaskProjects => Set<TaskProject>();
+    public DbSet<TaskDependency> TaskDependencies => Set<TaskDependency>();
     public DbSet<NodeSubPoint> NodeSubPoints => Set<NodeSubPoint>();
     public DbSet<NodeSubPointCheck> NodeSubPointChecks => Set<NodeSubPointCheck>();
     public DbSet<CustomLog> CustomLogs => Set<CustomLog>();
@@ -331,6 +333,31 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.Property(t => t.Weekdays).HasMaxLength(64);
             e.HasOne(t => t.Roadmap).WithMany().HasForeignKey(t => t.RoadmapId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(t => new { t.RoadmapId, t.IsCompleted, t.Priority });
+            // A project is a label: deleting it leaves its tasks, unassigned.
+            e.HasOne(t => t.Project).WithMany(p => p.Tasks).HasForeignKey(t => t.ProjectId).OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(t => t.ProjectId);
+        });
+
+        modelBuilder.Entity<TaskProject>(e =>
+        {
+            e.ToTable("task_projects");
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Name).HasMaxLength(TaskLogic.MaxProjectNameLength).IsRequired();
+            e.Property(p => p.Color).HasMaxLength(16).IsRequired();
+            e.HasOne(p => p.Roadmap).WithMany().HasForeignKey(p => p.RoadmapId).OnDelete(DeleteBehavior.Cascade);
+            // Case-insensitive uniqueness is TaskLogic's job (it folds on write); this is the backstop.
+            e.HasIndex(p => new { p.RoadmapId, p.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<TaskDependency>(e =>
+        {
+            // One row per edge "TaskId depends on DependsOnTaskId". Both ends cascade: a deleted task
+            // takes its edges with it, so whatever waited on it is simply no longer waiting.
+            e.ToTable("task_dependencies", t => t.HasCheckConstraint("CK_task_dependencies_not_self", "\"TaskId\" <> \"DependsOnTaskId\""));
+            e.HasKey(d => new { d.TaskId, d.DependsOnTaskId });
+            e.HasOne(d => d.Task).WithMany(t => t.DependsOn).HasForeignKey(d => d.TaskId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(d => d.DependsOnTask).WithMany(t => t.Dependents).HasForeignKey(d => d.DependsOnTaskId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(d => d.DependsOnTaskId);
         });
 
         modelBuilder.Entity<NodeSubPoint>(e =>

@@ -518,61 +518,6 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
             logs.Select(w => new WorkLogHistoryEntryDto(w.Id, w.Date.ToString("yyyy-MM-dd"), w.Amount, w.Note, w.Sprint.Name)).ToList()));
     }
 
-    // ===== Tasks =====
-
-    [McpServerTool(Name = "list_tasks"), Description("List all single tasks, ordered by completion status, then priority, then creation date.")]
-    public async Task<string> ListTasks([Description("Roadmap UUID")] Guid roadmap_id)
-    {
-        var all = await db.SingleTasks.AsNoTracking().Where(t => t.RoadmapId == roadmap_id)
-            .OrderBy(t => t.IsCompleted).ThenBy(t => t.Priority).ThenBy(t => t.CreatedAt).ToListAsync();
-        return J(all.Select(ToTaskDto));
-    }
-
-    [McpServerTool(Name = "create_task"), Description("Create a single (one-off) task. Earns floor(estimatedHours * 2) points when completed within a sprint.")]
-    public async Task<string> CreateTask(
-        [Description("Roadmap UUID")] Guid roadmap_id,
-        [Description("Task title")] string title,
-        [Description("Priority: High, Medium, or Low")] string priority,
-        [Description("Estimated hours to complete")] double estimated_hours,
-        [Description("Date to start showing this task (YYYY-MM-DD)")] string start_date,
-        [Description("Optional due date (YYYY-MM-DD)")] string? due_date = null)
-    {
-        if (!DateOnly.TryParse(start_date, out var sd)) return J(new { error = "Invalid start_date." });
-        DateOnly? dd = null;
-        if (due_date != null && DateOnly.TryParse(due_date, out var parsed)) dd = parsed;
-        if (!Enum.TryParse<TaskPriority>(priority, true, out var pri)) pri = TaskPriority.Medium;
-        var t = new SingleTask { Id = Guid.NewGuid(), RoadmapId = roadmap_id, Title = title.Trim(), Priority = pri, EstimatedHours = estimated_hours, StartDate = sd, DueDate = dd };
-        db.SingleTasks.Add(t);
-        await db.SaveChangesAsync();
-        return J(ToTaskDto(t));
-    }
-
-    [McpServerTool(Name = "complete_task"), Description("Mark a task as completed on a specific date, crediting points to that date's sprint performance.")]
-    public async Task<string> CompleteTask(
-        [Description("Roadmap UUID")] Guid roadmap_id,
-        [Description("Task UUID")] Guid task_id,
-        [Description("Completion date (YYYY-MM-DD)")] string date)
-    {
-        var t = await db.SingleTasks.FirstOrDefaultAsync(x => x.Id == task_id && x.RoadmapId == roadmap_id);
-        if (t is null) return J(new { error = "Task not found" });
-        if (!DateOnly.TryParse(date, out var cd)) return J(new { error = "Invalid date." });
-        t.IsCompleted = true; t.CompletedDate = cd;
-        await db.SaveChangesAsync();
-        return J(new { success = true, points = Math.Floor(t.EstimatedHours * 2) });
-    }
-
-    [McpServerTool(Name = "delete_task"), Description("Delete a single task.")]
-    public async Task<string> DeleteTask(
-        [Description("Roadmap UUID")] Guid roadmap_id,
-        [Description("Task UUID")] Guid task_id)
-    {
-        var t = await db.SingleTasks.FirstOrDefaultAsync(x => x.Id == task_id && x.RoadmapId == roadmap_id);
-        if (t is null) return J(new { error = "Task not found" });
-        db.SingleTasks.Remove(t);
-        await db.SaveChangesAsync();
-        return J(new { success = true });
-    }
-
     // ===== Habits =====
 
     [McpServerTool(Name = "list_habits"), Description("List all habits in the habit library for a roadmap.")]
@@ -976,11 +921,6 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
             var cl = links.Where(l => l.NodeId == n.Id).Select(l => new CategoryLinkDto(l.Id, l.CategoryId, lk.TryGetValue(l.CategoryId, out var c) ? c.Title : "?")).ToList();
             return new NodeDto(n.Id, n.ParentId, n.Title, n.IsActionable, n.Status.ToString(), n.Unit, n.TotalSize, n.UnitsPerHour, n.PointsPerUnit, n.ScheduleTemplate, n.SortOrder, n.ScheduleBlockId, n.BlockSortOrder, cl, BuildTree(all, links, lk, n.Id), n.IsChecklist);
         }).ToList();
-
-    private static SingleTaskDto ToTaskDto(SingleTask t) => new(t.Id, t.Title, t.Priority.ToString(),
-        t.EstimatedHours, t.Weekdays, t.StartDate.ToString("yyyy-MM-dd"),
-        t.DueDate?.ToString("yyyy-MM-dd"), t.DelayedUntil?.ToString("yyyy-MM-dd"),
-        t.IsCompleted, t.CompletedDate?.ToString("yyyy-MM-dd"), Math.Floor(t.EstimatedHours * 2));
 
     private async Task ActivateNextInQueue(RoadmapNode completedNode)
     {

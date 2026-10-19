@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, type CSSProperties } from 'react';
 import type { ScheduleBlock, ActionableItem, WorkLogDto, SprintDto, ScheduleHabitDto, ScheduleTaskDto, CustomLogDto, ScheduleSubPointDto, ItemPrice } from './types';
 import { api } from './api';
 import { NAV_ICON } from './NavIcons';
@@ -305,6 +305,11 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
                 </button>
                 <span className="task-pri-dot" style={{ background: priColor }} />
                 <span className="task-title">{t.title}</span>
+                {t.project && (
+                  <span className="task-proj" style={{ '--pj': `var(--pj-${t.project.color})` } as CSSProperties} title={`Project: ${t.project.name}`}>
+                    <span className="tk-dot" />{t.project.name}
+                  </span>
+                )}
                 <span className="task-meta">{t.estimatedHours}h · {t.points}pt</span>
                 {t.isOverdue && <span className="task-overdue">overdue</span>}
                 {t.dueDate && !t.isOverdue && !t.isCompleted && <span className="task-due">due {t.dueDate.slice(5)}</span>}

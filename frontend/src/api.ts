@@ -1,7 +1,7 @@
 import type { RoadmapSummary, RoadmapTree, NodeDto, CreateNodeRequest, ActionableItem,
   ActionItemStatus, SprintDto, WorkLogDto, ScheduleResponse, PerformanceSummary, StatusChangeDto,
   WeekPlan, WeekPlanGoal, WorkLogHistory, HabitDto, SprintHabitDto, ScheduleHabitDto,
-  SingleTaskDto, ScheduleTaskDto, CustomLogDto, ScheduleBlockDef, ScheduleBlockMode, SprintGoalDto,
+  SingleTaskDto, SaveTaskRequest, TaskProjectDto, SaveTaskProjectRequest, ScheduleTaskDto, CustomLogDto, ScheduleBlockDef, ScheduleBlockMode, SprintGoalDto,
   NodeSubPointDto, ScheduleSubPointDto, NoteDto,
   FlashcardDto, FlashcardPromptDto, FlashcardStatsDto, FlashcardMemoryDto, FlashcardSessionDto, FlashcardGrade, FlashcardReviewResultDto, FlashcardPromptState,
   ArticleSummaryDto, ArticleDto, ArticleImageDto, ArticleFormat,
@@ -142,9 +142,23 @@ export const api = {
   toggleScheduleSubPoint: (r: string, date: string, nid: string, spid: string, isChecked: boolean) => req<void>(`${B}/${r}/schedule/${date}/subpoints/${nid}/${spid}`, { method: 'PATCH', body: JSON.stringify({ isChecked }) }),
 
   // Tasks
-  getTasks: (r: string) => req<SingleTaskDto[]>(`${B}/${r}/tasks`),
-  createTask: (r: string, body: Record<string, unknown>) => req<SingleTaskDto>(`${B}/${r}/tasks`, { method: 'POST', body: JSON.stringify(body) }),
-  updateTask: (r: string, tid: string, body: Record<string, unknown>) => req<void>(`${B}/${r}/tasks/${tid}`, { method: 'PUT', body: JSON.stringify(body) }),
+  getTasks: (r: string, q?: { projectId?: string; completed?: boolean }) => {
+    const qs = new URLSearchParams();
+    if (q?.projectId) qs.set('projectId', q.projectId);
+    if (q?.completed !== undefined) qs.set('completed', String(q.completed));
+    const tail = qs.toString();
+    return req<SingleTaskDto[]>(`${B}/${r}/tasks${tail ? `?${tail}` : ''}`);
+  },
+  createTask: (r: string, body: SaveTaskRequest) => req<SingleTaskDto>(`${B}/${r}/tasks`, { method: 'POST', body: JSON.stringify(body) }),
+  updateTask: (r: string, tid: string, body: SaveTaskRequest) => req<SingleTaskDto>(`${B}/${r}/tasks/${tid}`, { method: 'PUT', body: JSON.stringify(body) }),
+  /** The whole set of prerequisites; [] clears. Refused (400, with the loop spelled out) when it would make a cycle. */
+  setTaskDependencies: (r: string, tid: string, dependsOnIds: string[]) => req<SingleTaskDto>(`${B}/${r}/tasks/${tid}/dependencies`, { method: 'PUT', body: JSON.stringify({ dependsOnIds }) }),
+  // Task projects
+  getTaskProjects: (r: string) => req<TaskProjectDto[]>(`${B}/${r}/task-projects`),
+  createTaskProject: (r: string, body: SaveTaskProjectRequest) => req<TaskProjectDto>(`${B}/${r}/task-projects`, { method: 'POST', body: JSON.stringify(body) }),
+  updateTaskProject: (r: string, pid: string, body: SaveTaskProjectRequest) => req<void>(`${B}/${r}/task-projects/${pid}`, { method: 'PUT', body: JSON.stringify(body) }),
+  /** Tasks keep existing, unassigned. */
+  deleteTaskProject: (r: string, pid: string) => req<void>(`${B}/${r}/task-projects/${pid}`, { method: 'DELETE' }),
   deleteTask: (r: string, tid: string) => req<void>(`${B}/${r}/tasks/${tid}`, { method: 'DELETE' }),
   completeTask: (r: string, tid: string, date: string) => req<void>(`${B}/${r}/tasks/${tid}/complete`, { method: 'PATCH', body: JSON.stringify({ date }) }),
   uncompleteTask: (r: string, tid: string) => req<void>(`${B}/${r}/tasks/${tid}/uncomplete`, { method: 'PATCH' }),

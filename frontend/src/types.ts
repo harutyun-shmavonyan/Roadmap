@@ -242,8 +242,25 @@ export interface SprintHabitDto { sprintHabitId: string; habitId: string; name: 
 export interface ScheduleHabitDto { sprintHabitId: string; habitId: string; name: string; isCheckedToday: boolean; currentStreak: number; isFormed: boolean; }
 
 // Single Tasks
-export interface SingleTaskDto { id: string; title: string; priority: string; estimatedHours: number; weekdays: string | null; startDate: string; dueDate: string | null; delayedUntil: string | null; isCompleted: boolean; completedDate: string | null; points: number; }
-export interface ScheduleTaskDto { id: string; title: string; priority: string; estimatedHours: number; points: number; isCompleted: boolean; dueDate: string | null; isOverdue: boolean; }
+/** The project a task is filed under, as it rides on the task. `color` is a palette key (blue, orange, …) mapped to `--pj-<key>` in styles.css. */
+export interface TaskProjectRefDto { id: string; name: string; color: string; }
+/** Another task named from this one — a prerequisite or a dependent — with the one fact that matters. */
+export interface TaskRefDto { id: string; title: string; isCompleted: boolean; }
+/** `dependsOn` are the tasks this one waits on, `dependents` the ones waiting on it; `isBlocked` while any prerequisite is unfinished. */
+export interface SingleTaskDto {
+  id: string; title: string; priority: string; estimatedHours: number; weekdays: string | null; startDate: string;
+  dueDate: string | null; delayedUntil: string | null; isCompleted: boolean; completedDate: string | null; points: number;
+  project: TaskProjectRefDto | null; dependsOn: TaskRefDto[]; dependents: TaskRefDto[]; isBlocked: boolean;
+}
+/** Create and update share a body. On update, `dependsOnIds` null/undefined leaves the prerequisites alone; a list replaces them. */
+export interface SaveTaskRequest {
+  title: string; priority: string; estimatedHours: number; weekdays: string | null; startDate: string; dueDate: string | null;
+  projectId: string | null; dependsOnIds?: string[] | null;
+}
+export interface ScheduleTaskDto { id: string; title: string; priority: string; estimatedHours: number; points: number; isCompleted: boolean; dueDate: string | null; isOverdue: boolean; project: TaskProjectRefDto | null; }
+/** Counts are of the project's tasks: open, done, and blocked (open with an unfinished prerequisite — a subset of open). */
+export interface TaskProjectDto { id: string; name: string; color: string; openCount: number; doneCount: number; blockedCount: number; createdAt: string; }
+export interface SaveTaskProjectRequest { name: string; color?: string | null; }
 
 // Custom Logs
 export interface CustomLogDto { id: string; title: string; points: number; date: string; note: string | null; }

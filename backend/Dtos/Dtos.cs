@@ -236,12 +236,32 @@ public record ToggleHabitCheckRequest(string Date, bool IsChecked);
 public record ScheduleHabitDto(Guid SprintHabitId, Guid HabitId, string Name, bool IsCheckedToday, int CurrentStreak, bool IsFormed);
 
 // --- Single Tasks ---
+/// <summary>The project a task is filed under, as it rides on the task: enough to label and colour it.</summary>
+public record TaskProjectRefDto(Guid Id, string Name, string Color);
+/// <summary>Another task named from this one — a prerequisite or a dependent — with the one fact that matters: is it done.</summary>
+public record TaskRefDto(Guid Id, string Title, bool IsCompleted);
+/// <summary>
+/// DependsOn are the tasks this one waits on; Dependents the tasks waiting on it. IsBlocked is
+/// true while any prerequisite is unfinished — the day's schedule skips a blocked task.
+/// </summary>
 public record SingleTaskDto(Guid Id, string Title, string Priority, double EstimatedHours, string? Weekdays,
-    string StartDate, string? DueDate, string? DelayedUntil, bool IsCompleted, string? CompletedDate, double Points);
-public record CreateSingleTaskRequest(string Title, string Priority, double EstimatedHours, string? Weekdays, string StartDate, string? DueDate);
-public record UpdateSingleTaskRequest(string Title, string Priority, double EstimatedHours, string? Weekdays, string StartDate, string? DueDate);
-public record ScheduleTaskDto(Guid Id, string Title, string Priority, double EstimatedHours, double Points, bool IsCompleted, string? DueDate, bool IsOverdue);
+    string StartDate, string? DueDate, string? DelayedUntil, bool IsCompleted, string? CompletedDate, double Points,
+    TaskProjectRefDto? Project, List<TaskRefDto> DependsOn, List<TaskRefDto> Dependents, bool IsBlocked);
+public record CreateSingleTaskRequest(string Title, string Priority, double EstimatedHours, string? Weekdays, string StartDate, string? DueDate,
+    Guid? ProjectId = null, List<Guid>? DependsOnIds = null);
+/// <summary>PUT replaces the task's fields (ProjectId null = unassigned). DependsOnIds null leaves the prerequisites alone; a list replaces them.</summary>
+public record UpdateSingleTaskRequest(string Title, string Priority, double EstimatedHours, string? Weekdays, string StartDate, string? DueDate,
+    Guid? ProjectId = null, List<Guid>? DependsOnIds = null);
+public record SetTaskDependenciesRequest(List<Guid>? DependsOnIds);
+public record ScheduleTaskDto(Guid Id, string Title, string Priority, double EstimatedHours, double Points, bool IsCompleted, string? DueDate, bool IsOverdue,
+    TaskProjectRefDto? Project);
 public record CompleteTaskRequest(string Date);
+
+// --- Task projects ---
+/// <summary>Counts are of this project's tasks: open (not done), done, and blocked (open with an unfinished prerequisite — a subset of open).</summary>
+public record TaskProjectDto(Guid Id, string Name, string Color, int OpenCount, int DoneCount, int BlockedCount, string CreatedAt);
+public record CreateTaskProjectRequest(string Name, string? Color);
+public record UpdateTaskProjectRequest(string Name, string? Color);
 
 // --- Custom Logs ---
 public record CustomLogDto(Guid Id, string Title, double Points, string Date, string? Note);

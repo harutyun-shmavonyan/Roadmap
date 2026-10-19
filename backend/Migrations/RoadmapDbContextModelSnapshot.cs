@@ -1804,6 +1804,9 @@ namespace Roadmap.Api.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)");
 
+                    b.Property<Guid?>("ProjectId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("RoadmapId")
                         .HasColumnType("uuid");
 
@@ -1820,6 +1823,8 @@ namespace Roadmap.Api.Migrations
                         .HasColumnType("character varying(64)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
 
                     b.HasIndex("RoadmapId", "IsCompleted", "Priority");
 
@@ -2139,6 +2144,54 @@ namespace Roadmap.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("submissions", (string)null);
+                });
+
+            modelBuilder.Entity("Roadmap.Api.Entities.TaskDependency", b =>
+                {
+                    b.Property<Guid>("TaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DependsOnTaskId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("TaskId", "DependsOnTaskId");
+
+                    b.HasIndex("DependsOnTaskId");
+
+                    b.ToTable("task_dependencies", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_task_dependencies_not_self", "\"TaskId\" <> \"DependsOnTaskId\"");
+                        });
+                });
+
+            modelBuilder.Entity("Roadmap.Api.Entities.TaskProject", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<Guid>("RoadmapId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoadmapId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("task_projects", (string)null);
                 });
 
             modelBuilder.Entity("Roadmap.Api.Entities.VocabEntry", b =>
@@ -2728,11 +2781,18 @@ namespace Roadmap.Api.Migrations
 
             modelBuilder.Entity("Roadmap.Api.Entities.SingleTask", b =>
                 {
+                    b.HasOne("Roadmap.Api.Entities.TaskProject", "Project")
+                        .WithMany("Tasks")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Roadmap.Api.Entities.RoadmapDefinition", "Roadmap")
                         .WithMany()
                         .HasForeignKey("RoadmapId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Project");
 
                     b.Navigation("Roadmap");
                 });
@@ -2853,6 +2913,36 @@ namespace Roadmap.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Exercise");
+                });
+
+            modelBuilder.Entity("Roadmap.Api.Entities.TaskDependency", b =>
+                {
+                    b.HasOne("Roadmap.Api.Entities.SingleTask", "DependsOnTask")
+                        .WithMany("Dependents")
+                        .HasForeignKey("DependsOnTaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Roadmap.Api.Entities.SingleTask", "Task")
+                        .WithMany("DependsOn")
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DependsOnTask");
+
+                    b.Navigation("Task");
+                });
+
+            modelBuilder.Entity("Roadmap.Api.Entities.TaskProject", b =>
+                {
+                    b.HasOne("Roadmap.Api.Entities.RoadmapDefinition", "Roadmap")
+                        .WithMany()
+                        .HasForeignKey("RoadmapId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Roadmap");
                 });
 
             modelBuilder.Entity("Roadmap.Api.Entities.VocabReview", b =>
@@ -3019,6 +3109,13 @@ namespace Roadmap.Api.Migrations
                     b.Navigation("Signals");
                 });
 
+            modelBuilder.Entity("Roadmap.Api.Entities.SingleTask", b =>
+                {
+                    b.Navigation("Dependents");
+
+                    b.Navigation("DependsOn");
+                });
+
             modelBuilder.Entity("Roadmap.Api.Entities.Sprint", b =>
                 {
                     b.Navigation("PlanEntries");
@@ -3042,6 +3139,11 @@ namespace Roadmap.Api.Migrations
             modelBuilder.Entity("Roadmap.Api.Entities.Submission", b =>
                 {
                     b.Navigation("Grades");
+                });
+
+            modelBuilder.Entity("Roadmap.Api.Entities.TaskProject", b =>
+                {
+                    b.Navigation("Tasks");
                 });
 
             modelBuilder.Entity("Roadmap.Api.Entities.VocabEntry", b =>
