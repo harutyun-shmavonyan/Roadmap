@@ -98,9 +98,23 @@ using (var scope = app.Services.CreateScope())
 
 app.UseCors();
 
-// Serve frontend static files
+// Serve frontend static files. index.html must never be cached: it names the hashed bundle, and
+// a browser holding an old copy keeps loading the old app after a deploy (seen 2026-10-19). The
+// hashed assets, by contrast, change name whenever their content does, so they can be cached for
+// a year and marked immutable.
+var staticFiles = new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        var headers = ctx.Context.Response.Headers;
+        if (ctx.Context.Request.Path.StartsWithSegments("/assets"))
+            headers.CacheControl = "public, max-age=31536000, immutable";
+        else
+            headers.CacheControl = "no-cache";
+    }
+};
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(staticFiles);
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -153,7 +167,7 @@ app.MapMcp("/mcp").AddEndpointFilter(async (ctx, next) =>
 });
 
 // SPA fallback — any non-API, non-file request serves index.html
-app.MapFallbackToFile("index.html");
+app.MapFallbackToFile("index.html", staticFiles); // same headers on the SPA fallback
 
 app.Run();
 
