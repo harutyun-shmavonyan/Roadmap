@@ -6,6 +6,9 @@ public enum TaskPriority { High, Medium, Low }
 /// A single-time task (not recurring). Per-roadmap, persists until completed.
 /// Shown in the daily schedule alongside regular items based on priority and 3hr cap.
 /// Points: 2 per estimated hour, credited on completion day.
+/// Optionally filed under a <see cref="TaskProject"/>, and optionally waiting on other tasks
+/// (<see cref="DependsOn"/>) — while any of those is unfinished the task is blocked and the
+/// schedule skips it. Rules in <c>TaskLogic</c>.
 /// </summary>
 public class SingleTask
 {
@@ -32,8 +35,18 @@ public class SingleTask
     public bool IsCompleted { get; set; }
     public DateOnly? CompletedDate { get; set; }
 
+    /// <summary>The project this task is filed under; null = unassigned.</summary>
+    public Guid? ProjectId { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // Navigation
     public RoadmapDefinition Roadmap { get; set; } = null!;
+    public TaskProject? Project { get; set; }
+
+    /// <summary>Edges where this task is the one waiting: its prerequisites.</summary>
+    public ICollection<TaskDependency> DependsOn { get; set; } = new List<TaskDependency>();
+
+    /// <summary>Edges where this task is the prerequisite: the tasks waiting on it.</summary>
+    public ICollection<TaskDependency> Dependents { get; set; } = new List<TaskDependency>();
 }

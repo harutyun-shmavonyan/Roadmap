@@ -112,6 +112,45 @@ Every write re-plans the running sprints, and a queue's membership and order are
 commitment too (`ReseatQueues`), so reordering a queue moves which item is planned from today on.
 Blocks themselves (name, days, times, mode) are still created and edited from the tab only.
 
+## Tasks tab — projects and dependencies
+
+A single task (`single_tasks`) can be filed under a **project** (`task_projects`: a name and a
+palette colour, per roadmap, unique by name case-insensitively) and can **wait on** other tasks
+(`task_dependencies`, one row per edge, both ends cascade). `TaskLogic` owns every rule and is
+shared by the REST endpoints (`/api/roadmaps/{id}/tasks`, `/api/roadmaps/{id}/task-projects`) and
+the MCP tools (`TaskMcpTools.cs`: `list_tasks`, `create_task`, `update_task`,
+`set_task_dependencies`, `add_task_dependency`, `remove_task_dependency`, `complete_task`,
+`delete_task`, `list_task_projects`, `create_task_project`, `update_task_project`,
+`delete_task_project`), so the two cannot drift on what "blocked" means.
+
+- **A project is a label, not a container.** Deleting one leaves its tasks in place, unassigned
+  (FK `ON DELETE SET NULL`). Names are folded case-insensitively on write
+  (`FindProjectByNameAsync`) so "launch" lands on "Launch"; the unique index on (RoadmapId, Name)
+  is the backstop. MCP `create_task` / `update_task` take a project *name* as well as an id — an
+  unknown name creates the project — because an assistant says "put it in Launch" and should not
+  have to look the id up first.
+- **Colours are palette keys** (`TaskLogic.Palette`: blue, orange, aqua, yellow, magenta, green,
+  violet, red — the icon palette's eight hues), mapped to `--pj-<key>` tokens per theme in
+  `styles.css`; a chip, a dot and a progress bar all read one inline `--pj`. A blank colour gets
+  the least-used hue, ties in palette order, so the first eight projects all differ.
+- **A dependency is "waits on", kept acyclic and inside one roadmap.** `ValidateDependenciesAsync`
+  judges the graph as it would stand after the write (a replaced set as a whole, not edge by edge)
+  and refuses self, another roadmap's task and any cycle — the error spells the loop out by title
+  and the tab shows it verbatim. The form greys out everything downstream of the task being edited
+  ("would loop"), so the refusal is rarely reached.
+- **Blocked = open with an unfinished prerequisite** (`TaskLogic.IsBlocked`). A blocked task is
+  marked in the tab, sorted after the ready ones in its group, and **left out of the day's task
+  pick** (`/schedule/{date}/tasks`) — a dependency has to change what gets scheduled or it is
+  decoration. Completing a blocked task is still allowed (the dependency is advice about order,
+  not a lock): the tab asks first, and MCP `complete_task` reports `completed_ahead_of`.
+- The list is ordered in memory (open first, High → Medium → Low, oldest first): the Priority
+  column holds the enum's name, and ordering on it in SQL put Low before Medium — which the
+  schedule pick used to do too.
+- REST `PUT /tasks/{id}` replaces the fields (ProjectId null = unassigned) and takes
+  `dependsOnIds` as an optional atomic replacement (null = untouched); `PUT /tasks/{id}/dependencies`
+  is the sub-resource. MCP `update_task` patches: null keeps, `""` clears due date, weekdays or
+  project.
+
 ## Notes v2 — flashcards (FSRS), a system of its own
 
 A separate feature beside the v1 daily notes: its own tables (`flashcards`, `flashcard_prompts`,

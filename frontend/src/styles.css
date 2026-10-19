@@ -322,6 +322,8 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 .task-meta { font-size: 11px; font-family: var(--font-mono); color: var(--text-muted); }
 .task-overdue { font-size: 10px; font-weight: 600; color: var(--danger); background: var(--danger-dim); padding: 1px 6px; border-radius: 4px; }
 .task-due { font-size: 10px; color: var(--text-muted); }
+.task-proj { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 600; color: var(--text-secondary); }
+.task-proj .tk-dot { width: 6px; height: 6px; flex-basis: 6px; }
 
 .sched-body { display: flex; flex: 1; overflow: hidden; }
 
@@ -873,6 +875,13 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
   /* The quick row's "you are here" pill. Green because it is a state, not a category. */
   --ic-active-ink:  #0a6b1f;
   --ic-active-bg:   rgba(0, 131, 0, 0.13);
+
+  /* Task-project colours: the same eight hues, keyed the way task_projects.Color stores them, so a
+     project picked "orange" is this orange on both surfaces. Chips, dots and bars read `--pj`. */
+  --pj-blue: #2a78d6; --pj-orange: #eb6834; --pj-aqua: #1baf7a; --pj-yellow: #eda100;
+  --pj-magenta: #e87ba4; --pj-green: #008300; --pj-violet: #4a3aa7; --pj-red: #e34948;
+  /* "Blocked" ink: the warning hue darkened to read on its own light tint (4.5:1 on --warning-light). */
+  --tk-blocked-ink: #9a5b00;
 }
 
 [data-theme="dark"] {
@@ -899,6 +908,10 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 
   --ic-active-ink:  #5cc46f;
   --ic-active-bg:   rgba(0, 131, 0, 0.26);
+
+  --pj-blue: #3987e5; --pj-orange: #d95926; --pj-aqua: #199e70; --pj-yellow: #c98500;
+  --pj-magenta: #d55181; --pj-green: #2e9e3a; --pj-violet: #9085e9; --pj-red: #e66767;
+  --tk-blocked-ink: #e3b65c;
 }
 /* ─── Courses ───
    A course is thirteen stages, seven kinds of section and five kinds of exercise. The tab's job
@@ -1381,4 +1394,142 @@ li:last-child > .foodlog-row { border-bottom: 0; }
 @media (max-width: 620px) {
   .foodlog-row { flex-wrap: wrap; }
   .foodlog-row > span:last-child { width: 100%; padding-left: 28px; }
+}
+
+/* ─── Tasks ───
+   One section per project, a chip row to narrow to one, and on each card the two directions of a
+   dependency: what it waits on (amber while unfinished — the card is *blocked*) and what it unblocks.
+   Everything coloured by project reads one inline `--pj`, set from the palette key the server stores. */
+.tk-shell { display: flex; flex-direction: column; height: 100%; }
+.tk-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px;
+  border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; flex-wrap: wrap;
+}
+.tk-title { font-size: 16px; font-weight: 600; }
+.tk-sub { font-size: 12.5px; color: var(--text-muted); margin-left: 10px; font-family: var(--font-mono); }
+.tk-actions { display: flex; gap: 8px; }
+.tk-filters {
+  display: flex; gap: 6px; padding: 10px 20px; flex-shrink: 0; overflow-x: auto;
+  border-bottom: 1px solid var(--border-subtle); scrollbar-width: none;
+}
+.tk-filters::-webkit-scrollbar { display: none; }
+.tk-chip {
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+  border: 1px solid var(--border-subtle); background: var(--bg-elevated); font: inherit; font-size: 12.5px;
+  font-weight: 600; color: var(--text-secondary); padding: 4px 11px; border-radius: 999px; cursor: pointer; white-space: nowrap;
+}
+.tk-chip:hover { border-color: var(--border); color: var(--text-primary); }
+.tk-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tk-chip.on {
+  color: var(--text-primary); border-color: var(--pj, var(--accent));
+  background: color-mix(in srgb, var(--pj, var(--accent)) 12%, var(--bg-elevated));
+}
+.tk-count { font-weight: 500; color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; }
+.tk-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pj, var(--text-muted)); flex: 0 0 8px; }
+.tk-pri { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; }
+.tk-body { flex: 1; overflow-y: auto; padding: 20px; -webkit-overflow-scrolling: touch; }
+
+.tk-group { margin-bottom: 28px; }
+.tk-group-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.tk-group-name { font-size: 15px; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; }
+.tk-group-meta { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+.tk-progress { flex: 1 1 100px; max-width: 200px; height: 4px; background: var(--progress-track); border-radius: 2px; overflow: hidden; }
+.tk-progress > i { display: block; height: 100%; background: var(--pj, var(--accent)); border-radius: 2px; transition: width .3s; }
+.tk-group-actions { margin-left: auto; display: flex; gap: 2px; }
+.tk-list { display: flex; flex-direction: column; gap: 8px; }
+.tk-empty { color: var(--text-muted); font-size: 13px; padding: 6px 0 10px; }
+
+.tk-card {
+  background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm); transition: box-shadow var(--transition), border-color var(--transition), opacity var(--transition);
+}
+.tk-card.done { opacity: 0.6; }
+.tk-card.done .tk-name > span:first-child { text-decoration: line-through; }
+.tk-card.blocked { border-left: 3px solid var(--warning); }
+.tk-card.flash { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.tk-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+.tk-main { flex: 1; min-width: 0; }
+.tk-name { font-size: 15px; font-weight: 500; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; overflow-wrap: anywhere; }
+.tk-meta { display: flex; gap: 10px; font-size: 12px; color: var(--text-muted); margin-top: 3px; flex-wrap: wrap; }
+.tk-pill { font-size: 10.5px; font-weight: 700; letter-spacing: .03em; padding: 1px 7px; border-radius: 999px; text-transform: uppercase; }
+.tk-pill.blocked { background: var(--warning-light); color: var(--tk-blocked-ink); }
+.tk-card-actions { display: flex; gap: 2px; flex-shrink: 0; }
+
+.tk-deps { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 0 16px 10px 36px; font-size: 12px; color: var(--text-muted); }
+.tk-deps-label { font-weight: 600; letter-spacing: .04em; text-transform: uppercase; font-size: 10.5px; }
+.tk-ref {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  border: 1px solid var(--border-subtle); background: var(--bg-secondary); border-radius: 6px; padding: 1px 8px;
+  font: inherit; font-size: 12px; color: var(--text-secondary); cursor: pointer; text-align: left;
+}
+.tk-ref:hover { border-color: var(--border); color: var(--text-primary); }
+.tk-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tk-ref.open { border-color: color-mix(in srgb, var(--warning) 55%, transparent); background: var(--warning-light); color: var(--tk-blocked-ink); }
+.tk-ref.done { text-decoration: line-through; opacity: .75; }
+.tk-ref > button { border: none; background: none; padding: 0 0 0 2px; cursor: pointer; font-size: 14px; line-height: 1; color: inherit; }
+.tk-ref > button:hover { color: var(--danger); }
+
+.tk-complete-row {
+  display: flex; align-items: center; gap: 8px; padding: 10px 16px 12px; border-top: 1px solid var(--border-subtle);
+  flex-wrap: wrap; font-size: 13px; color: var(--text-muted);
+}
+.tk-complete-row input[type="date"] { font-size: 13px; padding: 3px 6px; }
+.tk-warn { color: var(--tk-blocked-ink); font-size: 12.5px; flex-basis: 100%; }
+.tk-error {
+  background: var(--danger-dim); border: 1px solid var(--danger); color: var(--danger);
+  border-radius: var(--radius-sm); padding: 8px 12px; font-size: 13px; margin-bottom: 12px; overflow-wrap: anywhere;
+}
+
+/* the form */
+.modal.tk-modal { max-width: 560px; }
+.tk-hint { font-size: 12px; color: var(--text-muted); margin: -2px 0 8px; line-height: 1.4; }
+.tk-newproj { margin: -8px 0 8px; }
+.tk-swatches { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.tk-swatch {
+  width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; padding: 0; cursor: pointer; flex-shrink: 0;
+  background: var(--pj, var(--text-muted)); transition: transform var(--transition);
+}
+.tk-swatch:hover { transform: scale(1.08); }
+.tk-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tk-swatch.on { border-color: var(--text-primary); box-shadow: inset 0 0 0 2px var(--bg-primary); }
+.tk-swatch.static { cursor: default; width: 18px; height: 18px; }
+.tk-swatch.static:hover { transform: none; }
+.tk-picker { border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 16px; overflow: hidden; }
+.tk-picker:focus-within { border-color: var(--accent); }
+.modal .tk-picker input[type="text"] {
+  border: none; border-bottom: 1px solid var(--border-subtle); border-radius: 0; margin: 0; box-shadow: none;
+  font-size: 14px; padding: 9px 12px;
+}
+.tk-picker-list { max-height: 200px; overflow-y: auto; }
+.tk-selected { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); background: var(--bg-secondary); }
+/* Specific enough to beat the modal's own label styling: an option is a row, not a field caption. */
+.modal .tk-opt {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px; margin: 0;
+  font-size: 14px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--text-primary);
+  cursor: pointer; border-bottom: 1px solid var(--border-subtle);
+}
+.modal .tk-opt:last-child { border-bottom: none; }
+.modal .tk-opt:hover { background: var(--bg-hover); }
+.modal .tk-opt.disabled { opacity: .5; cursor: not-allowed; }
+.tk-opt input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; flex-shrink: 0; }
+.tk-opt-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-opt-proj { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
+.tk-opt-proj .tk-dot { width: 6px; height: 6px; flex-basis: 6px; }
+.tk-opt-why { font-size: 11px; color: var(--text-muted); font-style: italic; white-space: nowrap; }
+
+/* the projects dialog */
+.tk-proj-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border-subtle); }
+.modal .tk-proj-row input[type="text"] { margin: 0; flex: 1; min-width: 120px; padding: 7px 10px; font-size: 14px; }
+.tk-proj-counts { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
+.tk-proj .tk-swatches { margin: 8px 0 4px 36px; }
+.tk-proj-add { margin-top: 18px; }
+
+@media (max-width: 720px) {
+  .tk-header { padding: 10px 12px; }
+  .tk-filters { padding: 8px 12px; }
+  .tk-body { padding: 12px; }
+  .tk-row { padding: 10px 12px; gap: 8px; }
+  .tk-deps { padding-left: 12px; }
+  .tk-sub { display: block; margin: 2px 0 0; }
+  .tk-proj-counts { display: none; }
 }

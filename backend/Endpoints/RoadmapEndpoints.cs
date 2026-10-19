@@ -2027,39 +2027,80 @@ public static class RoadmapEndpoints
         });
 
         // ===== Single Tasks =====
+        // The rules — projects, dependencies, what "blocked" means, ordering — live in TaskLogic,
+        // shared with the MCP tools so the two surfaces cannot drift.
         var tasks = app.MapGroup("/api/roadmaps/{roadmapId:guid}/tasks").WithTags("Tasks");
 
-        tasks.MapGet("/", async (Guid roadmapId, RoadmapDbContext db) =>
+        tasks.MapGet("/", async (Guid roadmapId, Guid? projectId, bool? completed, RoadmapDbContext db) =>
+            Results.Ok((await TaskLogic.LoadAsync(db, roadmapId, projectId, completed)).Select(TaskLogic.ToDto).ToList()));
+
+        tasks.MapGet("/{taskId:guid}", async (Guid roadmapId, Guid taskId, RoadmapDbContext db) =>
         {
-            var all = await db.SingleTasks.AsNoTracking().Where(t => t.RoadmapId == roadmapId)
-                .OrderBy(t => t.IsCompleted).ThenBy(t => t.Priority).ThenBy(t => t.CreatedAt).ToListAsync();
-            return Results.Ok(all.Select(ToTaskDto).ToList());
+            var t = await TaskLogic.LoadOneAsync(db, roadmapId, taskId);
+            return t is null ? Results.NotFound() : Results.Ok(TaskLogic.ToDto(t));
         });
 
         tasks.MapPost("/", async (Guid roadmapId, CreateSingleTaskRequest req, RoadmapDbContext db) =>
         {
+            if (string.IsNullOrWhiteSpace(req.Title)) return Results.BadRequest("Title is required.");
             if (!DateOnly.TryParse(req.StartDate, out var sd)) return Results.BadRequest("Invalid start date.");
             DateOnly? dd = null;
-            if (req.DueDate != null && DateOnly.TryParse(req.DueDate, out var parsed)) dd = parsed;
-            if (!Enum.TryParse<TaskPriority>(req.Priority, true, out var pri)) pri = TaskPriority.Medium;
+            if (!string.IsNullOrWhiteSpace(req.DueDate))
+            {
+                if (!DateOnly.TryParse(req.DueDate, out var parsed)) return Results.BadRequest("Invalid due date.");
+                dd = parsed;
+            }
+            if (!TaskLogic.TryParsePriority(req.Priority, out var pri)) return Results.BadRequest(TaskLogic.PriorityHelp);
+            if (!TaskLogic.TryParseWeekdays(req.Weekdays, out var weekdays)) return Results.BadRequest(TaskLogic.WeekdaysHelp);
+            if (!(req.EstimatedHours > 0)) return Results.BadRequest("Estimated hours must be positive.");
+            var proj = await TaskLogic.ResolveProjectAsync(db, roadmapId, req.ProjectId, null);
+            if (proj.Error is not null) return Results.BadRequest(proj.Error);
             var t = new SingleTask { Id = Guid.NewGuid(), RoadmapId = roadmapId, Title = req.Title.Trim(),
-                Priority = pri, EstimatedHours = req.EstimatedHours, Weekdays = req.Weekdays,
-                StartDate = sd, DueDate = dd };
-            db.SingleTasks.Add(t); await db.SaveChangesAsync();
-            return Results.Created("", ToTaskDto(t));
+                Priority = pri, EstimatedHours = req.EstimatedHours, Weekdays = weekdays,
+                StartDate = sd, DueDate = dd, ProjectId = proj.Project?.Id };
+            db.SingleTasks.Add(t);
+            var depError = await TaskLogic.SetDependenciesAsync(db, roadmapId, t.Id, req.DependsOnIds ?? []);
+            if (depError is not null) return Results.BadRequest(depError);
+            await db.SaveChangesAsync();
+            return Results.Created($"/api/roadmaps/{roadmapId}/tasks/{t.Id}", TaskLogic.ToDto((await TaskLogic.LoadOneAsync(db, roadmapId, t.Id))!));
         });
 
         tasks.MapPut("/{taskId:guid}", async (Guid roadmapId, Guid taskId, UpdateSingleTaskRequest req, RoadmapDbContext db) =>
         {
             var t = await db.SingleTasks.FirstOrDefaultAsync(x => x.Id == taskId && x.RoadmapId == roadmapId);
             if (t is null) return Results.NotFound();
+            if (string.IsNullOrWhiteSpace(req.Title)) return Results.BadRequest("Title is required.");
             if (!DateOnly.TryParse(req.StartDate, out var sd)) return Results.BadRequest("Invalid start date.");
             DateOnly? dd = null;
-            if (req.DueDate != null && DateOnly.TryParse(req.DueDate, out var parsed)) dd = parsed;
-            if (Enum.TryParse<TaskPriority>(req.Priority, true, out var pri)) t.Priority = pri;
-            t.Title = req.Title.Trim(); t.EstimatedHours = req.EstimatedHours; t.Weekdays = req.Weekdays;
-            t.StartDate = sd; t.DueDate = dd;
-            await db.SaveChangesAsync(); return Results.NoContent();
+            if (!string.IsNullOrWhiteSpace(req.DueDate))
+            {
+                if (!DateOnly.TryParse(req.DueDate, out var parsed)) return Results.BadRequest("Invalid due date.");
+                dd = parsed;
+            }
+            if (!TaskLogic.TryParsePriority(req.Priority, out var pri)) return Results.BadRequest(TaskLogic.PriorityHelp);
+            if (!TaskLogic.TryParseWeekdays(req.Weekdays, out var weekdays)) return Results.BadRequest(TaskLogic.WeekdaysHelp);
+            if (!(req.EstimatedHours > 0)) return Results.BadRequest("Estimated hours must be positive.");
+            var proj = await TaskLogic.ResolveProjectAsync(db, roadmapId, req.ProjectId, null);
+            if (proj.Error is not null) return Results.BadRequest(proj.Error);
+            t.Title = req.Title.Trim(); t.Priority = pri; t.EstimatedHours = req.EstimatedHours; t.Weekdays = weekdays;
+            t.StartDate = sd; t.DueDate = dd; t.ProjectId = proj.Project?.Id;
+            if (req.DependsOnIds is not null)
+            {
+                var depError = await TaskLogic.SetDependenciesAsync(db, roadmapId, t.Id, req.DependsOnIds);
+                if (depError is not null) return Results.BadRequest(depError);
+            }
+            await db.SaveChangesAsync();
+            return Results.Ok(TaskLogic.ToDto((await TaskLogic.LoadOneAsync(db, roadmapId, t.Id))!));
+        });
+
+        // The prerequisites as a whole: the list given replaces what was there, [] clears.
+        tasks.MapPut("/{taskId:guid}/dependencies", async (Guid roadmapId, Guid taskId, SetTaskDependenciesRequest req, RoadmapDbContext db) =>
+        {
+            if (!await db.SingleTasks.AnyAsync(x => x.Id == taskId && x.RoadmapId == roadmapId)) return Results.NotFound();
+            var error = await TaskLogic.SetDependenciesAsync(db, roadmapId, taskId, req.DependsOnIds ?? []);
+            if (error is not null) return Results.BadRequest(error);
+            await db.SaveChangesAsync();
+            return Results.Ok(TaskLogic.ToDto((await TaskLogic.LoadOneAsync(db, roadmapId, taskId))!));
         });
 
         tasks.MapDelete("/{taskId:guid}", async (Guid roadmapId, Guid taskId, RoadmapDbContext db) =>
@@ -2068,7 +2109,8 @@ public static class RoadmapEndpoints
             if (t is null) return Results.NotFound(); db.SingleTasks.Remove(t); await db.SaveChangesAsync(); return Results.NoContent();
         });
 
-        // Complete a task (credits points to the given date)
+        // Complete a task (credits points to the given date). Allowed while blocked — the
+        // dependency is advice about order, not a lock — the tab asks before doing it.
         tasks.MapPatch("/{taskId:guid}/complete", async (Guid roadmapId, Guid taskId, CompleteTaskRequest req, RoadmapDbContext db) =>
         {
             var t = await db.SingleTasks.FirstOrDefaultAsync(x => x.Id == taskId && x.RoadmapId == roadmapId);
@@ -2103,14 +2145,21 @@ public static class RoadmapEndpoints
             var dow = (int)pd.DayOfWeek;
             var today = AppClock.Today();
 
-            var candidates = await db.SingleTasks.AsNoTracking()
+            // Ordered in memory so High comes before Medium before Low (the column holds the name).
+            var candidates = (await db.SingleTasks.AsNoTracking()
                 .Where(t => t.RoadmapId == roadmapId && !t.IsCompleted && t.StartDate <= pd
                     && (t.DelayedUntil == null || t.DelayedUntil <= pd))
-                .OrderBy(t => t.Priority).ThenBy(t => t.CreatedAt).ToListAsync();
+                .Include(t => t.Project)
+                .Include(t => t.DependsOn).ThenInclude(d => d.DependsOnTask)
+                .ToListAsync())
+                // A blocked task is not doable today, whatever its priority: it waits for its prerequisites.
+                .Where(t => !TaskLogic.IsBlocked(t))
+                .OrderBy(t => t.Priority).ThenBy(t => t.CreatedAt).ToList();
 
             // Also include tasks completed on this specific date
             var completedToday = await db.SingleTasks.AsNoTracking()
-                .Where(t => t.RoadmapId == roadmapId && t.IsCompleted && t.CompletedDate == pd).ToListAsync();
+                .Where(t => t.RoadmapId == roadmapId && t.IsCompleted && t.CompletedDate == pd)
+                .Include(t => t.Project).ToListAsync();
 
             // Filter by weekday
             var eligible = candidates.Where(t => {
@@ -2138,9 +2187,51 @@ public static class RoadmapEndpoints
                 selected.Add(ct);
 
             return Results.Ok(selected.Select(t => new ScheduleTaskDto(t.Id, t.Title, t.Priority.ToString(),
-                t.EstimatedHours, Math.Floor(t.EstimatedHours * 2),
+                t.EstimatedHours, TaskLogic.Points(t),
                 t.IsCompleted, t.DueDate?.ToString("yyyy-MM-dd"),
-                t.DueDate.HasValue && t.DueDate.Value < today && !t.IsCompleted)).ToList());
+                t.DueDate.HasValue && t.DueDate.Value < today && !t.IsCompleted,
+                TaskLogic.Ref(t.Project))).ToList());
+        });
+
+        // ===== Task projects =====
+        var taskProjects = app.MapGroup("/api/roadmaps/{roadmapId:guid}/task-projects").WithTags("TaskProjects");
+
+        taskProjects.MapGet("/", async (Guid roadmapId, RoadmapDbContext db) =>
+            Results.Ok(await TaskLogic.LoadProjectsAsync(db, roadmapId)));
+
+        taskProjects.MapPost("/", async (Guid roadmapId, CreateTaskProjectRequest req, RoadmapDbContext db) =>
+        {
+            var name = TaskLogic.CleanProjectName(req.Name);
+            if (name is null) return Results.BadRequest("Name is required.");
+            if (!TaskLogic.TryParseColor(req.Color, out var color)) return Results.BadRequest(TaskLogic.ColorHelp);
+            if (await TaskLogic.FindProjectByNameAsync(db, roadmapId, name) is not null)
+                return Results.Conflict($"A project named \"{name}\" already exists.");
+            var p = await TaskLogic.NewProjectAsync(db, roadmapId, name, color);
+            await db.SaveChangesAsync();
+            return Results.Created($"/api/roadmaps/{roadmapId}/task-projects/{p.Id}", TaskLogic.ToDto(p, []));
+        });
+
+        taskProjects.MapPut("/{projectId:guid}", async (Guid roadmapId, Guid projectId, UpdateTaskProjectRequest req, RoadmapDbContext db) =>
+        {
+            var p = await db.TaskProjects.FirstOrDefaultAsync(x => x.Id == projectId && x.RoadmapId == roadmapId);
+            if (p is null) return Results.NotFound();
+            var name = TaskLogic.CleanProjectName(req.Name);
+            if (name is null) return Results.BadRequest("Name is required.");
+            if (!TaskLogic.TryParseColor(req.Color, out var color)) return Results.BadRequest(TaskLogic.ColorHelp);
+            var clash = await TaskLogic.FindProjectByNameAsync(db, roadmapId, name);
+            if (clash is not null && clash.Id != p.Id) return Results.Conflict($"A project named \"{name}\" already exists.");
+            p.Name = name;
+            if (color is not null) p.Color = color;
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        });
+
+        // Tasks keep existing, unassigned (FK ON DELETE SET NULL).
+        taskProjects.MapDelete("/{projectId:guid}", async (Guid roadmapId, Guid projectId, RoadmapDbContext db) =>
+        {
+            var p = await db.TaskProjects.FirstOrDefaultAsync(x => x.Id == projectId && x.RoadmapId == roadmapId);
+            if (p is null) return Results.NotFound();
+            db.TaskProjects.Remove(p); await db.SaveChangesAsync(); return Results.NoContent();
         });
 
         // ===== Habits =====
@@ -2567,11 +2658,6 @@ public static class RoadmapEndpoints
     private static SprintDto ToSprintDto(Sprint s) => new(s.Id, s.Name,
         s.StartDate.ToString("yyyy-MM-dd"), s.EndDate.ToString("yyyy-MM-dd"), s.IsOpen, s.IsStarted, s.RelaxDays,
         s.ScoringMode.ToString());
-
-    private static SingleTaskDto ToTaskDto(SingleTask t) => new(t.Id, t.Title, t.Priority.ToString(),
-        t.EstimatedHours, t.Weekdays, t.StartDate.ToString("yyyy-MM-dd"),
-        t.DueDate?.ToString("yyyy-MM-dd"), t.DelayedUntil?.ToString("yyyy-MM-dd"),
-        t.IsCompleted, t.CompletedDate?.ToString("yyyy-MM-dd"), Math.Floor(t.EstimatedHours * 2));
 
     private static double GetRemaining(RoadmapNode item, Dictionary<Guid, double> allTimeLogged)
     {
