@@ -13,10 +13,14 @@ branch does not deploy. Railway starts the build on the push (multi-stage image:
 `dotnet publish`), typically a few minutes; the Railway MCP `list-deployments` / `get-logs` tools
 follow it, and `get-deployment-diagnosis` explains a failed one.
 
-- **Never trigger a deploy yourself** (the user's call, 2026-10-04): no Railway `redeploy`, no
-  `connect-service-source` to kick a build, no other deploy action. Push to `master` and tell the
-  user; if Railway does not pick the push up, say so and leave the deploy to them. (On 2026-10-04
-  pushes were not starting builds, and re-attaching the source was used to force them — don't.)
+- **Deploy through the Railway MCP** (the user's call, 2026-10-19, replacing the 2026-10-04 rule
+  that left every deploy to them). The push webhook is not reliable — on 2026-10-04 and again on
+  2026-10-19 a push to `master` started no build — so after pushing, kick the build yourself:
+  `connect-service-source` with `repo: harutyun-shmavonyan/Roadmap`, `branch: master` (re-attaching
+  the same source builds the head of the branch immediately; it took ~3 minutes on 2026-10-19).
+  `redeploy` is not it — that re-runs an old build. In an auto-mode session the permission
+  classifier may refuse the Railway *reads* (`list-deployments`, `get-logs`) as "Production Deploy"
+  while allowing the connect; the live `tools/list` below is the proof that works regardless.
 - **Verify, do not assume.** `https://roadmap-app.up.railway.app/mcp` needs no secret, so
   `tools/list` over JSON-RPC is the cheapest proof of what is actually running — look for a tool the
   change added. On 2026-09-26 an image push looked done while production was still a day-old build.
