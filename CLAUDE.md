@@ -35,6 +35,29 @@ follow it, and `get-deployment-diagnosis` explains a failed one.
   branch) still builds and pushes `h317280/roadmap-app` on GitHub's runners, but Railway no longer
   pulls that image — it is a spare artifact, not the deploy path.
 
+## Auth — REST tokens, the MCP secret, and stateless agent sessions (added 2026-10-20)
+
+Two doors, two keys, one principal ("owner"):
+
+- **`/api/*`** takes a bearer JWT (HS256, `JWT_SECRET`, 30 days by default). `POST /api/auth/login`
+  mints one from `AUTH_PASSWORD`; so does the MCP tool **`issue_api_token`** (`days` 1–90), through
+  the same `TokenIssuer` (`backend/Auth/TokenIssuer.cs`), so the two are interchangeable. The tool
+  exists for sessions that start with nothing on disk — a claude.ai chat, a Claude Code web
+  session — where the Roadmap connector is present but the password is not: the agent calls
+  `issue_api_token`, writes `ROADMAP_TOKEN=<token>` to `~/.config/roadmap/credentials.env`, and the
+  Finder scripts (`roadmap_client.py`, `attach-cvs.py`, `preflight.py`) use it instead of logging
+  in. The password path still works everywhere it did.
+- **`/mcp`** takes `MCP_SECRET` when that variable is set: `Authorization: Bearer <secret>` or
+  `X-Api-Key: <secret>`, compared in constant time, **never from the URL** (the MCP spec forbids
+  tokens in query strings and claude.ai's connector docs say the same). Unset, `/mcp` is open to
+  anyone with the URL — and the URL is in this public repo. Whoever reaches `/mcp` has every
+  write tool *and* `issue_api_token`, so the secret is what makes the token tool safe; set it.
+  The claude.ai custom connector sends it as a **Request header** (`authorization` →
+  `Bearer <secret>`, or `x-api-key`) — a beta field some accounts do not see yet; auth settings
+  cannot be edited after a connector is added, so it is remove-and-re-add. Finder's
+  `import-run.py` sends the same header from `$MCP_SECRET`; the scheduled job-scout environment
+  needs that variable alongside `AUTH_PASSWORD`.
+
 ## Jobs tab — application tracking
 
 Each posting carries an application outcome the user sets from the card:

@@ -1,9 +1,9 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Roadmap.Api.Auth;
 using Roadmap.Api.Data;
 using Roadmap.Api.Endpoints;
 using Roadmap.Api.Mcp;
@@ -23,7 +23,9 @@ builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 64L * 1024 *
 // Auth config from env vars
 var authPassword = Environment.GetEnvironmentVariable("AUTH_PASSWORD") ?? "changeme";
 var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? "roadmap-dev-secret-key-min-32-chars!!";
-var mcpSecret = Environment.GetEnvironmentVariable("MCP_SECRET"); // if set, required as Bearer token on /mcp
+// If set, /mcp requires it: "Authorization: Bearer <secret>" or "X-Api-Key: <secret>" — the two
+// header shapes a claude.ai custom connector can send. Unset = /mcp is open to anyone with the URL.
+var mcpSecret = Environment.GetEnvironmentVariable("MCP_SECRET");
 
 // Support DATABASE_URL env var (Railway Postgres format)
 var connStr = Environment.GetEnvironmentVariable("DATABASE_URL");
@@ -50,8 +52,11 @@ builder.Services.AddMcpServer()
     .WithHttpTransport(o => o.Stateless = true)
     .WithToolsFromAssembly(typeof(RoadmapMcpTools).Assembly);
 
-// JWT Authentication
-var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret));
+// JWT Authentication. TokenIssuer holds the one signing key; the password login and the
+// issue_api_token MCP tool both mint through it, so their tokens are interchangeable on /api.
+var issuer = new TokenIssuer(jwtSecret);
+builder.Services.AddSingleton(issuer);
+var key = issuer.Key;
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -122,20 +127,11 @@ app.UseAuthorization();
 // === Auth endpoints (no auth required) ===
 app.MapPost("/api/auth/login", (LoginRequest req) =>
 {
-    if (req.Password != authPassword)
+    if (!FixedTimeEquals(req.Password, authPassword))
         return Results.Unauthorized();
 
-    var tokenHandler = new JwtSecurityTokenHandler();
-    var tokenDescriptor = new SecurityTokenDescriptor
-    {
-        Subject = new ClaimsIdentity([new Claim(ClaimTypes.Name, "owner")]),
-        Expires = DateTime.UtcNow.AddDays(30),
-        SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256Signature)
-    };
-    var token = tokenHandler.CreateToken(tokenDescriptor);
-    var tokenString = tokenHandler.WriteToken(token);
-
-    return Results.Ok(new { token = tokenString, expiresAt = tokenDescriptor.Expires });
+    var (token, expiresAt) = issuer.Issue();
+    return Results.Ok(new { token, expiresAt });
 }).AllowAnonymous();
 
 app.MapGet("/api/auth/check", (HttpContext ctx) =>
@@ -153,14 +149,16 @@ app.MapFoodLogEndpoints();
 app.MapFlashcardEndpoints();
 app.MapSignalEndpoints();
 
-// MCP endpoint — protected by MCP_SECRET if configured
+// MCP endpoint — protected by MCP_SECRET if configured. The secret is never read from the URL:
+// query strings end up in logs and proxies, and the MCP spec forbids tokens there.
 app.MapMcp("/mcp").AddEndpointFilter(async (ctx, next) =>
 {
     if (!string.IsNullOrEmpty(mcpSecret))
     {
-        var auth = ctx.HttpContext.Request.Headers.Authorization.ToString();
-        var expected = $"Bearer {mcpSecret}";
-        if (!string.Equals(auth, expected, StringComparison.Ordinal))
+        var h = ctx.HttpContext.Request.Headers;
+        var bearer = h.Authorization.ToString();
+        var presented = bearer.StartsWith("Bearer ", StringComparison.Ordinal) ? bearer[7..] : h["X-Api-Key"].ToString();
+        if (!FixedTimeEquals(presented, mcpSecret))
             return Results.Unauthorized();
     }
     return await next(ctx);
@@ -170,5 +168,13 @@ app.MapMcp("/mcp").AddEndpointFilter(async (ctx, next) =>
 app.MapFallbackToFile("index.html", staticFiles); // same headers on the SPA fallback
 
 app.Run();
+
+static bool FixedTimeEquals(string? a, string? b)
+{
+    if (a is null || b is null) return false;
+    var x = Encoding.UTF8.GetBytes(a);
+    var y = Encoding.UTF8.GetBytes(b);
+    return x.Length == y.Length && CryptographicOperations.FixedTimeEquals(x, y);
+}
 
 record LoginRequest(string Password);
