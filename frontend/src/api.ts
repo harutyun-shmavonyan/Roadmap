@@ -393,6 +393,10 @@ export const api = {
     req<CourseDetailDto>(`/api/courses/${encodeURIComponent(slug)}/status`, {
       method: 'PATCH', body: JSON.stringify({ status }),
     }),
+  // The tab confirms first and then sends force, which deletes a course even with submissions.
+  deleteCourse: (slug: string) =>
+    req<{ deleted: boolean; slug: string; stages: number; lessons: number; submissions: number }>(
+      `/api/courses/${encodeURIComponent(slug)}?force=true`, { method: 'DELETE' }),
   // force completes a lesson whose required exercises are not all graded; the override is
   // recorded in the timeline, which is why the tab asks before sending it.
   setLessonStatus: (slug: string, code: string, status: LessonStatus, force?: boolean) =>

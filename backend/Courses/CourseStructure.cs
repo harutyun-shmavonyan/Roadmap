@@ -60,6 +60,29 @@ public static class CourseStructure
             new { summary = "stages reordered", order = ordered.Select(s => s.Code) });
     }
 
+    /// <summary>
+    /// Soft-delete a whole course: it, its stages, lessons, exercises, submissions, grades,
+    /// resources and timeline all drop out of every read through the query filters, which key on
+    /// the course's <c>DeletedAt</c>. The rows stay in the database, so a mistaken delete can be
+    /// undone by clearing that one column. The slug is freed (its unique index skips deleted
+    /// courses), so a course can be imported again under the same name. Refuses when any exercise
+    /// has submissions unless <paramref name="force"/> — deleting work actually done should be
+    /// deliberate, as with stages and lessons. Returns what went with it.
+    /// </summary>
+    public static async Task<(int Stages, int Lessons, int Submissions)> DeleteCourseAsync(
+        RoadmapDbContext db, Course course, bool force)
+    {
+        var stages = await db.Stages.CountAsync(s => s.CourseId == course.Id);
+        var lessons = await db.Lessons.CountAsync(l => l.Stage.CourseId == course.Id);
+        var submissions = await db.Submissions.CountAsync(s => s.Exercise.Lesson.Stage.CourseId == course.Id);
+        if (submissions > 0 && !force)
+            throw CourseException.Validation(
+                $"Course has {submissions} submission(s); pass force to delete it with all its work.");
+        course.DeletedAt = DateTime.UtcNow;
+        course.UpdatedAt = DateTime.UtcNow;
+        return (stages, lessons, submissions);
+    }
+
     public static async Task DeleteStageAsync(RoadmapDbContext db, Course course, Stage stage, bool cascade, string actor)
     {
         var withWork = await db.Lessons.Where(l => l.StageId == stage.Id)

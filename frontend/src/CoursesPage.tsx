@@ -304,9 +304,55 @@ function Timeline({ events }: { events: CourseEventDto[] }) {
 
 /* ─── view 1: the course list ─── */
 
+/* ─── deleting a course ───
+   Asked from the course page and from its card in the list. Everything the course holds goes with
+   it — lessons, exercises, submissions, grades, notes — so the dialog says so, with what it knows of
+   the work done, before anything is sent. */
+
+function DeleteCourseDialog({ course, onClose, onDeleted }: {
+  course: { slug: string; title: string; progress: number; score: number | null };
+  onClose: () => void; onDeleted: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = async () => {
+    setBusy(true); setError(null);
+    try { await api.deleteCourse(course.slug); onDeleted(); }
+    catch (e) { setError(String(e)); setBusy(false); }
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [busy, onClose]);
+  return (
+    <div className="modal-overlay" onClick={() => !busy && onClose()}>
+      <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="crs-del-title"
+        onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
+        <h2 id="crs-del-title">Delete “{course.title}”?</h2>
+        <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text-secondary)', margin: '0 0 8px' }}>
+          The course goes with everything in it: its stages, lessons, exercises, your submissions and
+          grades, notes and timeline.
+          {course.progress > 0 && <> You are <b style={{ color: 'var(--text-primary)' }}>{Math.round(course.progress * 100)}%</b> through it
+            {course.score != null && <>, scored <b style={{ color: 'var(--text-primary)' }}>{course.score}%</b></>}.</>}
+        </p>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 4px' }}>
+          It can't be undone from the app. To keep a finished course readable, mark it Complete instead.
+        </p>
+        {error && <p role="alert" style={{ fontSize: 13, color: 'var(--danger)', margin: '8px 0 0' }}>{error}</p>}
+        <div className="modal-actions">
+          <button className="btn" onClick={onClose} disabled={busy} autoFocus>Cancel</button>
+          <button className="btn btn-danger" onClick={run} disabled={busy}>{busy ? 'Deleting…' : 'Delete course'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CourseList({ onOpen }: { onOpen: (slug: string) => void }) {
   const [rows, setRows] = useState<CourseSummaryDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<CourseSummaryDto | null>(null);
 
   const load = useCallback(() => {
     api.getCourses().then(setRows).catch(e => setError(String(e)));
@@ -371,9 +417,15 @@ function CourseList({ onOpen }: { onOpen: (slug: string) => void }) {
                 )}
               </div>
             </div>
+            <button className="btn btn-sm btn-ghost crs-del" title={`Delete ${c.title}`} aria-label={`Delete ${c.title}`}
+              onClick={e => { e.stopPropagation(); setDeleting(c); }}
+              onKeyDown={e => e.stopPropagation()}
+              style={{ alignSelf: 'flex-start', flexShrink: 0 }}>🗑</button>
           </div>
         );
       })}
+      {deleting && <DeleteCourseDialog course={deleting} onClose={() => setDeleting(null)}
+        onDeleted={() => { setDeleting(null); setRows(r => r?.filter(x => x.id !== deleting.id) ?? r); }} />}
     </div>
   );
 }
@@ -461,6 +513,7 @@ function StageRail({ stages, activeId, onPick }:
 function CourseDetail({ slug, onOpenLesson, onBack }:
   { slug: string; onOpenLesson: (code: string) => void; onBack: () => void }) {
   const [course, setCourse] = useState<CourseDetailDto | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [resume, setResume] = useState<CourseResumeDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stageId, setStageId] = useState<string>('');
@@ -544,7 +597,9 @@ function CourseDetail({ slug, onOpenLesson, onBack }:
               .map(s => <button key={s} className="btn btn-sm" disabled={busy} onClick={() => setStatus(s)}>
                 {s === 'active' ? 'Start' : s === 'paused' ? 'Pause' : 'Complete'}
               </button>)}
+            <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => setDeleting(true)}>Delete</button>
           </div>
+          {deleting && <DeleteCourseDialog course={course} onClose={() => setDeleting(false)} onDeleted={onBack} />}
         </div>
         <CourseArc stages={stages} activeId={active?.id ?? ''} onPick={setStageId} />
       </div>

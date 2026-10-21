@@ -10,7 +10,7 @@ namespace Roadmap.Api.Endpoints;
 ///
 /// Reads come straight from <see cref="CourseViews"/> — the same projections the MCP tools serve,
 /// so the tab and the authoring agent can never disagree about a course. Writes are deliberately
-/// narrow: a course status, a lesson status, and a note or a time log. Everything else about a
+/// narrow: a course status, a lesson status, a note or a time log, and deleting a course. Everything else about a
 /// course is written by the agent over MCP, because writing a lesson means writing Markdown and
 /// that is not a form.
 /// </summary>
@@ -77,6 +77,18 @@ public static class CourseEndpoints
             await db.SaveChangesAsync();
             return Results.Ok(await CourseViews.LessonDetailAsync(db, c, l,
                 CourseViews.LessonInclude(null)));
+        }));
+
+        // Delete a course from the tab. The tab asks for confirmation first and then sends force,
+        // since the person has just been shown what goes with it; without force, a course with
+        // submissions is refused (400) like a stage or lesson would be.
+        courses.MapDelete("/{course}", async (string course, bool? force, RoadmapDbContext db) =>
+            await Guard(async () =>
+        {
+            var c = await Resolve(db, course, track: true);
+            var (stages, lessons, submissions) = await CourseStructure.DeleteCourseAsync(db, c, force ?? false);
+            await db.SaveChangesAsync();
+            return Results.Ok(new { deleted = true, slug = c.Slug, stages, lessons, submissions });
         }));
 
         // The only user-originated write besides the two statuses.

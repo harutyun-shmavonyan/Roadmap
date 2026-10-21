@@ -178,6 +178,17 @@ the MCP tools (`TaskMcpTools.cs`: `list_tasks`, `create_task`, `update_task`,
   is the sub-resource. MCP `update_task` patches: null keeps, `""` clears due date, weekdays or
   project.
 
+## Courses — deleting one
+
+A course is deleted from its page or its card in the Courses tab (after a confirmation that says what
+goes with it), with REST `DELETE /api/courses/{course}?force=true`, or with MCP `delete_course`.
+`CourseStructure.DeleteCourseAsync` soft-deletes, like stages and lessons: it sets `Course.DeletedAt`,
+and every course table's query filter keys on it, so the stages, lessons, exercises, submissions,
+grades, resources and timeline vanish from every read while the rows stay recoverable. Without
+`force` a course with submissions is refused (the tab always sends it, having asked). The slug's
+unique index is filtered to live courses (migration `CourseSlugUniqueAmongLive`), so a course can be
+imported again under a deleted one's slug and starts fresh.
+
 ## Notes v2 — flashcards (FSRS), a system of its own
 
 A separate feature beside the v1 daily notes: its own tables (`flashcards`, `flashcard_prompts`,

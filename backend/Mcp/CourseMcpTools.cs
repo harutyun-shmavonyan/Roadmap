@@ -327,6 +327,23 @@ public sealed class CourseMcpTools(RoadmapDbContext db)
         [Description("Course id")] Guid? id = null,
         [Description("Course slug")] string? slug = null) => await SetCourseStatus("archived", id, slug);
 
+    [McpServerTool(Name = "delete_course"), Description(
+        "Delete a whole course — its stages, lessons, exercises, submissions, grades, resources and timeline all " +
+        "disappear from every read. REFUSES if any exercise has submissions, unless force=true: deleting work " +
+        "actually done should be deliberate (archive_course keeps a finished course readable instead). The slug " +
+        "is freed, so a course can be imported again under it. The rows are kept hidden, not erased, so a " +
+        "mistaken delete can still be recovered from the database.")]
+    public async Task<string> DeleteCourse(
+        [Description("Course id")] Guid? id = null,
+        [Description("Course slug")] string? slug = null,
+        [Description("Delete even if exercises have submissions")] bool force = false) => await Run(async () =>
+    {
+        var course = await CourseRef(id, slug, track: true);
+        var (stages, lessons, submissions) = await CourseStructure.DeleteCourseAsync(db, course, force);
+        await db.SaveChangesAsync();
+        return new { deleted = true, id = course.Id, slug = course.Slug, stages, lessons, submissions };
+    });
+
     // ==================== 6.2 Structure ====================
 
     [McpServerTool(Name = "import_course_outline"), Description(

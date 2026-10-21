@@ -733,8 +733,9 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.Property(c => c.Status).HasConversion<string>().HasMaxLength(16);
             e.Property(c => c.Metadata).HasColumnType("jsonb").IsRequired();
             e.Property(c => c.InstructionsMd).HasColumnType("text");
-            // One user, so the slug is unique outright rather than per owner.
-            e.HasIndex(c => c.Slug).IsUnique();
+            // One user, so the slug is unique outright rather than per owner — among live courses:
+            // a deleted one stays in the table, and must not keep its slug from being used again.
+            e.HasIndex(c => c.Slug).IsUnique().HasFilter("\"DeletedAt\" IS NULL");
             e.HasOne(c => c.Template).WithMany()
                 .HasForeignKey(c => c.TemplateId).OnDelete(DeleteBehavior.Restrict);
             e.HasQueryFilter(c => c.DeletedAt == null);
