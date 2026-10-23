@@ -62,18 +62,20 @@ public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory h
     }
 
     [McpServerTool(Name = "list_experience_categories"), Description(
-        "The categories already in use, most used first, with a count each. Check this before creating: " +
-        "categories are free text, and reusing an existing one ('Travel') is better than inventing a near " +
-        "twin ('Trips'). Writes already fold case, so 'travel' lands on an existing 'Travel'.")]
+        "The categories an experience can have, in their fixed order, with how many experiences use each. " +
+        "The list is closed: Breakfast, Lunch, Dinner, Dessert, Travel, Coworking, Misc — any other value " +
+        "is refused on write (case is folded, so 'dinner' lands on 'Dinner').")]
     public async Task<string> ListExperienceCategories() =>
         J((await ExperienceLogic.CategoriesAsync(db)).Select(c => new { category = c.Category, count = c.Count }));
 
     [McpServerTool(Name = "list_experience_tags"), Description(
-        "The tags already in use across all experiences, most used first, with a count each. Check this " +
-        "before tagging: reuse 'with-family' rather than adding 'family'. Writes fold case, so 'Winter' " +
-        "lands on an existing 'winter' — but they cannot fold two different words into one.")]
-    public async Task<string> ListExperienceTags() =>
-        J((await ExperienceLogic.TagsAsync(db)).Select(t => new { tag = t.Tag, count = t.Count }));
+        "The tags already in use, most used first, with a count each. Pass the category you are tagging " +
+        "in: tags are chosen from what experiences in that category already carry (a Dinner gets " +
+        "'new-dish' and a cuisine), not from the whole list. Writes fold case, so 'Winter' lands on an " +
+        "existing 'winter' — but they cannot fold two different words into one.")]
+    public async Task<string> ListExperienceTags(
+        [Description("Only tags used in this category, e.g. 'Dinner' — pass it whenever you are tagging an experience in one")] string? category = null) =>
+        J((await ExperienceLogic.TagsAsync(db, category)).Select(t => new { tag = t.Tag, count = t.Count }));
 
     // ===== Write =====
 
@@ -82,12 +84,12 @@ public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory h
         "a plan is worth saving the moment it exists, long before it has a place, date or picture. Dates " +
         "are yyyy-MM-dd; an end date needs a start date and cannot precede it. description_md is Markdown. " +
         "The category says what kind of thing it is (one); tags say everything else (up to " +
-        "20 — see list_experience_tags and reuse what is there). " +
+        "20 — take them from list_experience_tags with this category, reusing what its experiences already carry). " +
         "Pictures are added afterwards with add_experience_image or add_experience_image_from_url.")]
     public async Task<string> CreateExperience(
         [Description("What it is, e.g. 'See the northern lights in Tromsø'")] string title,
-        [Description("Category, e.g. 'Travel', 'Food', 'Music' — see list_experience_categories")] string? category = null,
-        [Description("Tags, e.g. ['winter', 'bucket-list'] — see list_experience_tags")] string[]? tags = null,
+        [Description("One of Breakfast, Lunch, Dinner, Dessert, Travel, Coworking, Misc — anything else is refused")] string? category = null,
+        [Description("Tags, e.g. ['new-dish', 'italian'] — from list_experience_tags for this category")] string[]? tags = null,
         [Description(StatusHelp + " (default planned)")] string? status = null,
         [Description("Where, as you would write it, e.g. 'Tromsø, Norway'")] string? location = null,
         [Description("yyyy-MM-dd")] string? start_date = null,
@@ -101,12 +103,14 @@ public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory h
         errors.AddRange(ExperienceLogic.Validate(title, start, end, description_md));
         var (resolvedTags, tagError) = await ExperienceLogic.ResolveTagsAsync(db, tags);
         if (tagError is not null) errors.Add(tagError);
+        var (resolvedCategory, categoryError) = ExperienceLogic.ResolveCategory(category);
+        if (categoryError is not null) errors.Add(categoryError);
         if (errors.Count > 0) return J(new { error = "validation", details = errors });
 
         var x = new Experience
         {
             Id = Guid.NewGuid(), Title = title.Trim(),
-            Category = await ExperienceLogic.ResolveCategoryAsync(db, category),
+            Category = resolvedCategory,
             Tags = resolvedTags,
             Status = st,
             Location = string.IsNullOrWhiteSpace(location) ? null : location.Trim(),
@@ -127,7 +131,7 @@ public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory h
     public async Task<string> UpdateExperience(
         [Description("Experience UUID")] Guid experience_id,
         [Description("New title")] string? title = null,
-        [Description("New category, or '' to clear")] string? category = null,
+        [Description("New category (Breakfast, Lunch, Dinner, Dessert, Travel, Coworking or Misc), or '' to clear")] string? category = null,
         [Description("The full new tag list, or [] to clear; omit to keep")] string[]? tags = null,
         [Description(StatusHelp)] string? status = null,
         [Description("New location, or '' to clear")] string? location = null,
@@ -153,10 +157,16 @@ public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory h
             var (resolved, tagError) = await ExperienceLogic.ResolveTagsAsync(db, tags, x.Id);
             if (tagError is not null) errors.Add(tagError); else newTags = resolved;
         }
+        string? newCategory = null;
+        if (category is not null)
+        {
+            var (resolved, categoryError) = ExperienceLogic.ResolveCategory(category);
+            if (categoryError is not null) errors.Add(categoryError); else newCategory = resolved;
+        }
         if (errors.Count > 0) return J(new { error = "validation", details = errors });
 
         x.Title = newTitle.Trim();
-        if (category is not null) x.Category = await ExperienceLogic.ResolveCategoryAsync(db, category);
+        if (category is not null) x.Category = newCategory;
         if (newTags is not null) x.Tags = newTags;
         x.Status = st;
         if (location is not null) x.Location = string.IsNullOrWhiteSpace(location) ? null : location.Trim();

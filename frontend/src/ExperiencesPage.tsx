@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { marked } from 'marked';
 import type { ExperienceDto, ExperienceImageDto, ExperienceStatus, SaveExperienceRequest } from './types';
 import { api } from './api';
+import { EXPERIENCE_CATEGORIES } from './types';
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -128,7 +129,9 @@ function Tags({ tags, onPick }: { tags: string[]; onPick?: (t: string) => void }
  * "with-family" is one tap and inventing "family" beside it takes effort. The server folds case
  * as well; this is what keeps two *different* words from both getting used.
  */
-function TagInput({ value, onChange, known }: { value: string[]; onChange: (v: string[]) => void; known: string[] }) {
+function TagInput({ value, onChange, known, scope }: {
+  value: string[]; onChange: (v: string[]) => void; known: string[]; scope: string | null;
+}) {
   const [draft, setDraft] = useState('');
   const has = (t: string) => value.some(v => v.toLowerCase() === t.toLowerCase());
   const add = (raw: string) => {
@@ -159,9 +162,12 @@ function TagInput({ value, onChange, known }: { value: string[]; onChange: (v: s
           }}
           onBlur={() => draft.trim() && add(draft)} />
       </div>
-      {suggestions.length > 0 && (
+      {!scope && (
+        <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>Pick a category to see the tags its experiences use.</span>
+      )}
+      {scope && suggestions.length > 0 && (
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginRight: 2 }}>In use:</span>
+          <span style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginRight: 2 }}>In {scope}:</span>
           {suggestions.map(k => (
             <button key={k} type="button" className="xp-tag" onClick={() => add(k)}>+ {k}</button>
           ))}
@@ -347,8 +353,8 @@ function Detail({ x, onClose, onEdit, onChanged, onDeleted, onTag }: {
 
 /* ─── the form ─── */
 
-function Form({ x, categories, knownTags, onCancel, onSaved }: {
-  x: ExperienceDto | null; categories: string[]; knownTags: string[];
+function Form({ x, tagsByCategory, onCancel, onSaved }: {
+  x: ExperienceDto | null; tagsByCategory: Map<string, string[]>;
   onCancel: () => void; onSaved: (saved: ExperienceDto) => void;
 }) {
   const [title, setTitle] = useState(x?.title ?? '');
@@ -396,9 +402,12 @@ function Form({ x, categories, knownTags, onCancel, onSaved }: {
         <div className="xp-row">
           <label className="xp-field">
             <span>Category</span>
-            <input className="inline-input" list="xp-categories" value={category}
-              onChange={e => setCategory(e.target.value)} placeholder="Travel" />
-            <datalist id="xp-categories">{categories.map(c => <option key={c} value={c} />)}</datalist>
+            <select className="inline-input" value={category} onChange={e => setCategory(e.target.value)}>
+              <option value="">—</option>
+              {EXPERIENCE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              {/* A value stored before the list was closed stays visible until it is changed. */}
+              {category && !(EXPERIENCE_CATEGORIES as readonly string[]).includes(category) && <option value={category}>{category}</option>}
+            </select>
           </label>
           <div className="xp-field">
             <span>Status</span>
@@ -415,7 +424,8 @@ function Form({ x, categories, knownTags, onCancel, onSaved }: {
 
         <div className="xp-field">
           <span>Tags <em style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(Enter or comma to add)</em></span>
-          <TagInput value={tags} onChange={setTags} known={knownTags} />
+          <TagInput value={tags} onChange={setTags} scope={category || null}
+            known={(category && tagsByCategory.get(category.toLowerCase())) || []} />
         </div>
 
         <label className="xp-field">
@@ -483,15 +493,34 @@ export function ExperiencesPage() {
   const categories = useMemo(() => {
     const counts = new Map<string, number>();
     (items ?? []).forEach(x => { if (x.category) counts.set(x.category, (counts.get(x.category) ?? 0) + 1); });
-    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([c]) => c);
+    const fixed = EXPERIENCE_CATEGORIES.filter(c => counts.has(c));
+    const other = [...counts.keys()].filter(c => !(EXPERIENCE_CATEGORIES as readonly string[]).includes(c)).sort();
+    return [...fixed, ...other];
   }, [items]);
 
-  // Tags in use, most used first — the filter row and the form's suggestions.
+  // Tags per category (keyed lower-case), most used first. A tag is picked from what the
+  // experiences in the same category carry, so the form and the filter row both scope by it.
+  const tagsByCategory = useMemo(() => {
+    const counts = new Map<string, Map<string, number>>();
+    (items ?? []).forEach(x => {
+      if (!x.category) return;
+      const key = x.category.toLowerCase();
+      const m = counts.get(key) ?? new Map<string, number>();
+      x.tags.forEach(t => m.set(t, (m.get(t) ?? 0) + 1));
+      counts.set(key, m);
+    });
+    const out = new Map<string, string[]>();
+    counts.forEach((m, k) => out.set(k, [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t]) => t)));
+    return out;
+  }, [items]);
+
+  // The tag filter row: the selected category's tags, or every tag when no category is picked.
   const knownTags = useMemo(() => {
+    if (category) return tagsByCategory.get(category.toLowerCase()) ?? [];
     const counts = new Map<string, number>();
     (items ?? []).forEach(x => x.tags.forEach(t => counts.set(t, (counts.get(t) ?? 0) + 1)));
     return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t]) => t);
-  }, [items]);
+  }, [items, category, tagsByCategory]);
 
   const shown = (items ?? []).filter(x =>
     (filter === 'all' || x.status === filter) && (!category || x.category === category)
@@ -542,7 +571,7 @@ export function ExperiencesPage() {
             {categories.length > 0 && <span style={{ width: 1, height: 22, background: 'var(--border-subtle)', margin: '0 4px' }} />}
             {categories.map(c => (
               <button key={c} className={`xp-chip ${category === c ? 'on' : ''}`}
-                aria-pressed={category === c} onClick={() => setCategory(category === c ? null : c)}>
+                aria-pressed={category === c} onClick={() => { setCategory(category === c ? null : c); setTag(null); }}>
                 {c}
               </button>
             ))}
@@ -600,7 +629,7 @@ export function ExperiencesPage() {
       )}
 
       {editing !== null && (
-        <Form x={editing === 'new' ? null : editing} categories={categories} knownTags={knownTags}
+        <Form x={editing === 'new' ? null : editing} tagsByCategory={tagsByCategory}
           onCancel={() => setEditing(null)}
           onSaved={saved => { replace(saved); setEditing(null); setOpen(saved.id); load(); }} />
       )}

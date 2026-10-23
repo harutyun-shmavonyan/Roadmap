@@ -394,6 +394,8 @@ export interface CourseResumeDto {
 // Dates are yyyy-MM-dd; only the title is required, since a plan is worth saving before it has
 // a place, a date or a picture.
 export type ExperienceStatus = 'planned' | 'done';
+/** The only categories an experience can have, in display order — mirrors ExperienceLogic.Categories on the server. */
+export const EXPERIENCE_CATEGORIES = ['Breakfast', 'Lunch', 'Dinner', 'Dessert', 'Travel', 'Coworking', 'Misc'] as const;
 export interface ExperienceImageDto {
   id: string; contentType: string; caption: string | null; fileName: string | null;
   sortOrder: number; createdAt: string;

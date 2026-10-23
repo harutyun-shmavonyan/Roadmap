@@ -63,21 +63,30 @@ public static partial class ExperienceLogic
     private static partial Regex Spaces();
 
     /// <summary>
-    /// The category as it will be stored: trimmed, inner whitespace collapsed, and — if one already
-    /// in use matches case-insensitively — spelled the way that one is. A free-text vocabulary
-    /// drifts ("Travel", "travel", "travel ") the first time two sessions write it; this is what
-    /// stops that without making the vocabulary closed.
+    /// The only categories an experience can have (the user's call, 2026-10-23), in the order the
+    /// tab shows them. A closed list rather than free text: the meal-based food categories plus a
+    /// handful of others had already drifted into near twins ("Bar" beside "Dinner"), and every
+    /// filter chip is only useful if the set stays small. Adding one is a code change here and in
+    /// the tab's <c>EXPERIENCE_CATEGORIES</c> (<c>types.ts</c>) — no migration, the column is text.
     /// </summary>
-    public static async Task<string?> ResolveCategoryAsync(RoadmapDbContext db, string? raw)
+    public static readonly string[] Categories =
+        ["Breakfast", "Lunch", "Dinner", "Dessert", "Travel", "Coworking", "Misc"];
+
+    public static string CategoryHelp => string.Join(", ", Categories);
+
+    /// <summary>
+    /// The category as it will be stored: blank is no category, anything else must match one of
+    /// <see cref="Categories"/> case-insensitively and is stored in that spelling. Anything outside
+    /// the list is an error, not a guess.
+    /// </summary>
+    public static (string? Category, string? Error) ResolveCategory(string? raw)
     {
-        if (string.IsNullOrWhiteSpace(raw)) return null;
+        if (string.IsNullOrWhiteSpace(raw)) return (null, null);
         var clean = Spaces().Replace(raw.Trim(), " ");
-        if (clean.Length > 64) clean = clean[..64].TrimEnd();
-        var lower = clean.ToLowerInvariant();
-        var existing = await db.Experiences.AsNoTracking()
-            .Where(x => x.Category != null && x.Category.ToLower() == lower)
-            .Select(x => x.Category).FirstOrDefaultAsync();
-        return existing ?? clean;
+        var match = Categories.FirstOrDefault(c => string.Equals(c, clean, StringComparison.OrdinalIgnoreCase));
+        return match is null
+            ? (null, $"category must be one of {CategoryHelp} (got '{clean}')")
+            : (match, null);
     }
 
     public const int MaxTags = 20;
@@ -112,22 +121,40 @@ public static partial class ExperienceLogic
         return ([.. cleaned.Select(c => known.TryGetValue(c, out var existing) ? existing : c)], null);
     }
 
-    /// <summary>Tags in use, most used first — what the form suggests and an agent should reuse.</summary>
-    public static async Task<List<(string Tag, int Count)>> TagsAsync(RoadmapDbContext db)
+    /// <summary>
+    /// Tags in use, most used first — what the form suggests and an agent should reuse. With a
+    /// category, only the tags on experiences in that category: a tag is chosen from what its
+    /// neighbours carry ('new-dish' and a cuisine on a Dinner), not from the whole list.
+    /// </summary>
+    public static async Task<List<(string Tag, int Count)>> TagsAsync(RoadmapDbContext db, string? category = null)
     {
-        var arrays = await db.Experiences.AsNoTracking().Select(x => x.Tags).ToListAsync();
+        var q = db.Experiences.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrWhiteSpace(category))
+        {
+            var lower = category.Trim().ToLowerInvariant();
+            q = q.Where(x => x.Category != null && x.Category.ToLower() == lower);
+        }
+        var arrays = await q.Select(x => x.Tags).ToListAsync();
         return [.. arrays.SelectMany(a => a)
             .GroupBy(t => t, StringComparer.OrdinalIgnoreCase)
             .Select(g => (Tag: g.First(), Count: g.Count()))
             .OrderByDescending(g => g.Count).ThenBy(g => g.Tag, StringComparer.OrdinalIgnoreCase)];
     }
 
-    /// <summary>Categories in use, most used first — what a form offers and an agent should reuse.</summary>
+    /// <summary>
+    /// Every allowed category in its fixed order, with how many experiences use it (0 included).
+    /// A stored value outside the list — written before the list was closed — is appended so it
+    /// stays visible until it is moved.
+    /// </summary>
     public static async Task<List<(string Category, int Count)>> CategoriesAsync(RoadmapDbContext db)
     {
         var rows = await db.Experiences.AsNoTracking().Where(x => x.Category != null)
             .GroupBy(x => x.Category!).Select(g => new { g.Key, Count = g.Count() }).ToListAsync();
-        return [.. rows.OrderByDescending(r => r.Count).ThenBy(r => r.Key).Select(r => (r.Key, r.Count))];
+        var counts = rows.ToDictionary(r => r.Key, r => r.Count, StringComparer.OrdinalIgnoreCase);
+        var list = Categories.Select(c => (c, counts.GetValueOrDefault(c))).ToList();
+        list.AddRange(rows.Where(r => !Categories.Contains(r.Key, StringComparer.OrdinalIgnoreCase))
+            .OrderByDescending(r => r.Count).Select(r => (r.Key, r.Count)));
+        return list;
     }
 
     // ── reading out ──

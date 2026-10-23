@@ -347,12 +347,17 @@ Things planned and things done, with photos — one list split by `Status` (`pla
 because an experience moves from one half to the other rather than being copied. Only the title is
 required: a plan is worth saving before it has a place, a date or a picture.
 
-- **Categories are free text, folded on write.** `ExperienceLogic.ResolveCategoryAsync` matches a
-  new category case-insensitively against the ones in use and stores the existing spelling, so
-  "travel" lands on "Travel" instead of beside it. Free text so the vocabulary can grow without a
-  migration; folded so it does not drift. `list_experience_categories` exists for the agent to
-  reuse rather than invent.
-- **Tags are free text too, folded the same way** (`ExperienceLogic.ResolveTagsAsync`): a leading
+- **Categories are a closed list** (the user's call, 2026-10-23): Breakfast, Lunch, Dinner, Dessert,
+  Travel, Coworking, Misc — `ExperienceLogic.Categories`, mirrored by `EXPERIENCE_CATEGORIES` in
+  `types.ts`. `ResolveCategory` folds case onto that spelling and refuses anything else, on REST and
+  MCP alike; the form is a select. Text column, so a new category is a code change in both places,
+  no migration. `list_experience_categories` returns all seven in order with counts.
+- **Tags are picked per category.** The form suggests only the tags already used by experiences in
+  the selected category (none until one is picked), the filter row narrows to the selected category
+  chip's tags, and `list_experience_tags` / `GET /api/experiences/tags` take an optional `category`.
+  The server does not refuse a tag new to its category — a category's first entry has to start
+  somewhere — the scoping is in what is offered.
+- **Tags are free text, folded on write** (`ExperienceLogic.ResolveTagsAsync`): a leading
   `#` is dropped, whitespace collapsed, case-duplicates removed, and each one spelled the way it
   already is elsewhere. Up to 20 of up to 40 characters — too many is refused, never truncated.
   `text[]` with a GIN index and an `'{}'` default (the default is what let the column be added to

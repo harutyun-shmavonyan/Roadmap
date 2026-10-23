@@ -34,8 +34,8 @@ public static class ExperienceEndpoints
             Results.Ok((await ExperienceLogic.CategoriesAsync(db))
                 .Select(c => new { category = c.Category, count = c.Count })));
 
-        xp.MapGet("/tags", async (RoadmapDbContext db) =>
-            Results.Ok((await ExperienceLogic.TagsAsync(db)).Select(t => new { tag = t.Tag, count = t.Count })));
+        xp.MapGet("/tags", async (string? category, RoadmapDbContext db) =>
+            Results.Ok((await ExperienceLogic.TagsAsync(db, category)).Select(t => new { tag = t.Tag, count = t.Count })));
 
         xp.MapGet("/{id:guid}", async (Guid id, RoadmapDbContext db) =>
         {
@@ -159,10 +159,12 @@ public static class ExperienceEndpoints
         errors.AddRange(ExperienceLogic.Validate(req.Title, start, end, req.DescriptionMd));
         var (tags, tagError) = await ExperienceLogic.ResolveTagsAsync(db, req.Tags, x.Id);
         if (tagError is not null) errors.Add(tagError);
+        var (category, categoryError) = ExperienceLogic.ResolveCategory(req.Category);
+        if (categoryError is not null) errors.Add(categoryError);
         if (errors.Count > 0) return Results.BadRequest(new { error = "validation", details = errors });
 
         x.Title = req.Title!.Trim();
-        x.Category = await ExperienceLogic.ResolveCategoryAsync(db, req.Category);
+        x.Category = category;
         x.Status = status;
         x.Location = string.IsNullOrWhiteSpace(req.Location) ? null : req.Location.Trim();
         x.StartDate = start;
