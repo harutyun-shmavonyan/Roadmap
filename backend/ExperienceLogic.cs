@@ -70,7 +70,7 @@ public static partial class ExperienceLogic
     /// the tab's <c>EXPERIENCE_CATEGORIES</c> (<c>types.ts</c>) — no migration, the column is text.
     /// </summary>
     public static readonly string[] Categories =
-        ["Breakfast", "Lunch", "Dinner", "Dessert", "Travel", "Coworking", "Misc"];
+        ["Breakfast", "Lunch", "Dinner", "Dessert", "Date", "Travel", "Coworking", "Misc"];
 
     public static string CategoryHelp => string.Join(", ", Categories);
 

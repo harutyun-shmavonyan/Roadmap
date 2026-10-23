@@ -347,11 +347,11 @@ Things planned and things done, with photos — one list split by `Status` (`pla
 because an experience moves from one half to the other rather than being copied. Only the title is
 required: a plan is worth saving before it has a place, a date or a picture.
 
-- **Categories are a closed list** (the user's call, 2026-10-23): Breakfast, Lunch, Dinner, Dessert,
+- **Categories are a closed list** (the user's call, 2026-10-23): Breakfast, Lunch, Dinner, Dessert, Date,
   Travel, Coworking, Misc — `ExperienceLogic.Categories`, mirrored by `EXPERIENCE_CATEGORIES` in
   `types.ts`. `ResolveCategory` folds case onto that spelling and refuses anything else, on REST and
   MCP alike; the form is a select. Text column, so a new category is a code change in both places,
-  no migration. `list_experience_categories` returns all seven in order with counts.
+  no migration. `list_experience_categories` returns them all in order with counts.
 - **Tags are picked per category.** The form suggests only the tags already used by experiences in
   the selected category (none until one is picked), the filter row narrows to the selected category
   chip's tags, and `list_experience_tags` / `GET /api/experiences/tags` take an optional `category`.

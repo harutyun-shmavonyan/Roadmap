@@ -63,7 +63,7 @@ public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory h
 
     [McpServerTool(Name = "list_experience_categories"), Description(
         "The categories an experience can have, in their fixed order, with how many experiences use each. " +
-        "The list is closed: Breakfast, Lunch, Dinner, Dessert, Travel, Coworking, Misc — any other value " +
+        "The list is closed: Breakfast, Lunch, Dinner, Dessert, Date, Travel, Coworking, Misc — any other value " +
         "is refused on write (case is folded, so 'dinner' lands on 'Dinner').")]
     public async Task<string> ListExperienceCategories() =>
         J((await ExperienceLogic.CategoriesAsync(db)).Select(c => new { category = c.Category, count = c.Count }));
@@ -88,7 +88,7 @@ public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory h
         "Pictures are added afterwards with add_experience_image or add_experience_image_from_url.")]
     public async Task<string> CreateExperience(
         [Description("What it is, e.g. 'See the northern lights in Tromsø'")] string title,
-        [Description("One of Breakfast, Lunch, Dinner, Dessert, Travel, Coworking, Misc — anything else is refused")] string? category = null,
+        [Description("One of Breakfast, Lunch, Dinner, Dessert, Date, Travel, Coworking, Misc — anything else is refused")] string? category = null,
         [Description("Tags, e.g. ['new-dish', 'italian'] — from list_experience_tags for this category")] string[]? tags = null,
         [Description(StatusHelp + " (default planned)")] string? status = null,
         [Description("Where, as you would write it, e.g. 'Tromsø, Norway'")] string? location = null,
@@ -131,7 +131,7 @@ public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory h
     public async Task<string> UpdateExperience(
         [Description("Experience UUID")] Guid experience_id,
         [Description("New title")] string? title = null,
-        [Description("New category (Breakfast, Lunch, Dinner, Dessert, Travel, Coworking or Misc), or '' to clear")] string? category = null,
+        [Description("New category (Breakfast, Lunch, Dinner, Dessert, Date, Travel, Coworking or Misc), or '' to clear")] string? category = null,
         [Description("The full new tag list, or [] to clear; omit to keep")] string[]? tags = null,
         [Description(StatusHelp)] string? status = null,
         [Description("New location, or '' to clear")] string? location = null,
