@@ -35,7 +35,7 @@ follow it, and `get-deployment-diagnosis` explains a failed one.
   branch) still builds and pushes `h317280/roadmap-app` on GitHub's runners, but Railway no longer
   pulls that image — it is a spare artifact, not the deploy path.
 
-## Auth — REST tokens, the MCP secret, and stateless agent sessions (added 2026-10-20)
+## Auth — REST tokens, MCP sign-in (OAuth) and the MCP secret (2026-10-20, OAuth 2026-10-24)
 
 Two doors, two keys, one principal ("owner"):
 
@@ -47,16 +47,38 @@ Two doors, two keys, one principal ("owner"):
   `issue_api_token`, writes `ROADMAP_TOKEN=<token>` to `~/.config/roadmap/credentials.env`, and the
   Finder scripts (`roadmap_client.py`, `attach-cvs.py`, `preflight.py`) use it instead of logging
   in. The password path still works everywhere it did.
-- **`/mcp`** takes `MCP_SECRET` when that variable is set: `Authorization: Bearer <secret>` or
-  `X-Api-Key: <secret>`, compared in constant time, **never from the URL** (the MCP spec forbids
-  tokens in query strings and claude.ai's connector docs say the same). Unset, `/mcp` is open to
-  anyone with the URL — and the URL is in this public repo. Whoever reaches `/mcp` has every
-  write tool *and* `issue_api_token`, so the secret is what makes the token tool safe; set it.
-  The claude.ai custom connector sends it as a **Request header** (`authorization` →
-  `Bearer <secret>`, or `x-api-key`) — a beta field some accounts do not see yet; auth settings
-  cannot be edited after a connector is added, so it is remove-and-re-add. Finder's
-  `import-run.py` sends the same header from `$MCP_SECRET`; the scheduled job-scout environment
-  needs that variable alongside `AUTH_PASSWORD`.
+- **`/mcp`** takes either of two keys, and **answers 401 to everything else** (since 2026-10-24;
+  it used to be open whenever `MCP_SECRET` was unset). Whoever reaches `/mcp` has every write tool
+  *and* `issue_api_token`, and the URL is in this public repo. Neither key is ever read from the URL
+  (the MCP spec forbids tokens in query strings).
+  - **OAuth sign-in** — how claude.ai, ChatGPT and Claude Code connect (the user's call:
+    "log in from Claude or ChatGPT being redirected to Roadmap"). `backend/Auth/OAuthServer.cs` is
+    a small OAuth 2.1 authorization server built to the MCP authorization spec: the 401 carries
+    `WWW-Authenticate: Bearer resource_metadata=…`; `/.well-known/oauth-protected-resource[/mcp]`
+    (RFC 9728) and `/.well-known/oauth-authorization-server` (RFC 8414) describe it; clients
+    register themselves at `/oauth/register` (RFC 7591), so a connector is added with **the URL
+    alone, OAuth client fields left blank**; `/oauth/authorize` is the Roadmap sign-in page (the
+    `AUTH_PASSWORD`, PKCE S256 required, the return host shown); `/oauth/token` swaps the code for
+    a 24-hour access token (a `TokenIssuer` JWT whose audience is the `/mcp` resource — a REST
+    token is refused on `/mcp`) and a 90-day refresh token, rotated on every use with a two-minute
+    grace for a lost response. Codes, refresh tokens and client secrets are stored hashed
+    (`oauth_clients`, `oauth_authorization_codes`, `oauth_refresh_tokens`).
+    - **Redirects go only to** https on claude.ai, claude.com, chatgpt.com, chat.openai.com,
+      platform.openai.com, or loopback on any port (Claude Code, local tools); a registration's
+      other addresses are dropped, and one with none allowed is refused. Registration is open because it grants
+      nothing, and the allowlist is what keeps a code from being sent to a site that tricked you
+      into signing in. Another client's host goes in `OAUTH_REDIRECT_HOSTS` (comma-separated).
+    - Ten wrong passwords in fifteen minutes close the sign-in page for the rest of the window
+      (global, in memory — a restart clears it). No `AUTH_PASSWORD` → the page refuses.
+    - The base URL comes from the request (`X-Forwarded-Proto`, which Railway sets) unless
+      `PUBLIC_URL` is set; the issuer, the resource and every token's audience follow it.
+    - Signing every connector out: delete the rows of `oauth_refresh_tokens` (access tokens die
+      within 24 hours); rotating `JWT_SECRET` kills access tokens at once, REST tokens too.
+  - **`MCP_SECRET`**, a static key for headless callers that cannot stop to sign in:
+    `Authorization: Bearer <secret>` or `X-Api-Key: <secret>`, compared in constant time.
+    Finder's `import-run.py` sends it from `$MCP_SECRET`; the scheduled job-scout environment
+    needs that variable alongside `AUTH_PASSWORD`. Unset = no static key, OAuth only.
+  - `MCP_OPEN=true` opens `/mcp` to anyone — local development only, never on Railway.
 
 ## Jobs tab — application tracking
 

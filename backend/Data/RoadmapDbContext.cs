@@ -43,6 +43,9 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
     public DbSet<NewsletterUploadPart> NewsletterUploadParts => Set<NewsletterUploadPart>();
     public DbSet<SignalRun> SignalRuns => Set<SignalRun>();
     public DbSet<Signal> Signals => Set<Signal>();
+    public DbSet<OAuthClient> OAuthClients => Set<OAuthClient>();
+    public DbSet<OAuthAuthorizationCode> OAuthAuthorizationCodes => Set<OAuthAuthorizationCode>();
+    public DbSet<OAuthRefreshToken> OAuthRefreshTokens => Set<OAuthRefreshToken>();
 
     // --- Courses ---
     public DbSet<LessonTemplate> LessonTemplates => Set<LessonTemplate>();
@@ -507,6 +510,35 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.Property(p => p.Html).HasColumnType("text");
             // A part number sent again replaces the part, so a retried call cannot duplicate it.
             e.HasIndex(p => new { p.UploadId, p.PartNumber }).IsUnique();
+        });
+
+        // OAuth for the MCP door (see OAuthServer): registered clients, the codes between the sign-in
+        // page and the token endpoint, and refresh tokens. Codes and tokens are keyed by their hash.
+        modelBuilder.Entity<OAuthClient>(e =>
+        {
+            e.ToTable("oauth_clients");
+            e.HasKey(c => c.Id);
+            e.Property(c => c.Id).HasMaxLength(64);
+            e.Property(c => c.Name).HasMaxLength(100);
+            e.Property(c => c.TokenEndpointAuthMethod).HasMaxLength(32);
+            e.Property(c => c.SecretHash).HasMaxLength(64);
+        });
+
+        modelBuilder.Entity<OAuthAuthorizationCode>(e =>
+        {
+            e.ToTable("oauth_authorization_codes");
+            e.HasKey(c => c.CodeHash);
+            e.Property(c => c.CodeHash).HasMaxLength(64);
+            e.Property(c => c.ClientId).HasMaxLength(64);
+        });
+
+        modelBuilder.Entity<OAuthRefreshToken>(e =>
+        {
+            e.ToTable("oauth_refresh_tokens");
+            e.HasKey(t => t.TokenHash);
+            e.Property(t => t.TokenHash).HasMaxLength(64);
+            e.Property(t => t.ClientId).HasMaxLength(64);
+            e.HasIndex(t => t.ExpiresAt);
         });
 
         modelBuilder.Entity<SignalRun>(e =>

@@ -23,9 +23,13 @@ builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 64L * 1024 *
 // Auth config from env vars
 var authPassword = Environment.GetEnvironmentVariable("AUTH_PASSWORD") ?? "changeme";
 var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? "roadmap-dev-secret-key-min-32-chars!!";
-// If set, /mcp requires it: "Authorization: Bearer <secret>" or "X-Api-Key: <secret>" — the two
-// header shapes a claude.ai custom connector can send. Unset = /mcp is open to anyone with the URL.
+// /mcp takes either of two keys. MCP_SECRET, a static key for headless callers (scheduled scripts):
+// "Authorization: Bearer <secret>" or "X-Api-Key: <secret>". Or an OAuth access token, which is how
+// claude.ai and ChatGPT connectors sign in (OAuthServer). With neither, /mcp answers 401 — unless
+// MCP_OPEN=true, which leaves it open to anyone with the URL and is meant for local development only.
 var mcpSecret = Environment.GetEnvironmentVariable("MCP_SECRET");
+var mcpOpen = string.Equals(Environment.GetEnvironmentVariable("MCP_OPEN"), "true", StringComparison.OrdinalIgnoreCase);
+var oauth = OAuthServer.Settings.FromEnvironment();
 
 // Support DATABASE_URL env var (Railway Postgres format)
 var connStr = Environment.GetEnvironmentVariable("DATABASE_URL");
@@ -149,19 +153,25 @@ app.MapFoodLogEndpoints();
 app.MapFlashcardEndpoints();
 app.MapSignalEndpoints();
 
-// MCP endpoint — protected by MCP_SECRET if configured. The secret is never read from the URL:
-// query strings end up in logs and proxies, and the MCP spec forbids tokens there.
+// OAuth for the MCP door: discovery, client registration, the sign-in page and the token endpoint.
+app.MapOAuthEndpoints(oauth, issuer);
+
+// MCP endpoint — MCP_SECRET or an OAuth access token issued for this resource. Neither is ever read
+// from the URL: query strings end up in logs and proxies, and the MCP spec forbids tokens there.
 app.MapMcp("/mcp").AddEndpointFilter(async (ctx, next) =>
 {
-    if (!string.IsNullOrEmpty(mcpSecret))
-    {
-        var h = ctx.HttpContext.Request.Headers;
-        var bearer = h.Authorization.ToString();
-        var presented = bearer.StartsWith("Bearer ", StringComparison.Ordinal) ? bearer[7..] : h["X-Api-Key"].ToString();
-        if (!FixedTimeEquals(presented, mcpSecret))
-            return Results.Unauthorized();
-    }
-    return await next(ctx);
+    if (mcpOpen) return await next(ctx);
+    var http = ctx.HttpContext;
+    var h = http.Request.Headers;
+    var bearer = h.Authorization.ToString();
+    var presented = bearer.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? bearer[7..].Trim() : h["X-Api-Key"].ToString();
+    if (!string.IsNullOrEmpty(mcpSecret) && FixedTimeEquals(presented, mcpSecret))
+        return await next(ctx);
+    if (presented.Length > 0 && issuer.IsValidMcpAccess(presented, OAuthServer.Resource(http, oauth)))
+        return await next(ctx);
+    // The challenge names the protected-resource metadata, which is how a connector finds the sign-in.
+    http.Response.Headers.WWWAuthenticate = OAuthServer.Challenge(http, oauth, presented.Length > 0);
+    return Results.Unauthorized();
 });
 
 // SPA fallback — any non-API, non-file request serves index.html
