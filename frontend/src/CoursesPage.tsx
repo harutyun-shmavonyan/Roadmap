@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { marked } from 'marked';
 import type {
   CourseSummaryDto, CourseDetailDto, CourseStageDto, LessonDetailDto, CourseEventDto,
@@ -199,8 +199,26 @@ function Skel({ w, h, style }: { w?: number | string; h: number; style?: React.C
   return <div className="crs-skel" style={{ width: w ?? '100%', height: h, ...style }} />;
 }
 
+/**
+ * `---` straight under a line of text makes that text a heading in Markdown (a setext h2). Lessons
+ * are written by an agent that uses `---` only as a divider, so its "check yourself" questions were
+ * being set as headings — and turned up in the lesson outline as chapters. A blank line before the
+ * dashes makes them the rule they were meant to be. Code fences are left alone.
+ */
+function rulesNotHeadings(src: string): string {
+  let fence = false;
+  return src.split('\n').map((line, i, all) => {
+    if (/^\s{0,3}(```|~~~)/.test(line)) fence = !fence;
+    return !fence && i > 0 && /^\s{0,3}-{3,}\s*$/.test(line) && all[i - 1].trim() !== '' ? '\n' + line : line;
+  }).join('\n');
+}
+
 function Md({ src }: { src: string }) {
-  return <div className="crs-md" dangerouslySetInnerHTML={{ __html: marked.parse(src) as string }} />;
+  // A theory section runs to 70k characters; parse it once, not on every keystroke in the note box.
+  // Tables get a wrapper that scrolls sideways, so a wide one cannot push the page past the screen.
+  const html = useMemo(() => (marked.parse(rulesNotHeadings(src)) as string)
+    .replace(/<table>/g, '<div class="crs-table"><table>').replace(/<\/table>/g, '</table></div>'), [src]);
+  return <div className="crs-md" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 /** Hand the document over as a real file, since that is what it is called. */
@@ -812,6 +830,104 @@ const LESSON_MOVES: Record<LessonStatus, LessonStatus[]> = {
   skipped: ['draft', 'ready'],
 };
 
+/* ─── lesson outline ───
+   The side rail of a lesson: its sections and, inside each, the headings of the written text — a
+   theory section is an essay of a dozen chapters and twice as many subchapters, and it was only
+   navigable by scrolling. Collapsed it is a column of ticks at the right edge, one per entry, the
+   one being read marked; it opens into the titles on hover, on a tap (no hover on a phone) or on
+   keyboard focus, and a title scrolls the page to its heading. Right, not left: the app's own
+   navigation rail is on the left, and two hover panels on one edge would fight.
+
+   The entries are read from the rendered page rather than from re-parsing the markdown, so the
+   outline lists exactly the headings on screen. A section's two shallowest heading levels are its
+   chapters and subchapters; anything deeper stays out of the rail. */
+
+type OutlineItem = { key: string; title: string; level: 0 | 1 | 2; hue?: string; el: HTMLElement };
+
+function readOutline(blocks: { kind: string; title: string; hue: string; el: HTMLElement | null }[]): OutlineItem[] {
+  const out: OutlineItem[] = [];
+  for (const b of blocks) {
+    if (!b.el) continue;
+    out.push({ key: b.kind, title: b.title, level: 0, hue: b.hue, el: b.el });
+    // Only the section's own text: exercise prompts below it render markdown too.
+    const hs = Array.from(b.el.querySelectorAll<HTMLElement>(
+      ':scope > .crs-md > h1, :scope > .crs-md > h2, :scope > .crs-md > h3, :scope > .crs-md > h4'));
+    const depths = [...new Set(hs.map(h => Number(h.tagName[1])))].sort((a, b) => a - b);
+    hs.forEach((h, i) => {
+      const at = depths.indexOf(Number(h.tagName[1]));
+      const title = (h.textContent ?? '').trim();
+      if (at > 1 || !title) return;
+      out.push({ key: `${b.kind}#${i}`, title, level: (at + 1) as 1 | 2, el: h });
+    });
+  }
+  return out;
+}
+
+/** The nearest ancestor that scrolls — the tab's wrapper, not the window. */
+function scrollParent(el: HTMLElement | null): HTMLElement | null {
+  for (let p = el?.parentElement ?? null; p; p = p.parentElement) {
+    const y = getComputedStyle(p).overflowY;
+    if (y === 'auto' || y === 'scroll') return p;
+  }
+  return null;
+}
+
+function LessonOutline({ items, active, onJump }:
+  { items: OutlineItem[]; active: string | null; onJump: (item: OutlineItem, byKeyboard: boolean) => void }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+
+  // A tap outside or Escape lets go — the touch and keyboard ways of un-hovering.
+  useEffect(() => {
+    const down = (e: PointerEvent) => { if (!root.current?.contains(e.target as Node)) setOpen(false); };
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setOpen(false);
+      if (root.current?.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
+    };
+    document.addEventListener('pointerdown', down);
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('pointerdown', down); document.removeEventListener('keydown', key); };
+  }, []);
+
+  // Keep the entry being read in view inside the panel. By hand, not scrollIntoView, which would
+  // scroll the lesson underneath as well.
+  useEffect(() => {
+    const box = list.current;
+    const at = box?.querySelector<HTMLElement>('[aria-current="location"]');
+    if (!box || !at) return;
+    if (at.offsetTop < box.scrollTop || at.offsetTop + at.offsetHeight > box.scrollTop + box.clientHeight)
+      box.scrollTop = at.offsetTop - box.clientHeight / 2 + at.offsetHeight / 2;
+  }, [active]);
+
+  return (
+    <div ref={root} className={`crs-toc ${open ? 'open' : ''}`}>
+      <button type="button" className="crs-toc-strip" aria-label="Lesson contents" aria-expanded={open}
+        aria-controls="crs-toc-panel" onClick={() => setOpen(o => !o)}
+        style={{ height: `min(${items.length * 8 + 16}px, 60vh)` }}>
+        {items.map(it => (
+          <i key={it.key} className={`l${it.level} ${it.key === active ? 'on' : ''}`}
+            style={it.level === 0 ? { background: it.hue } : undefined} />
+        ))}
+      </button>
+      <nav id="crs-toc-panel" className="crs-toc-panel" aria-label="Lesson contents">
+        <div className="crs-toc-label">Contents</div>
+        <div ref={list} className="crs-toc-list">
+          {items.map(it => (
+            <button key={it.key} type="button" className={`crs-toc-item l${it.level}`}
+              aria-current={it.key === active ? 'location' : undefined}
+              onClick={e => { onJump(it, e.detail === 0); setOpen(false); }}>
+              {it.level === 0 && <span className="crs-dot" style={{ background: it.hue }} />}
+              <span className="crs-toc-text">{it.title}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
+    </div>
+  );
+}
+
 function LessonView({ slug, code, onBack }: { slug: string; code: string; onBack: () => void }) {
   const [lesson, setLesson] = useState<LessonDetailDto | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -819,11 +935,55 @@ function LessonView({ slug, code, onBack }: { slug: string; code: string; onBack
   const [note, setNote] = useState('');
   const [said, setSaid] = useState<string | null>(null);
   const refs = useRef<Record<string, HTMLDivElement | null>>({});
+  const page = useRef<HTMLDivElement>(null);
+  const [outline, setOutline] = useState<OutlineItem[]>([]);
+  const [reading, setReading] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api.getCourseLesson(slug, code).then(setLesson).catch(e => setError(String(e)));
   }, [slug, code]);
   useEffect(load, [load]);
+
+  // The outline, read off the page once it is drawn: sections with something in them, then their headings.
+  useLayoutEffect(() => {
+    if (!lesson) { setOutline([]); return; }
+    const kinds = lesson.templateSections.map(t => t.kind);
+    const written = new Set((lesson.sections ?? []).map(x => x.kind));
+    const withExercises = new Set((lesson.exercises ?? []).map(x => x.sectionKind));
+    setOutline(readOutline(lesson.templateSections
+      .filter(t => written.has(t.kind) || withExercises.has(t.kind))
+      .map(t => ({ kind: t.kind, title: t.title ?? words(t.kind), hue: kindHue(kinds, t.kind), el: refs.current[t.kind] }))));
+  }, [lesson]);
+
+  // Which entry is being read: the last one whose heading has passed a line just below the top.
+  useEffect(() => {
+    const box = scrollParent(page.current);
+    if (!box || outline.length === 0) return;
+    let frame = 0;
+    const spy = () => {
+      frame = 0;
+      const top = box.getBoundingClientRect().top;
+      const atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
+      const line = atEnd ? box.getBoundingClientRect().bottom - 1 : top + 110;
+      let current: string | null = null;
+      for (const it of outline) if (it.el.isConnected && it.el.getBoundingClientRect().top <= line) current = it.key;
+      setReading(current);
+    };
+    const onScroll = () => { if (!frame) frame = requestAnimationFrame(spy); };
+    spy();
+    box.addEventListener('scroll', onScroll, { passive: true });
+    return () => { box.removeEventListener('scroll', onScroll); if (frame) cancelAnimationFrame(frame); };
+  }, [outline]);
+
+  const jump = (it: OutlineItem, byKeyboard: boolean) => {
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    it.el.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'start' });
+    // From the keyboard, reading carries on at the heading, so focus goes there too.
+    if (byKeyboard) {
+      if (!it.el.hasAttribute('tabindex')) it.el.setAttribute('tabindex', '-1');
+      it.el.focus({ preventScroll: true });
+    }
+  };
 
   if (error) return <div style={{ padding: 24 }}>
     <button className="btn btn-sm" onClick={onBack}>← Course</button>
@@ -869,10 +1029,12 @@ function LessonView({ slug, code, onBack }: { slug: string; code: string; onBack
   };
 
   return (
-    <div style={{ padding: '24px 24px 72px', display: 'grid', gap: 18, maxWidth: 720, margin: '0 auto' }}>
+    <div ref={page} className={outline.length > 1 ? 'crs-lesson has-toc' : 'crs-lesson'}
+      style={{ padding: '24px var(--crs-lesson-pr, 24px) 72px 24px', display: 'grid', gap: 18, maxWidth: 720, margin: '0 auto' }}>
       <button className="btn btn-sm" onClick={onBack} style={{ justifySelf: 'start' }}>
         ← {lesson.stage.code} {lesson.stage.title}
       </button>
+      {outline.length > 1 && <LessonOutline items={outline} active={reading} onJump={jump} />}
 
       <div className="crs-hero crs-edge" style={{ display: 'grid', gap: 12, ['--edge' as string]: ink(tone) }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>

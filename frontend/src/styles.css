@@ -1133,6 +1133,107 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 }
 
 
+/* ─── Lesson outline ───
+   The contents rail at the right edge of a lesson (LessonOutline). Collapsed, a column of ticks:
+   a section's in its hue, its chapters and subchapters shorter and quieter, the one being read
+   longer and in full ink. Open, a panel of titles that overlays the page rather than pushing it.
+
+   It opens on hover only where hover is real (a phone would keep a tapped :hover stuck), on a tap
+   (.open) and on keyboard focus (:has(:focus-visible) — not :focus-within, which a mouse click
+   leaves behind and would pin the panel open after the pointer had gone). Closing waits a beat,
+   so a pointer drifting off the edge for a moment does not snap it shut.
+
+   Clear of the scrollbar where there is one (20px in on a desktop), and the lesson column keeps
+   room for it wherever its gutter is too narrow to hold it. */
+
+.crs-toc {
+  position: fixed; right: 20px; top: 50%; transform: translateY(-50%); z-index: 40;
+}
+.crs-toc-strip {
+  display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between;
+  width: 26px; padding: 8px 4px; border: 0; border-radius: 8px; background: transparent; cursor: pointer;
+}
+.crs-toc-strip:hover { background: var(--bg-hover); }
+.crs-toc-strip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.crs-toc-strip > i {
+  display: block; flex: 0 0 auto; height: 2px; border-radius: 2px;
+  background: var(--text-muted); opacity: .55; transition: width 120ms ease, opacity 120ms ease;
+}
+.crs-toc-strip > i.l0 { width: 16px; height: 3px; opacity: .9; }
+.crs-toc-strip > i.l1 { width: 11px; }
+.crs-toc-strip > i.l2 { width: 6px; }
+.crs-toc-strip > i.on { width: 18px; opacity: 1; background: var(--text-primary); }
+.crs-toc-strip > i.l0.on { width: 18px; }
+
+.crs-toc-panel {
+  position: absolute; right: 0; top: 50%; width: 300px;
+  display: flex; flex-direction: column; max-height: min(72vh, 640px);
+  padding: 10px 6px 6px; background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: var(--crs-shadow-lift);
+  visibility: hidden; opacity: 0; transform: translate(8px, -50%);
+  transition: opacity 140ms ease 180ms, transform 140ms ease 180ms, visibility 0s linear 320ms;
+}
+.crs-toc.open .crs-toc-panel,
+.crs-toc:has(:focus-visible) .crs-toc-panel {
+  visibility: visible; opacity: 1; transform: translate(0, -50%);
+  transition: opacity 140ms ease, transform 140ms ease, visibility 0s;
+}
+@media (hover: hover) and (pointer: fine) {
+  .crs-toc:hover .crs-toc-panel {
+    visibility: visible; opacity: 1; transform: translate(0, -50%);
+    transition: opacity 140ms ease 60ms, transform 140ms ease 60ms, visibility 0s linear 60ms;
+  }
+}
+.crs-toc-label {
+  padding: 0 10px 6px; font-size: 11px; font-weight: 800; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-secondary);
+}
+.crs-toc-list { overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 1px; }
+.crs-toc-item {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left;
+  padding: 6px 10px; border: 0; border-left: 2px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; line-height: 1.35;
+  cursor: pointer;
+}
+.crs-toc-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+.crs-toc-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.crs-toc-item[aria-current="location"] {
+  background: var(--bg-hover); color: var(--text-primary); border-left-color: var(--accent);
+  border-radius: 0 6px 6px 0;
+}
+.crs-toc-item.l0 {
+  margin-top: 6px; font-size: 11.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--text-primary); align-items: center;
+}
+.crs-toc-item.l0:first-child { margin-top: 0; }
+.crs-toc-item.l1 { padding-left: 26px; }
+.crs-toc-item.l2 { padding-left: 40px; font-size: 12.5px; }
+.crs-toc-text {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* The lesson is a one-column grid, and a grid track grows to its widest item's min-content: one
+   long line in a code block was stretching every section to the 680px measure, so on a phone the
+   text ran off the right edge and was cut. Letting the items shrink keeps the column on screen and
+   leaves the long line to scroll inside its own pre, which already has overflow-x: auto. */
+.crs-lesson > *, .crs-lesson > div > * { min-width: 0; }
+
+/* A jump lands the heading just below the top edge, not flush against it. */
+.crs-lesson > div, .crs-md h1, .crs-md h2, .crs-md h3, .crs-md h4 { scroll-margin-top: 18px; }
+.crs-lesson [tabindex="-1"]:focus { outline: none; }
+
+/* Room for the rail where the gutter beside the 720px column is narrower than it is wide. */
+@media (max-width: 1000px) { .crs-lesson.has-toc { --crs-lesson-pr: 52px; } }
+@media (max-width: 768px) {
+  .crs-toc { right: 4px; }
+  .crs-lesson.has-toc { --crs-lesson-pr: 34px; }
+  .crs-toc-panel { width: min(300px, calc(100vw - 24px)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .crs-toc-panel, .crs-toc.open .crs-toc-panel, .crs-toc:has(:focus-visible) .crs-toc-panel { transition: none; }
+  .crs-toc-strip > i { transition: none; }
+}
+
 /* ─── Reading a lesson ───
    A lesson's theory section is an essay with code in it, and it was being set like UI: 14.5px
    sans, running the full 880px of the page. Two things were wrong, and the measure was the worse
@@ -1201,6 +1302,9 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
   font-family: var(--font-body, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
   border-collapse: collapse; width: 100%; margin: 1.3em 0; font-size: 0.78em; letter-spacing: 0;
 }
+/* Md wraps every table in this, so a table wider than the column scrolls inside it. */
+.crs-md .crs-table { overflow-x: auto; margin: 1.3em 0; }
+.crs-md .crs-table > table { margin: 0; }
 .crs-md th, .crs-md td { border: 1px solid var(--border); padding: 7px 11px; text-align: left; }
 .crs-md th { background: var(--bg-secondary); font-weight: 650; }
 .crs-md img { max-width: 100%; height: auto; border-radius: var(--radius-sm); }

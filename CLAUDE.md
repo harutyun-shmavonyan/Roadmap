@@ -20,10 +20,13 @@ follow it, and `get-deployment-diagnosis` explains a failed one.
   the same source builds the head of the branch immediately; it took ~3 minutes on 2026-10-19).
   `redeploy` is not it — that re-runs an old build. In an auto-mode session the permission
   classifier may refuse the Railway *reads* (`list-deployments`, `get-logs`) as "Production Deploy"
-  while allowing the connect; the live `tools/list` below is the proof that works regardless.
-- **Verify, do not assume.** `https://roadmap-app.up.railway.app/mcp` needs no secret, so
-  `tools/list` over JSON-RPC is the cheapest proof of what is actually running — look for a tool the
-  change added. On 2026-09-26 an image push looked done while production was still a day-old build.
+  while allowing the connect; the live checks below are the proof that works regardless.
+- **Verify, do not assume.** Look at production for something the change added. Since 2026-10-24
+  `/mcp` needs a key (see Auth), so `tools/list` over JSON-RPC works only with `MCP_SECRET` or the
+  signed-in Roadmap connector; without either, the public surface is the proof — the hashed bundle
+  that `index.html` names (grep it for a string the change added) or an anonymous endpoint such as
+  `/.well-known/oauth-protected-resource`. On 2026-09-26 an image push looked done while production
+  was still a day-old build.
 - Every push to `master` rebuilds, docs included (`*.md` is outside the image via `.dockerignore`, so
   a docs-only push is a wasted but harmless build). Keep docs changes in the same push as code when
   you can.
@@ -210,6 +213,24 @@ grades, resources and timeline vanish from every read while the rows stay recove
 `force` a course with submissions is refused (the tab always sends it, having asked). The slug's
 unique index is filtered to live courses (migration `CourseSlugUniqueAmongLive`), so a course can be
 imported again under a deleted one's slug and starts fresh.
+
+## Courses — reading a lesson: the outline and the Markdown rules
+
+A lesson page carries a **contents rail at its right edge** (`LessonOutline` in `CoursesPage.tsx`, the
+user's ask, 2026-10-27): collapsed, one tick per entry with the one being read marked; open on hover
+(only where hover is real), on a tap, or on keyboard focus; a title scrolls the page to its heading.
+Entries are the lesson's written sections and, inside each, the **two shallowest heading levels of its
+text** (chapters and subchapters; deeper ones stay out), read from the rendered DOM — so authoring a
+lesson with `##` chapters and `###` subchapters is what makes it navigable. Exercise prompts are not
+listed. Right side because the app's navigation rail owns the left.
+
+`Md` renders lesson Markdown with two rules of its own, both found while building the rail:
+- **`---` under a line of text is a divider, never a heading.** In Markdown it would make the line
+  above a setext h2; the authoring agent uses `---` only as a divider, and its "check yourself"
+  questions were being set as headings (and listed as chapters). Code fences are left alone.
+- **Tables are wrapped in `.crs-table`**, which scrolls sideways, and the lesson grid's items have
+  `min-width: 0`: one long code line or wide table had stretched every section to the 680px measure,
+  cutting the text off on a phone.
 
 ## Notes v2 — flashcards (FSRS), a system of its own
 
