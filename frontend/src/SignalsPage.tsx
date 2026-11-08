@@ -3,6 +3,7 @@ import { marked } from 'marked';
 import type { SignalRunDto, SignalRunSummaryDto, SignalDto, SignalEvidence, SignalMarket, SignalWatchItem } from './types';
 import { SIGNAL_STATUSES } from './types';
 import { api } from './api';
+import { ThematicCard, ThemesGlossary } from './ThematicCard';
 
 // "2026-09-30" -> "30.09.2026"
 function fmtDate(iso: string): string {
@@ -461,6 +462,11 @@ function SignalsBoard({ board, onUnread }: { board: Board; onUnread: React.Dispa
   }, []);
 
   const runs = useMemo(() => allRuns.filter(r => onBoard(board, r)), [allRuns, board]);
+  const [glossary, setGlossary] = useState(false);
+  const openGlossary = useCallback(() => {
+    setGlossary(true);
+    setTimeout(() => document.getElementById('themes-glossary')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  }, []);
   const strip = useMemo(() => runs.slice(0, 14), [runs]);
   const unread = runs.filter(r => !r.isRead).length;
   useEffect(() => {
@@ -524,6 +530,7 @@ function SignalsBoard({ board, onUnread }: { board: Board; onUnread: React.Dispa
           </div>
         </div>
 
+        {board === 'themes' && <ThemesGlossary open={glossary} onToggle={() => setGlossary(g => !g)} />}
         {board === 'themes' && <ThemesDecisions runs={runs} onOpen={selectDay} />}
 
         {run.signals.length === 0 && <QuietPanel run={run} />}
@@ -537,7 +544,9 @@ function SignalsBoard({ board, onUnread }: { board: Board; onUnread: React.Dispa
         )}
 
         {run.signals.length > 0 && <div style={{ marginTop: 14 }}>
-          {run.signals.map(s => <SignalCard key={s.id} s={s} runDate={run.runDate} onSaved={patchSignal} />)}
+          {run.signals.map(s => s.screen === 'T'
+            ? <ThematicCard key={s.id} s={s} onSaved={patchSignal} onHelp={openGlossary} />
+            : <SignalCard key={s.id} s={s} runDate={run.runDate} onSaved={patchSignal} />)}
         </div>}
 
         {isThematicRun(run)

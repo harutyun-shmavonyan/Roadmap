@@ -459,3 +459,18 @@ the choice is remembered in `localStorage['signals.board']`. The Themes subtab a
 the last notes lines, where fills get added) across the last eight thematic runs that had signals. No backend
 change: runs keep one table and one `/api/signals` list. Evidence values longer than 24 characters (thematic
 quotes) get their own full-width row, and a URL in `note` renders as a short `domain ↗` link — both for phones.
+
+**The thematic card (`ThematicCard.tsx`, 2026-11-08).** T-signals no longer use the generic `SignalCard`: the
+card leads with the ticker, a ring chip, and the **lateness verdict as a coloured chip** (Early green · Building
+amber · Late red, the routine's 0–100 score), the theme with its maturity, the plan in one line ("Buy between … ·
+3% of portfolio · hold up to 3 quarters"), and the four lateness inputs as plain sentences with zone dots ("Lagged
+its sector fund (SMH) by 27% over 6 months — stock −45%, fund −18%"). Below, collapsible blocks: Why (thesis +
+causal chain), How late is it (bars per component with the formula's tick), Evidence (quotes with actor, claim and
+source link), What would prove it wrong (kill conditions with threshold/source/cadence chips), Same theme, Before
+you decide (the five questions as a checklist). **The decision panel writes what the routine parses**: Enter (limit
+inside the range — above `range_high` is refused — with a shares calculator from a portfolio value remembered per
+device) → `acted` + `limit X`; Record a fill → `fill P x N date`; Watch → `reviewed`; Discard / Hold → `dismissed`
++ a required reason; exits record `sold P x N date`. The structured numbers come from `context.lateness` (Screener
+adds it from 2026-11-08); older runs fall back to parsing the headline and evidence. A "📖 How to read a card"
+glossary sits above the Themes cards and opens from each card's "?". The "T · Thematic" badge is not shown on these
+cards (the subtab already says it).
