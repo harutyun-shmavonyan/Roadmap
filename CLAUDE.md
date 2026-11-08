@@ -488,4 +488,7 @@ low < 60, parts[]} — Screener's transparent score of how well founded the thes
 exposure 20, company check 10, data quality 10), explicitly *not* a probability of profit and never used for sizing.
 The card shows it as a chip next to the lateness verdict and as a "How confident?" breakdown. Entry cards open with
 an "Entry prices" block from `proposal_detail`: last close and its date, the suggested limit and the highest price
-allowed, each with its distance from the last close, the size and the time stop.
+allowed, each with its distance from the last close, the size and the time stop. The causal chain is drawn as a timeline when the run sends
+`context.chain_steps` ([{step, detail, lag, facts:[{actor, date, magnitude, url, tier}]}], Screener prompts v3): one
+numbered step per link with its source chips and the lag to the next step; a step with no facts is marked as the one
+the card is betting on, and "What would break it" closes the chain in red. Older runs show the one-line chain.

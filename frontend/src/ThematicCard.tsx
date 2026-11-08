@@ -247,6 +247,49 @@ function CompanyDocs({ f }: { f: Record<string, any> }) {
   );
 }
 
+type Step = { step: string; detail: string; lag?: string | null; facts?: { actor: string; date?: string; magnitude?: string; url?: string; tier?: string }[] };
+
+// The causal chain as a timeline: each link, the facts behind it, and the lag to the next one.
+function ChainSteps({ steps, summary }: { steps: Step[]; summary?: string }) {
+  return (
+    <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--bg-secondary)' }}>
+      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Causal chain</div>
+      {summary && <div style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '3px 0 8px', lineHeight: 1.45 }}>{summary}</div>}
+      <ol style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        {steps.map((st, i) => {
+          const last = i === steps.length - 1;
+          const isBreak = /break/i.test(st.step);
+          const dot = isBreak ? 'var(--danger)' : st.facts && st.facts.length ? 'var(--accent)' : 'var(--warning)';
+          return (
+            <li key={i} style={{ display: 'grid', gridTemplateColumns: '22px 1fr', columnGap: 8 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <span style={{ width: 20, height: 20, borderRadius: 999, background: dot, color: '#fff', fontSize: 11, fontWeight: 700,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{isBreak ? '!' : i + 1}</span>
+                {!last && <span style={{ flex: 1, width: 2, background: 'var(--border)', minHeight: 12 }} />}
+              </div>
+              <div style={{ paddingBottom: last ? 0 : 10 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: isBreak ? 'var(--danger)' : 'var(--text-primary)' }}>{st.step}</div>
+                <div style={{ fontSize: 13.5, lineHeight: 1.5, color: 'var(--text-secondary)', marginTop: 2 }}>{st.detail}</div>
+                {st.facts && st.facts.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 5 }}>
+                  {st.facts.map((f, j) => <a key={j} href={f.url} target="_blank" rel="noreferrer" title={f.magnitude ?? ''}
+                    style={{ fontSize: 11.5, padding: '2px 7px', borderRadius: 999, textDecoration: 'none', border: '1px solid var(--border)',
+                      background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
+                    {f.tier === 'A' ? '● ' : '○ '}{f.actor}{f.date ? ` · ${fmtDate(f.date)}` : ''} ↗</a>)}
+                </div>}
+                {(!st.facts || st.facts.length === 0) && !isBreak && <div style={{ fontSize: 11.5, color: 'var(--warning)', marginTop: 4 }}>
+                  the step this card is betting on — not yet in the data</div>}
+                {st.lag && !last && <div style={{ display: 'inline-block', marginTop: 6, fontSize: 11.5, padding: '1px 8px', borderRadius: 999,
+                  background: tint('var(--accent)', 12), color: 'var(--text-secondary)' }}>⏱ next step: {st.lag}</div>}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6 }}>● primary source · ○ news · amber = the step the card bets on · ! = what would break it</div>
+    </div>
+  );
+}
+
 const QUESTIONS = [
   'Can I state the causal chain in one sentence without looking?',
   'Which actor said the key thing, and would that actor actually know?',
@@ -436,8 +479,10 @@ export function ThematicCard({ s, onSaved, onHelp }: { s: SignalDto; onSaved: (n
 
       <Block title="Why" open>
         <div className="md-body" style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text-primary)' }} dangerouslySetInnerHTML={{ __html: md(th.body) }} />
-        {th.chain && <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-secondary)', fontSize: 13.5, lineHeight: 1.55 }}>
-          <b>Causal chain</b><br />{th.chain.split(' → ').map((step, i, a) => <span key={i}>{step}{i < a.length - 1 && <b style={{ color: 'var(--accent)' }}> → </b>}</span>)}</div>}
+        {Array.isArray(ctx.chain_steps) && ctx.chain_steps.length > 0
+          ? <ChainSteps steps={ctx.chain_steps} summary={th.chain} />
+          : th.chain && <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-secondary)', fontSize: 13.5, lineHeight: 1.55 }}>
+            <b>Causal chain</b><br />{th.chain.split(' → ').map((step, i, a) => <span key={i}>{step}{i < a.length - 1 && <b style={{ color: 'var(--accent)' }}> → </b>}</span>)}</div>}
       </Block>
 
       <Block title="How late is it?" hint={isNum(l.routine) ? `${Math.round(l.routine)} by the routine, ${isNum(l.baseline) ? Math.round(l.baseline) : '–'} by the formula${ctx.disagreement ? ' — they disagree' : ''}` : undefined}>
