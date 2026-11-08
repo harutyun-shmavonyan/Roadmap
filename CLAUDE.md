@@ -451,3 +451,11 @@ the routine parses back the next Saturday: `limit 93.00`, `fill 92.80 x 120 2026
 the triage box for `T`. The tab recognises a thematic run by that summary prefix or a `T` signal (`isThematicRun`):
 quiet thematic weeks get their own panel and an accent dot instead of "Not a trading day". `next_step` and
 `context` are now shown for every screen ("Before you decide", "Context").
+
+**Two subtabs (2026-11-08): Daily screens | Themes.** The Signals page splits runs by kind on the client
+(`onBoard`: a `Themes ·` summary = Themes); each subtab has its own day strip, latest run and unread count, and
+the choice is remembered in `localStorage['signals.board']`. The Themes subtab adds "Waiting for your decision"
+(T-signals still `new` inside their 4-week window, with the expiry date) and "Entered" (acted entry cards with
+the last notes lines, where fills get added) across the last eight thematic runs that had signals. No backend
+change: runs keep one table and one `/api/signals` list. Evidence values longer than 24 characters (thematic
+quotes) get their own full-width row, and a URL in `note` renders as a short `domain ↗` link — both for phones.

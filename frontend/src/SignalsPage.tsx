@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import { marked } from 'marked';
 import type { SignalRunDto, SignalRunSummaryDto, SignalDto, SignalEvidence, SignalMarket, SignalWatchItem } from './types';
 import { SIGNAL_STATUSES } from './types';
@@ -83,17 +83,31 @@ function EvidenceTable({ rows }: { rows: SignalEvidence[] }) {
         </tr>
       </thead>
       <tbody>
-        {rows.map((e, i) => (
-          <tr key={i} style={{ borderTop: '1px solid var(--border-subtle)' }}>
-            <td style={{ padding: '5px 6px' }}>{e.label}{e.note && <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{e.note}</div>}</td>
-            <td style={{ padding: '5px 6px', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{e.value}</td>
-            <td style={{ padding: '5px 6px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{e.threshold ?? ''}</td>
-            <td style={{ padding: '5px 6px', textAlign: 'center' }}>
-              {e.passes === true ? <span style={{ color: 'var(--success)' }}>✓</span>
-                : e.passes === false ? <span style={{ color: 'var(--danger)' }}>✗</span> : ''}
-            </td>
-          </tr>
-        ))}
+        {rows.map((e, i) => {
+          // a long value is a quote (thematic evidence): it gets its own full-width row so it reads as a sentence
+          const long = String(e.value ?? '').length > 24;
+          const pass = <td style={{ padding: '5px 6px', textAlign: 'center' }}>
+            {e.passes === true ? <span style={{ color: 'var(--success)' }}>✓</span>
+              : e.passes === false ? <span style={{ color: 'var(--danger)' }}>✗</span> : ''}
+          </td>;
+          const metric = <td style={{ padding: '5px 6px', overflowWrap: 'break-word' }}>{e.label}{e.note && <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+            {/^https?:\/\//.test(e.note)
+              ? <a href={e.note} target="_blank" rel="noreferrer" style={{ color: 'var(--text-muted)' }}>{new URL(e.note).hostname.replace(/^www\./, '')} ↗</a>
+              : e.note}</div>}</td>;
+          const rule = <td style={{ padding: '5px 6px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{e.threshold ?? ''}</td>;
+          return long ? (
+            <Fragment key={i}>
+              <tr style={{ borderTop: '1px solid var(--border-subtle)' }}>{metric}<td />{rule}{pass}</tr>
+              <tr><td colSpan={4} style={{ padding: '0 6px 7px', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>“{e.value}”</td></tr>
+            </Fragment>
+          ) : (
+            <tr key={i} style={{ borderTop: '1px solid var(--border-subtle)' }}>
+              {metric}
+              <td style={{ padding: '5px 6px', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{e.value}</td>
+              {rule}{pass}
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -310,10 +324,87 @@ function WatchList({ items, title = 'Within reach of a trigger' }: { items: Sign
   );
 }
 
-/* ─── the page ─── */
+/* ─── the page: two subtabs, the daily screens and the weekly thematic run ─── */
+
+type Board = 'daily' | 'themes';
+const BOARD_KEY = 'signals.board';
+const BOARDS: { id: Board; label: string }[] = [{ id: 'daily', label: 'Daily screens' }, { id: 'themes', label: 'Themes' }];
+const onBoard = (board: Board, r: SignalRunSummaryDto): boolean => (board === 'themes') === isThematicSummary(r.summary);
 
 export function SignalsPage() {
-  const [runs, setRuns] = useState<SignalRunSummaryDto[]>([]);
+  const [board, setBoardState] = useState<Board>(() => {
+    try { return localStorage.getItem(BOARD_KEY) === 'themes' ? 'themes' : 'daily'; } catch { return 'daily'; }
+  });
+  const [unread, setUnread] = useState<Record<Board, number>>({ daily: 0, themes: 0 });
+  const setBoard = (b: Board) => {
+    setBoardState(b);
+    try { localStorage.setItem(BOARD_KEY, b); } catch { /* a remembered tab is a convenience */ }
+  };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ display: 'flex', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+        {BOARDS.map(b => {
+          const active = board === b.id;
+          const c = b.id === 'themes' ? SCREEN_COLOR.T : 'var(--success)';
+          return (
+            <button key={b.id} onClick={() => setBoard(b.id)}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 14px', borderRadius: 'var(--radius-md)',
+                cursor: 'pointer', fontSize: 14, fontWeight: 600, border: `1px solid ${active ? c : 'var(--border)'}`,
+                background: active ? c : 'var(--bg-secondary)', color: active ? '#fff' : 'var(--text-secondary)' }}>
+              {b.label}
+              {unread[b.id] > 0 && <span style={{ fontSize: 11, fontWeight: 700, padding: '0 6px', borderRadius: 999,
+                background: active ? 'rgba(255,255,255,0.25)' : 'var(--accent-light)', color: active ? '#fff' : 'var(--action-text)' }}>
+                {unread[b.id]}</span>}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <SignalsBoard key={board} board={board} onUnread={setUnread} />
+      </div>
+    </div>
+  );
+}
+
+/* Across the recent thematic weeks: what still waits for a decision, and what was acted on (orders, positions). */
+function ThemesDecisions({ runs, onOpen }: { runs: SignalRunSummaryDto[]; onOpen: (date: string) => void }) {
+  const [rows, setRows] = useState<{ date: string; s: SignalDto }[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const recent = runs.filter(r => r.signalCount > 0).slice(0, 8);
+    Promise.all(recent.map(r => api.getSignalRun(r.runDate).catch(() => null))).then(list => {
+      if (cancelled) return;
+      setRows(list.flatMap(run => run ? run.signals.filter(s => s.screen === 'T').map(s => ({ date: run.runDate, s })) : []));
+    });
+    return () => { cancelled = true; };
+  }, [runs]);
+  if (!rows || rows.length === 0) return null;
+  const today = Date.now();
+  const pending = rows.filter(r => r.s.status === 'new' && today - Date.parse(`${r.date}T12:00:00Z`) < 28 * 86400e3);
+  const acted = rows.filter(r => r.s.status === 'acted' && /_entry$/.test(r.s.eventId));
+  if (!pending.length && !acted.length) return null;
+  const line = (r: { date: string; s: SignalDto }, extra: string) => (
+    <div key={r.s.id} style={{ display: 'flex', gap: 8, alignItems: 'baseline', padding: '3px 0' }}>
+      <button className="btn btn-ghost btn-sm" onClick={() => onOpen(r.date)} style={{ padding: '0 6px' }}>{fmtDate(r.date)}</button>
+      <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r.s.title}</span>
+      <span style={{ color: 'var(--text-muted)', fontSize: 12.5 }}>{extra}</span>
+    </div>
+  );
+  return (
+    <div style={{ marginBottom: 14, padding: '12px 14px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)',
+      background: 'var(--bg-elevated)', fontSize: 13.5 }}>
+      {pending.length > 0 && <Section title={`Waiting for your decision · ${pending.length}`}>
+        {pending.map(r => line(r, `expires ${fmtDate(new Date(Date.parse(`${r.date}T12:00:00Z`) + 28 * 86400e3).toISOString().slice(0, 10))}`))}
+      </Section>}
+      {acted.length > 0 && <Section title={`Entered — add fills to the notes as they happen · ${acted.length}`}>
+        {acted.map(r => line(r, (r.s.notes ?? '').split('\n').filter(Boolean).slice(-2).join(' · ') || 'no limit or fill noted yet'))}
+      </Section>}
+    </div>
+  );
+}
+
+function SignalsBoard({ board, onUnread }: { board: Board; onUnread: React.Dispatch<React.SetStateAction<Record<Board, number>>> }) {
+  const [allRuns, setRuns] = useState<SignalRunSummaryDto[]>([]);
   const [run, setRun] = useState<SignalRunDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -333,9 +424,12 @@ export function SignalsPage() {
     let cancelled = false;
     (async () => {
       try {
-        const [list, latest] = await Promise.all([api.getSignalRuns(120), api.getLatestSignalRun().catch(() => null)]);
+        const list = await api.getSignalRuns(board === 'themes' ? 400 : 120);
         if (cancelled) return;
         setRuns(list);
+        const first = list.find(r => onBoard(board, r));
+        const latest = first ? await api.getSignalRun(first.runDate).catch(() => null) : null;
+        if (cancelled) return;
         setRun(latest);
         if (latest) void markRead(latest);
       } catch {
@@ -345,7 +439,7 @@ export function SignalsPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [markRead]);
+  }, [markRead, board]);
 
   const selectDay = useCallback(async (date: string) => {
     if (date === run?.runDate) return;
@@ -366,11 +460,25 @@ export function SignalsPage() {
     setRun(r => r && ({ ...r, signals: r.signals.map(s => s.id === next.id ? next : s) }));
   }, []);
 
+  const runs = useMemo(() => allRuns.filter(r => onBoard(board, r)), [allRuns, board]);
   const strip = useMemo(() => runs.slice(0, 14), [runs]);
   const unread = runs.filter(r => !r.isRead).length;
+  useEffect(() => {
+    if (!allRuns.length) return;
+    onUnread({ daily: allRuns.filter(r => onBoard('daily', r) && !r.isRead).length,
+               themes: allRuns.filter(r => onBoard('themes', r) && !r.isRead).length });
+  }, [allRuns, onUnread]);
 
   if (loading && !run) return <div style={{ padding: 24, color: 'var(--text-muted)' }}>Loading...</div>;
   if (error) return <div style={{ padding: 24, color: 'var(--danger)' }}>{error}</div>;
+
+  if (!run && board === 'themes') return (
+    <div style={{ padding: 32, maxWidth: 560, color: 'var(--text-muted)', fontSize: 14, lineHeight: 1.7 }}>
+      <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>🧭 No thematic runs yet</div>
+      The weekly thematic routine publishes here every Saturday: thesis cards with their evidence, lateness and kill
+      conditions, and the five questions to answer before deciding. Quiet weeks are published too.
+    </div>
+  );
 
   if (!run) return (
     <div style={{ padding: 32, maxWidth: 560, color: 'var(--text-muted)', fontSize: 14, lineHeight: 1.7 }}>
@@ -415,6 +523,8 @@ export function SignalsPage() {
             run {run.status.toLowerCase()}{run.gitSha ? ` · ${run.gitSha.slice(0, 7)}` : ''} · published {new Date(run.publishedAt).toLocaleString()}
           </div>
         </div>
+
+        {board === 'themes' && <ThemesDecisions runs={runs} onOpen={selectDay} />}
 
         {run.signals.length === 0 && <QuietPanel run={run} />}
 
