@@ -474,3 +474,11 @@ device) → `acted` + `limit X`; Record a fill → `fill P x N date`; Watch → 
 adds it from 2026-11-08); older runs fall back to parsing the headline and evidence. A "📖 How to read a card"
 glossary sits above the Themes cards and opens from each card's "?". The "T · Thematic" badge is not shown on these
 cards (the subtab already says it).
+
+**Company documents and detailed evidence (2026-11-08).** When Screener has read the candidate's own filings
+(`context.filings`: exposure from the 10-K segment table, balance-sheet line, a management quote, a risk note,
+links to the annual/quarterly report and results release), the card shows a "Company documents" block. Evidence
+rows carry extra keys beyond `SignalEvidence` (`date`, `direction`, `magnitude`, `entity`, `confidence`,
+`actor_type`, `horizon`, `kind` = fact | lateness) — stored as-is in the JSON blob — and the card shows each fact
+with its date, ▲/▼, the number, what it is about, primary vs secondary source and a confidence bar; the first five,
+then "Show all". Unknown attention is drawn grey ("scored neutral 50").

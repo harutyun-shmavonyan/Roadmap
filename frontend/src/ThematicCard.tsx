@@ -136,17 +136,18 @@ function LatenessBars({ l }: { l: Lateness }) {
     <div style={{ display: 'grid', gap: 8 }}>
       {Object.entries(names).map(([k, label]) => {
         const c = l.components[k]; if (!c) return null;
+        const unknown = k === 'attention' && !isNum(l.attention);
         return (
           <div key={k}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
               <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{label}</span>
-              <span style={{ color: 'var(--text-muted)' }}>{Math.round(c.value)}{isNum(c.baseline) && c.baseline !== c.value ? ` · formula ${Math.round(c.baseline)}` : ''}</span>
+              <span style={{ color: 'var(--text-muted)' }}>{unknown ? 'unknown — scored neutral 50' : `${Math.round(c.value)}${isNum(c.baseline) && c.baseline !== c.value ? ` · formula ${Math.round(c.baseline)}` : ''}`}</span>
             </div>
             <div style={{ position: 'relative', height: 8, borderRadius: 4, marginTop: 3,
               background: 'linear-gradient(90deg, var(--success) 0 35%, var(--warning) 35% 65%, var(--danger) 65% 100%)', opacity: 0.25 }} />
             <div style={{ position: 'relative', height: 0 }}>
               <div style={{ position: 'absolute', top: -8, left: 0, width: `${Math.max(2, Math.min(100, c.value))}%`, height: 8, borderRadius: 4,
-                background: zone(c.value) }} />
+                background: unknown ? 'var(--border)' : zone(c.value) }} />
               {isNum(c.baseline) && c.baseline !== c.value && <div title="formula (baseline)" style={{ position: 'absolute', top: -11,
                 left: `calc(${Math.min(100, c.baseline)}% - 1px)`, width: 2, height: 14, background: 'var(--text-primary)' }} />}
             </div>
@@ -158,25 +159,63 @@ function LatenessBars({ l }: { l: Lateness }) {
   );
 }
 
-function Facts({ rows }: { rows: SignalEvidence[] }) {
+type Fact = SignalEvidence & { date?: string; direction?: string; entity?: string; magnitude?: string; confidence?: number;
+  actor_type?: string; horizon?: string };
+
+function Facts({ rows }: { rows: Fact[] }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? rows : rows.slice(0, 5);
+  const arrow = (d?: string) => d === 'up' ? { t: '▲', c: 'var(--success)' } : d === 'down' ? { t: '▼', c: 'var(--danger)' } : { t: '●', c: 'var(--text-muted)' };
   return (
-    <div style={{ display: 'grid', gap: 10 }}>
-      {rows.map((e, i) => {
+    <div style={{ display: 'grid', gap: 12 }}>
+      {shown.map((e, i) => {
         const [actor, claim] = String(e.label).split(' — ');
         const host = e.note && /^https?:\/\//.test(e.note) ? new URL(e.note).hostname.replace(/^www\./, '') : null;
+        const primary = e.threshold === 'Tier A';
+        const a = arrow(e.direction);
         return (
-          <div key={i} style={{ borderLeft: '3px solid var(--accent)', paddingLeft: 10 }}>
+          <div key={i} style={{ borderLeft: `3px solid ${primary ? 'var(--accent)' : 'var(--border)'}`, paddingLeft: 10 }}>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span title={e.direction ?? ''} style={{ color: a.c, fontSize: 12 }}>{a.t}</span>
               <b style={{ fontSize: 13.5, color: 'var(--text-primary)' }}>{actor}</b>
               {claim && <Chip text={claim} color="var(--accent)" />}
-              {e.threshold && <Chip text={e.threshold === 'Tier A' ? 'primary source' : e.threshold} color="var(--success)"
-                title="Tier A: the company, regulator or industry body itself said it" />}
+              <Chip text={primary ? 'primary source' : 'news / secondary'} color={primary ? 'var(--success)' : 'var(--text-muted)'}
+                title={primary ? 'Tier A: the company, regulator or industry body itself said it' : 'Tier B: a journalist or aggregator'} />
+              {e.date && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fmtDate(e.date)}</span>}
             </div>
-            <div style={{ fontSize: 13.5, lineHeight: 1.5, color: 'var(--text-secondary)', marginTop: 3 }}>“{e.value}”</div>
-            {host && <a href={e.note!} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--text-muted)' }}>{host} ↗</a>}
+            {(e.magnitude || e.entity) && <div style={{ marginTop: 3, fontSize: 13.5, color: 'var(--text-primary)' }}>
+              {e.magnitude && <b>{e.magnitude}</b>}{e.magnitude && e.entity ? ' · ' : ''}{e.entity && <span style={{ color: 'var(--text-secondary)' }}>{e.entity}</span>}
+              {e.horizon && <span style={{ color: 'var(--text-muted)' }}> · {e.horizon}</span>}</div>}
+            <div style={{ fontSize: 13.5, lineHeight: 1.5, color: 'var(--text-secondary)', marginTop: 3, fontStyle: 'italic' }}>“{e.value}”</div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 3, flexWrap: 'wrap' }}>
+              {host && <a href={e.note!} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--text-muted)' }}>{host} ↗</a>}
+              {isNum(e.confidence) && <span title="How sure the extraction is that this is a fact, not speculation" style={{ fontSize: 12, color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                fact confidence
+                <span style={{ width: 40, height: 5, borderRadius: 3, background: 'var(--border)', display: 'inline-block', position: 'relative' }}>
+                  <span style={{ position: 'absolute', inset: 0, width: `${e.confidence * 100}%`, borderRadius: 3, background: e.confidence >= 0.7 ? 'var(--success)' : 'var(--warning)' }} /></span>
+                {Math.round(e.confidence * 100)}%</span>}
+            </div>
           </div>
         );
       })}
+      {rows.length > 5 && <button className="btn btn-ghost btn-sm" onClick={() => setAll(v => !v)} style={{ justifySelf: 'start' }}>
+        {all ? 'Show fewer' : `Show all ${rows.length}`}</button>}
+    </div>
+  );
+}
+
+function CompanyDocs({ f }: { f: Record<string, any> }) {
+  if (!f.available) return <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{f.why}</div>;
+  const label: Record<string, string> = { annual: 'Annual report', quarterly: 'Quarterly report', results_release: 'Results release' };
+  return (
+    <div style={{ display: 'grid', gap: 8, fontSize: 13.5, color: 'var(--text-primary)', lineHeight: 1.5 }}>
+      {f.exposure_note && <div><b>Exposure:</b> {f.exposure_note}</div>}
+      {f.balance_sheet && <div><b>Balance sheet:</b> {f.balance_sheet}</div>}
+      {f.outlook_quote && <div style={{ fontStyle: 'italic', color: 'var(--text-secondary)' }}>“{f.outlook_quote}”</div>}
+      {f.risk_note && <div style={{ padding: '6px 8px', borderRadius: 'var(--radius-sm)', background: tint('var(--warning)', 12) }}><b>Risk:</b> {f.risk_note}</div>}
+      {Array.isArray(f.documents) && <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        {f.documents.map((d: any, i: number) => d.url && <a key={i} href={d.url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5 }}>
+          {label[d.kind] ?? d.kind} · {d.form} {fmtDate(d.date)} ↗</a>)}</div>}
     </div>
   );
 }
@@ -364,8 +403,12 @@ export function ThematicCard({ s, onSaved, onHelp }: { s: SignalDto; onSaved: (n
         {l.reasoning && <div style={{ marginTop: 8, fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-muted)' }}>{l.reasoning}</div>}
       </Block>
 
-      {facts.length > 0 && <Block title={`Evidence · ${facts.length}`} hint="what the companies and regulators actually said">
-        <Facts rows={facts} />
+      {ctx.filings && <Block title="Company documents" hint="what the company's own filings say" open>
+        <CompanyDocs f={ctx.filings} />
+      </Block>}
+
+      {facts.length > 0 && <Block title={`Evidence · ${facts.length}`} hint="the facts behind the theme — newest primary sources first">
+        <Facts rows={facts as Fact[]} />
       </Block>}
 
       {kills.length > 0 && <Block title={`What would prove it wrong · ${kills.length}`} hint="checked every Saturday; one met → EXIT card">
@@ -384,6 +427,7 @@ export function ThematicCard({ s, onSaved, onHelp }: { s: SignalDto; onSaved: (n
             <b style={{ color: 'var(--text-primary)' }}>{c.ticker}</b>
             <Chip text={c.tradable === false ? 'not buyable' : c.verdict === 'verified' ? 'verified' : String(c.verdict)} color={c.tradable === false ? 'var(--text-muted)' : c.verdict === 'verified' ? 'var(--success)' : 'var(--warning)'} />
             {isNum(c.exposure) && <span style={{ color: 'var(--text-muted)' }}>{Math.round(c.exposure * 100)}% exposed</span>}
+            {c.exposure_source && <span style={{ color: 'var(--text-muted)' }}>({c.exposure_source})</span>}
             <span style={{ color: 'var(--text-secondary)' }}>{c.reason}</span></div>)}
         </div>
       </Block>}
