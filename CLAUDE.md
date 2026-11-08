@@ -482,3 +482,10 @@ rows carry extra keys beyond `SignalEvidence` (`date`, `direction`, `magnitude`,
 `actor_type`, `horizon`, `kind` = fact | lateness) — stored as-is in the JSON blob — and the card shows each fact
 with its date, ▲/▼, the number, what it is about, primary vs secondary source and a confidence bar; the first five,
 then "Show all". Unknown attention is drawn grey ("scored neutral 50").
+
+**Confidence and entry prices (2026-11-08).** `context.confidence` = {score 0–100, band high ≥ 80 · medium 60–79 ·
+low < 60, parts[]} — Screener's transparent score of how well founded the thesis is (evidence 35, earliness 25,
+exposure 20, company check 10, data quality 10), explicitly *not* a probability of profit and never used for sizing.
+The card shows it as a chip next to the lateness verdict and as a "How confident?" breakdown. Entry cards open with
+an "Entry prices" block from `proposal_detail`: last close and its date, the suggested limit and the highest price
+allowed, each with its distance from the last close, the size and the time stop.

@@ -112,7 +112,34 @@ function parseKills(text: string | null) {
   });
 }
 
+const CONF: Record<string, string> = { high: 'var(--success)', medium: 'var(--warning)', low: 'var(--danger)' };
+
 /* ─── small pieces ─── */
+
+function EntryPrices({ pd, stop }: { pd: Record<string, any>; stop?: string }) {
+  const ref = isNum(pd.reference_close) ? pd.reference_close : undefined;
+  const cur = pd.currency === 'EUR' ? '€' : '$';
+  const pct = (x: number) => (ref ? `${x >= ref ? '+' : '−'}${Math.abs((x / ref - 1) * 100).toFixed(1)}% vs last close` : '');
+  const row = (label: string, value: number | undefined, note: string, strong = false) => value === undefined ? null : (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '4px 0', borderTop: '1px solid var(--border-subtle)' }}>
+      <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
+      <span style={{ textAlign: 'right' }}><b style={{ fontSize: strong ? 16 : 14, color: 'var(--text-primary)' }}>{cur}{value.toFixed(2)}</b>
+        <span style={{ display: 'block', fontSize: 11.5, color: 'var(--text-muted)' }}>{note}</span></span>
+    </div>
+  );
+  return (
+    <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 'var(--radius-md)', background: tint('var(--accent)', 8),
+      border: `1px solid ${tint('var(--accent)', 25)}`, fontSize: 13.5 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 4 }}>Entry prices</div>
+      {row('Last close', ref, pd.reference_date ? `on ${fmtDate(pd.reference_date)}` : '')}
+      {row('Suggested limit', pd.suggested_limit ?? pd.range_low, `${pct(pd.suggested_limit ?? pd.range_low)} · GTC limit order`, true)}
+      {row('Highest price allowed', pd.range_high, `${pct(pd.range_high)} · never above this`)}
+      <div style={{ paddingTop: 6, borderTop: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}>
+        Size <b>{pd.size_pct}%</b> of portfolio · hold up to {pd.horizon_quarters ?? 3} quarters{stop ? ` (time stop ${fmtDate(stop)})` : ''}
+      </div>
+    </div>
+  );
+}
 
 function Chip({ text, color, solid, title }: { text: string; color: string; solid?: boolean; title?: string }) {
   return <span title={title} style={{ fontSize: 11.5, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap',
@@ -358,6 +385,7 @@ export function ThematicCard({ s, onSaved, onHelp }: { s: SignalDto; onSaved: (n
   const v = l.verdict ? VERDICT[l.verdict] : null;
   const stop = s.horizon?.match(/(\d{4}-\d{2}-\d{2})/)?.[1];
   const [checked, setChecked] = useState<boolean[]>([false, false, false, false, false]);
+  const conf = ctx.confidence as { score: number; band: string; parts: { name: string; points: number; max: number; note: string }[] } | undefined;
 
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--bg-elevated)', padding: '14px 16px',
@@ -369,6 +397,8 @@ export function ThematicCard({ s, onSaved, onHelp }: { s: SignalDto; onSaved: (n
         {ring && <Chip text={ring === '2' ? 'Ring 2 · supplier' : 'Ring 1 · core business'} color="var(--text-secondary)"
           title={ring === '2' ? 'Second-order beneficiary: the market usually reacts later' : 'The theme is the company\'s main business'} />}
         {v && <Chip text={`${v.label}${isNum(l.routine) ? ` · ${Math.round(l.routine)}` : ''}`} color={v.color} solid title={`Lateness: ${v.hint}`} />}
+        {conf && <Chip text={`Confidence ${conf.band} · ${conf.score}`} color={CONF[conf.band] ?? 'var(--text-muted)'}
+          title="The routine's confidence that the thesis is well founded — not a probability of profit" />}
         <button onClick={onHelp} title="How to read a card" style={{ marginLeft: 'auto', border: '1px solid var(--border)', borderRadius: 999,
           width: 24, height: 24, cursor: 'pointer', background: 'var(--bg-secondary)', color: 'var(--text-muted)', fontWeight: 700 }}>?</button>
       </div>
@@ -378,10 +408,7 @@ export function ThematicCard({ s, onSaved, onHelp }: { s: SignalDto; onSaved: (n
       </div>}
 
       {/* the plan, in one line */}
-      {kind === 'entry' && isNum(pd.range_low) && <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 'var(--radius-sm)',
-        background: tint('var(--accent)', 10), fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.5 }}>
-        Buy between <b>{pd.range_low}</b> and <b>{pd.range_high}</b> (suggest {pd.range_low}) · <b>{pd.size_pct}%</b> of portfolio · hold up to {pd.horizon_quarters ?? 3} quarters{stop ? ` (until ${fmtDate(stop)})` : ''}
-      </div>}
+      {kind === 'entry' && isNum(pd.range_low) && <EntryPrices pd={pd} stop={stop} />}
       {kind !== 'entry' && s.proposal && <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 'var(--radius-sm)',
         background: tint(KIND[kind].color, 10), fontSize: 14, color: 'var(--text-primary)' }}>{s.proposal}</div>}
 
@@ -391,6 +418,21 @@ export function ThematicCard({ s, onSaved, onHelp }: { s: SignalDto; onSaved: (n
           <span style={{ width: 8, height: 8, borderRadius: 999, flexShrink: 0, background: isNum(x.value) ? zone(x.value) : 'var(--border)', display: 'inline-block' }} />
           {x.text}</li>)}
       </ul>
+
+      {conf && <Block title="How confident?" hint={`${conf.score}/100 · ${conf.band} — confidence in the thesis, not a probability of profit`}>
+        <div style={{ display: 'grid', gap: 7 }}>
+          {conf.parts.map(p => <div key={p.name}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
+              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{p.name}</span>
+              <span style={{ color: 'var(--text-muted)' }}>{p.points} / {p.max}</span></div>
+            <div style={{ height: 6, borderRadius: 3, background: 'var(--border)', marginTop: 3, position: 'relative' }}>
+              <div style={{ position: 'absolute', inset: 0, width: `${(p.points / p.max) * 100}%`, borderRadius: 3,
+                background: p.points / p.max >= 0.7 ? 'var(--success)' : p.points / p.max >= 0.4 ? 'var(--warning)' : 'var(--danger)' }} /></div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{p.note}</div>
+          </div>)}
+          <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>High ≥ 80 · Medium 60–79 · Low &lt; 60. It does not change the size — sizes follow the risk rules.</div>
+        </div>
+      </Block>}
 
       <Block title="Why" open>
         <div className="md-body" style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text-primary)' }} dangerouslySetInnerHTML={{ __html: md(th.body) }} />
