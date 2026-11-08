@@ -21,7 +21,7 @@ public static class SignalLogic
         { "new", "reviewed", "acted", "dismissed" };
     private static readonly HashSet<string> RunStatuses = new(StringComparer.OrdinalIgnoreCase)
         { "OK", "DEGRADED", "FAILED" };
-    private static readonly HashSet<string> Screens = new(StringComparer.OrdinalIgnoreCase) { "A", "B", "C" };
+    private static readonly HashSet<string> Screens = new(StringComparer.OrdinalIgnoreCase) { "A", "B", "C", "T" };
 
     private static readonly JsonSerializerOptions Compact = new() { WriteIndented = false };
 
@@ -45,7 +45,7 @@ public static class SignalLogic
         {
             if (string.IsNullOrWhiteSpace(s.event_id)) return "Every signal needs an event_id.";
             if (!seen.Add(s.event_id.Trim())) return $"event_id '{s.event_id}' appears twice.";
-            if (string.IsNullOrWhiteSpace(s.screen) || !Screens.Contains(s.screen.Trim())) return $"Signal '{s.event_id}': screen must be A, B or C.";
+            if (string.IsNullOrWhiteSpace(s.screen) || !Screens.Contains(s.screen.Trim())) return $"Signal '{s.event_id}': screen must be A, B, C or T.";
             if (string.IsNullOrWhiteSpace(s.key)) return $"Signal '{s.event_id}': key is required (the group, the benchmark, or 'list').";
             if (s.evidence is { ValueKind: not (JsonValueKind.Array or JsonValueKind.Null or JsonValueKind.Undefined) })
                 return $"Signal '{s.event_id}': evidence must be a JSON array.";

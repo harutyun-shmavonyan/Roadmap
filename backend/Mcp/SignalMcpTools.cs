@@ -29,12 +29,16 @@ public sealed class SignalMcpTools(RoadmapDbContext db)
         "`evidence` (JSON array of {label, value, threshold, passes, note}: every metric the rule checked), " +
         "`horizon` (how long it plays out and what ends it) with `horizon_days`, `proposal` (basket, tranches, stops, " +
         "in words — sizes are proposals for a human, nothing executes) with `proposal_detail` (the numbers), " +
-        "`candidates` (JSON array of rows), `context`, `invalidation` (what would prove it wrong), `regime` (Screen C).\n\n" +
+        "`candidates` (JSON array of rows), `context`, `invalidation` (what would prove it wrong), `regime` (Screen C), " +
+        "`next_step` (what the reader does next, markdown — shown as 'Before you decide').\n\n" +
+        "The weekly thematic pipeline (screen T) publishes the same way on Saturdays: run_date = the Saturday, " +
+        "is_trading_day = false, a summary starting 'Themes ·', `context` as a JSON object, and the operator's " +
+        "decision read back through `get_signal_run` (status + notes such as 'fill 92.80 x 120 2026-11-18').\n\n" +
         "Returns { run, action: 'created' | 'replaced', carried, pruned }. `carried` is how many signals kept a " +
         "status, notes or triage from the previous publish — if it is 0 on a day the reader had acted, say so.")]
     public async Task<string> PublishSignalRun(
-        [Description("The trading day the run evaluated (YYYY-MM-DD).")] string run_date,
-        [Description("The signals that fired, in the order to show them. Omit or pass [] for a quiet day. Each needs event_id, screen (A|B|C) and key.")]
+        [Description("The trading day the run evaluated (YYYY-MM-DD); for the thematic pipeline, the Saturday of its week.")] string run_date,
+        [Description("The signals that fired, in the order to show them. Omit or pass [] for a quiet day. Each needs event_id, screen (A|B|C, or T for the weekly thematic pipeline) and key.")]
         SignalInput[]? signals = null,
         [Description("OK | DEGRADED (a market was skipped) | FAILED. Defaults to OK.")] string? status = null,
         [Description("False on a holiday or when no market had prices. Defaults to true.")] bool? is_trading_day = null,

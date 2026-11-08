@@ -18,15 +18,22 @@ const pct = (x: unknown, d = 1): string => isNum(x) ? `${x > 0 ? '+' : x < 0 ? '
 const num = (x: unknown, d = 1): string => isNum(x) ? x.toFixed(d) : '–';
 const md = (src: string): string => marked.parse(src) as string;
 
-const SCREEN_NAME: Record<string, string> = { A: 'Sector panic', B: 'Index panic', C: 'Cyclical upturn' };
-const SCREEN_COLOR: Record<string, string> = { A: 'var(--danger)', B: 'var(--warning)', C: 'var(--success)' };
+const SCREEN_NAME: Record<string, string> = { A: 'Sector panic', B: 'Index panic', C: 'Cyclical upturn', T: 'Thematic' };
+const SCREEN_COLOR: Record<string, string> = { A: 'var(--danger)', B: 'var(--warning)', C: 'var(--success)', T: 'var(--accent)' };
 const STATUS_LABEL: Record<string, string> = { new: 'New', reviewed: 'Reviewed', acted: 'Acted on', dismissed: 'Dismissed' };
 
 /* ─── small pieces ─── */
 
-// The dot in the day strip: red = something fired, amber = a degraded or failed run, green = quiet.
+// The weekly thematic pipeline (Screener, screen T) publishes on Saturdays with is_trading_day=false and a summary
+// that starts "Themes ·". It is a run of its own kind, not a market holiday.
+const isThematicSummary = (summary: string | null | undefined): boolean => (summary ?? '').startsWith('Themes');
+const isThematicRun = (r: SignalRunDto): boolean => isThematicSummary(r.summary) || r.signals.some(s => s.screen === 'T');
+
+// The dot in the day strip: red = something fired, amber = a degraded or failed run, green = quiet,
+// accent = a quiet weekly thematic run.
 function dotColor(r: SignalRunSummaryDto): string {
   if (r.signalCount > 0) return 'var(--danger)';
+  if (isThematicSummary(r.summary)) return r.status === 'OK' ? 'var(--accent)' : 'var(--warning)';
   if (r.status !== 'OK' || !r.isTradingDay) return 'var(--warning)';
   return 'var(--success)';
 }
@@ -53,8 +60,8 @@ function MarketLine({ markets }: { markets: Record<string, SignalMarket> | null 
       {Object.entries(markets).map(([mk, m]) => (
         <div key={mk}>
           <b style={{ color: 'var(--text-primary)' }}>{mk}</b>{' '}
-          {m.benchmark} {num(m.close, 2)} ({pct(m.ret_1d)} today · {pct(m.dd_252d)} from 52w high)
-          {' · '}{m.vol_name ?? 'VIX'} {num(m.vol)}
+          {m.benchmark} {num(m.close, 2)} ({pct(m.ret_1d)} today{isNum(m.dd_252d) && <> · {pct(m.dd_252d)} from 52w high</>})
+          {isNum(m.vol) && <>{' · '}{m.vol_name ?? 'VIX'} {num(m.vol)}</>}
           {isNum(m.breadth) && <> · breadth {pct(m.breadth, 0).replace('+', '')} above 200d</>}
           {isNum(m.hy_oas) && <> · HY spread {num(m.hy_oas, 2)} ({isNum(m.hy_oas_20d_change) ? `${m.hy_oas_20d_change > 0 ? '+' : ''}${m.hy_oas_20d_change.toFixed(2)}` : '–'} 20d)</>}
         </div>
@@ -114,6 +121,15 @@ const COLS: Record<string, Col[]> = {
     { key: 'rev_breadth_30d', label: 'breadth', fmt: v => pct(v, 0).replace('+', '') },
     { key: 'mom_12_1', label: 'mom 12-1', fmt: v => pct(v, 0) },
     { key: 'pct_of_high', label: '% of 52w high', fmt: v => pct(v, 0).replace('+', '') },
+  ],
+  // Thematic pipeline: the card's ticker first, then the theme's other candidates and the untradable ones
+  T: [
+    { key: 'ticker', label: 'Ticker', fmt: v => String(v ?? '') },
+    { key: 'ring', label: 'Ring', fmt: v => String(v ?? '–') },
+    { key: 'verdict', label: 'Verdict', fmt: v => String(v ?? '–') },
+    { key: 'exposure', label: 'Exposure', fmt: v => pct(v, 0).replace('+', '') },
+    { key: 'tradable', label: 'Tradable', fmt: v => v === true ? '✓' : v === false ? '✗' : '–' },
+    { key: 'reason', label: 'Why', fmt: v => String(v ?? '') },
   ],
 };
 
@@ -184,7 +200,7 @@ function SignalCard({ s, runDate, onSaved }: { s: SignalDto; runDate: string; on
       {s.thesis && <Section title="Why this makes sense"><Prose src={s.thesis} /></Section>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
-        {s.horizon && <Section title={`Horizon${s.horizonDays ? ` · up to ${s.horizonDays} trading days` : ''}`}>
+        {s.horizon && <Section title={`Horizon${s.horizonDays ? ` · up to ${s.horizonDays} ${s.screen === 'T' ? 'days' : 'trading days'}` : ''}`}>
           <div style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--text-primary)' }}>{s.horizon}</div>
         </Section>}
         {s.proposal && <Section title="Proposal">
@@ -193,14 +209,24 @@ function SignalCard({ s, runDate, onSaved }: { s: SignalDto; runDate: string; on
       </div>
 
       {s.invalidation && <Section title="What would prove it wrong">
-        <div style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--text-primary)' }}>{s.invalidation}</div>
+        <div style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--text-primary)', whiteSpace: 'pre-line' }}>{s.invalidation}</div>
       </Section>}
+
+      {s.context && Object.keys(s.context).length > 0 && <Section title="Context">
+        <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--text-primary)' }}>
+          {Object.entries(s.context).map(([k, v]) => (
+            <div key={k}><span style={{ color: 'var(--text-muted)' }}>{k.replace(/_/g, ' ')}:</span> {typeof v === 'object' ? JSON.stringify(v) : String(v)}</div>
+          ))}
+        </div>
+      </Section>}
+
+      {s.nextStep && <Section title="Before you decide"><Prose src={s.nextStep} /></Section>}
 
       {s.candidates.length > 0 && <Section title={`Candidates · ${s.candidates.length}`}>
         <CandidatesTable rows={s.candidates} screen={s.screen} />
       </Section>}
 
-      <Section title="Triage">
+      {s.screen !== 'T' && <Section title="Triage">
         {s.triageSummary ? (
           <>
             <Prose src={s.triageSummary} />
@@ -214,7 +240,7 @@ function SignalCard({ s, runDate, onSaved }: { s: SignalDto; runDate: string; on
             its verdict — contagion or impairment, the cleanest bystanders, what to leave alone — appears here.
           </div>
         )}
-      </Section>
+      </Section>}
 
       <Section title="Your decision">
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -223,7 +249,9 @@ function SignalCard({ s, runDate, onSaved }: { s: SignalDto; runDate: string; on
               onClick={() => save({ status: st })}>{STATUS_LABEL[st]}</button>
           ))}
         </div>
-        <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Notes — what you did, what you are waiting for"
+        <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder={s.screen === 'T'
+            ? 'One line each: limit 93.00 · fill 92.80 x 120 2026-11-18 · sold 88.10 x 60 2026-11-20 · or a one-line reason'
+            : 'Notes — what you did, what you are waiting for'}
           style={{ width: '100%', marginTop: 8, fontSize: 13, padding: 8, borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)',
             background: 'var(--bg-primary)', color: 'var(--text-primary)', resize: 'vertical', boxSizing: 'border-box' }} />
         {notesDirty && <button className="btn btn-sm btn-accent" disabled={busy} style={{ marginTop: 6 }}
@@ -237,6 +265,16 @@ function SignalCard({ s, runDate, onSaved }: { s: SignalDto; runDate: string; on
 
 function QuietPanel({ run }: { run: SignalRunDto }) {
   const degraded = run.status !== 'OK';
+  if (isThematicRun(run)) return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--bg-elevated)', padding: '22px 20px',
+      borderLeft: `4px solid ${degraded ? 'var(--warning)' : 'var(--accent)'}` }}>
+      <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)' }}>No thematic card to decide</div>
+      <div style={{ fontSize: 13.5, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.55 }}>
+        The weekly thematic run found nothing that needs a decision this week. Open cards, theme maturity and the
+        candidates it could not use are in the briefing below{degraded ? `; the run was ${run.status.toLowerCase()} — see Health` : ''}.
+      </div>
+    </div>
+  );
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', background: 'var(--bg-elevated)', padding: '22px 20px',
       borderLeft: `4px solid ${run.isTradingDay && !degraded ? 'var(--success)' : 'var(--warning)'}` }}>
@@ -254,15 +292,15 @@ function QuietPanel({ run }: { run: SignalRunDto }) {
   );
 }
 
-function WatchList({ items }: { items: SignalWatchItem[] }) {
+function WatchList({ items, title = 'Within reach of a trigger' }: { items: SignalWatchItem[]; title?: string }) {
   if (!items.length) return null;
   return (
-    <Section title="Within reach of a trigger">
+    <Section title={title}>
       <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
         {items.map((w, i) => (
           <div key={i}>
             [{w.market ?? 'US'}] <b style={{ color: 'var(--text-primary)' }}>{w.group}</b>
-            {' · '}z {num(w.z)} · dd {pct(w.dd_20d, 0)}{isNum(w.rev) && <> · rev {pct(w.rev)}</>}{isNum(w.cutting) && <> · cutting {pct(w.cutting, 0).replace('+', '')}</>}
+            {isNum(w.z) && <>{' · '}z {num(w.z)}</>}{isNum(w.dd_20d) && <> · dd {pct(w.dd_20d, 0)}</>}{isNum(w.rev) && <> · rev {pct(w.rev)}</>}{isNum(w.cutting) && <> · cutting {pct(w.cutting, 0).replace('+', '')}</>}
             {w.why_not ? <span style={{ color: 'var(--text-muted)' }}> — not a signal because {w.why_not}</span>
               : w.note && <span style={{ color: 'var(--text-muted)' }}> · {w.note}</span>}
           </div>
@@ -339,6 +377,7 @@ export function SignalsPage() {
       <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>📈 No runs yet</div>
       The market screener publishes every run here after the US close — the quiet days too, so a day with nothing to
       do says so. Signals arrive with the rule's evidence and reasoning; the triage skill adds its reading afterwards.
+      The weekly thematic run (screen T) publishes on Saturdays.
     </div>
   );
 
@@ -350,7 +389,7 @@ export function SignalsPage() {
         <select className="sprint-select" value={run.runDate} onChange={e => selectDay(e.target.value)} style={{ fontSize: 14, fontWeight: 600 }}>
           {runs.map(r => (
             <option key={r.id} value={r.runDate}>
-              {fmtDate(r.runDate)} — {r.signalCount > 0 ? `${r.signalCount} signal${r.signalCount === 1 ? '' : 's'}` : r.isTradingDay ? 'quiet' : 'closed'}{r.isRead ? '' : ' •'}
+              {fmtDate(r.runDate)} — {r.signalCount > 0 ? `${r.signalCount} signal${r.signalCount === 1 ? '' : 's'}` : isThematicSummary(r.summary) ? 'themes, quiet' : r.isTradingDay ? 'quiet' : 'closed'}{r.isRead ? '' : ' •'}
             </option>
           ))}
         </select>
@@ -391,7 +430,9 @@ export function SignalsPage() {
           {run.signals.map(s => <SignalCard key={s.id} s={s} runDate={run.runDate} onSaved={patchSignal} />)}
         </div>}
 
-        {!run.briefing && <WatchList items={run.watch ?? []} />}
+        {isThematicRun(run)
+          ? <WatchList items={run.watch ?? []} title="Themes on watch" />
+          : !run.briefing && <WatchList items={run.watch ?? []} />}
 
         <Section title="The numbers"><MarketLine markets={run.markets} /></Section>
 

@@ -440,3 +440,14 @@ are the audit trail of what was proposed and why. `SignalLogic` owns every rule 
 (`/api/signals`) and the MCP tools cannot drift. The JSON blobs (markets, watch, evidence, candidates,
 proposal detail, triage) are stored as text and parsed on the way out; their keys are the screener's
 snake_case, mirrored by the tab's types. Opening a day in the tab ticks it read.
+
+**Screen T — the weekly thematic pipeline (2026-11-08).** Screener's `src/screener/themes/` publishes one run
+per **Saturday** (`is_trading_day=false`, summary starting `Themes ·`) through the same `publish_signal_run`; the
+daily screens publish trading days only, so the dates never collide (if they did, the thematic routine merges).
+Its signals are thesis cards (`ENTRY` / `WATCH` / `EXIT` / `TRIM` / `RE-UNDERWRITE`), `context` is a JSON object
+(theme, maturity, routine vs baseline lateness), and `next_step` carries five questions plus the notes convention
+the routine parses back the next Saturday: `limit 93.00`, `fill 92.80 x 120 2026-11-18`, `sold 88.10 x 60
+2026-11-20` — one per line. Thematic signals are never triaged (`set_signal_triage` is not used), so the tab hides
+the triage box for `T`. The tab recognises a thematic run by that summary prefix or a `T` signal (`isThematicRun`):
+quiet thematic weeks get their own panel and an accent dot instead of "Not a trading day". `next_step` and
+`context` are now shown for every screen ("Before you decide", "Context").
