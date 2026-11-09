@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Roadmap.Api.Data;
 using Roadmap.Api.Dtos;
 using Roadmap.Api.Entities;
+using Roadmap.Api.Storage;
 
 namespace Roadmap.Api.Endpoints;
 
@@ -106,12 +107,11 @@ public static class RoadmapEndpoints
         // Self-contained HTML document for an article (images inlined as data URIs). The reader
         // renders this in a sandboxed iframe and the "open in new tab" button opens it as a blob —
         // both stay behind the app's auth (this route is in the authorized group).
-        articles.MapGet("/{id:guid}/html", async (Guid id, RoadmapDbContext db) =>
+        articles.MapGet("/{id:guid}/html", async (Guid id, RoadmapDbContext db, IBlobStore store) =>
         {
             var a = await db.Articles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
             if (a is null) return Results.NotFound();
-            var images = await db.ArticleImages.AsNoTracking().Where(i => i.ArticleId == id).ToListAsync();
-            return Results.Content(ArticleLogic.BuildStandaloneHtml(a, images), "text/html; charset=utf-8");
+            return Results.Content(await ArticleLogic.BuildStandaloneHtmlAsync(db, store, a), "text/html; charset=utf-8");
         });
 
         articles.MapPost("/", async (CreateArticleRequest req, RoadmapDbContext db) =>
@@ -227,7 +227,7 @@ public static class RoadmapEndpoints
         // Upload one or more images to an article via multipart/form-data. Every file field is
         // stored keyed by its sanitized filename; re-uploading the same name replaces it. Mirrors
         // the CV upload so large binaries stream from disk instead of riding a JSON payload.
-        articles.MapPost("/{id:guid}/images", async (Guid id, HttpRequest request, RoadmapDbContext db) =>
+        articles.MapPost("/{id:guid}/images", async (Guid id, HttpRequest request, RoadmapDbContext db, IBlobStore store) =>
         {
             if (!request.HasFormContentType) return Results.BadRequest("Expected multipart/form-data with one or more file fields.");
             var article = await db.Articles.FirstOrDefaultAsync(x => x.Id == id);
@@ -235,7 +235,6 @@ public static class RoadmapEndpoints
             var form = await request.ReadFormAsync();
             if (form.Files.Count == 0) return Results.BadRequest("No files uploaded.");
 
-            var maxSort = await db.ArticleImages.Where(i => i.ArticleId == id).MaxAsync(i => (int?)i.SortOrder) ?? -1;
             var saved = new List<object>();
             foreach (var file in form.Files)
             {
@@ -249,10 +248,7 @@ public static class RoadmapEndpoints
                 var ct = string.IsNullOrWhiteSpace(file.ContentType) || file.ContentType == "application/octet-stream"
                     ? ArticleLogic.GuessContentType(name) : file.ContentType;
 
-                var existing = await db.ArticleImages.FirstOrDefaultAsync(i => i.ArticleId == id && i.Name == name);
-                if (existing is null)
-                    db.ArticleImages.Add(new ArticleImage { Id = Guid.NewGuid(), ArticleId = id, Name = name, ContentType = ct, Data = bytes, SortOrder = ++maxSort });
-                else { existing.ContentType = ct; existing.Data = bytes; }
+                await ArticleLogic.StoreImageAsync(db, store, id, name, ct, bytes);
                 saved.Add(new { name, contentType = ct, bytes = bytes.Length, reference = $"{{{{img:{name}}}}}" });
             }
             article.UpdatedAt = DateTime.UtcNow;
@@ -261,10 +257,13 @@ public static class RoadmapEndpoints
         }).DisableAntiforgery();
 
         // Raw bytes for one image — used by the editor's image manager to preview thumbnails.
-        articles.MapGet("/{id:guid}/images/{name}", async (Guid id, string name, RoadmapDbContext db) =>
+        articles.MapGet("/{id:guid}/images/{name}", async (Guid id, string name, RoadmapDbContext db, IBlobStore store) =>
         {
-            var img = await db.ArticleImages.AsNoTracking().FirstOrDefaultAsync(i => i.ArticleId == id && i.Name == name);
-            return img is null ? Results.NotFound() : Results.File(img.Data, img.ContentType);
+            var img = await db.ArticleImages.AsNoTracking().Where(i => i.ArticleId == id && i.Name == name)
+                .Select(i => new { i.ContentType, i.StorageKey, Inline = i.StorageKey == null ? i.Data : null })
+                .FirstOrDefaultAsync();
+            var bytes = img is null ? null : await BlobFiles.LoadAsync(store, img.StorageKey, img.Inline);
+            return bytes is null ? Results.NotFound() : Results.File(bytes, img!.ContentType);
         });
 
         articles.MapDelete("/{id:guid}/images/{name}", async (Guid id, string name, RoadmapDbContext db) =>
@@ -427,7 +426,7 @@ public static class RoadmapEndpoints
 
         // Upload or replace it via multipart/form-data with a single file field. Mirrors the
         // article image upload so a phone-sized photo streams instead of riding a JSON payload.
-        meals.MapPost("/{id:guid}/image", async (Guid id, HttpRequest request, RoadmapDbContext db) =>
+        meals.MapPost("/{id:guid}/image", async (Guid id, HttpRequest request, RoadmapDbContext db, IBlobStore store) =>
         {
             if (!request.HasFormContentType) return Results.BadRequest("Expected multipart/form-data with one file field.");
             var meal = await db.Meals.FindAsync(id);
@@ -445,17 +444,20 @@ public static class RoadmapEndpoints
             var ct = MealLogic.ResolveImageContentType(file.ContentType, file.FileName, bytes);
             if (ct is null) return Results.BadRequest("Only image files are accepted (png, jpeg, gif, webp, avif).");
 
-            var image = await MealLogic.StoreImageAsync(db, meal, bytes, ct, file.FileName);
+            var image = await MealLogic.StoreImageAsync(db, store, meal, bytes, ct, file.FileName);
             await db.SaveChangesAsync();
             return Results.Ok(MealLogic.ToDto(meal, new MealLogic.ImageMeta(image.ContentType, image.UpdatedAt)));
         }).DisableAntiforgery();
 
         // Raw bytes for the tab to render. Fetched with the same bearer token as everything else,
         // so the client turns it into an object URL rather than pointing an <img> straight here.
-        meals.MapGet("/{id:guid}/image", async (Guid id, RoadmapDbContext db) =>
+        meals.MapGet("/{id:guid}/image", async (Guid id, RoadmapDbContext db, IBlobStore store) =>
         {
-            var img = await db.MealImages.AsNoTracking().FirstOrDefaultAsync(i => i.MealId == id);
-            return img is null ? Results.NotFound() : Results.File(img.Data, img.ContentType);
+            var img = await db.MealImages.AsNoTracking().Where(i => i.MealId == id)
+                .Select(i => new { i.ContentType, i.StorageKey, Inline = i.StorageKey == null ? i.Data : null })
+                .FirstOrDefaultAsync();
+            var bytes = img is null ? null : await BlobFiles.LoadAsync(store, img.StorageKey, img.Inline);
+            return bytes is null ? Results.NotFound() : Results.File(bytes, img!.ContentType);
         });
 
         meals.MapDelete("/{id:guid}/image", async (Guid id, RoadmapDbContext db) =>
@@ -2391,16 +2393,17 @@ public static class RoadmapEndpoints
         // (only HasCv ships there); this streams the bytea on demand. Auth is the
         // group's Bearer requirement — the frontend fetches it with the token and
         // triggers a blob download.
-        jobs.MapGet("/postings/{postingId:guid}/cv", async (Guid postingId, RoadmapDbContext db) =>
+        jobs.MapGet("/postings/{postingId:guid}/cv", async (Guid postingId, RoadmapDbContext db, IBlobStore store) =>
         {
             var p = await db.JobPostings.AsNoTracking()
                 .Where(x => x.Id == postingId)
-                .Select(x => new { x.TailoredCvPdf, x.Company })
+                .Select(x => new { x.CvStorageKey, Inline = x.CvStorageKey == null ? x.TailoredCvPdf : null, x.Company })
                 .FirstOrDefaultAsync();
-            if (p?.TailoredCvPdf is null || p.TailoredCvPdf.Length == 0) return Results.NotFound();
-            var slug = new string((p.Company ?? "cv").ToLowerInvariant()
+            var pdf = p is null ? null : await BlobFiles.LoadAsync(store, p.CvStorageKey, p.Inline);
+            if (pdf is null) return Results.NotFound();
+            var slug = new string((p!.Company ?? "cv").ToLowerInvariant()
                 .Where(c => char.IsLetterOrDigit(c) || c is '-').ToArray());
-            return Results.File(p.TailoredCvPdf, "application/pdf",
+            return Results.File(pdf, "application/pdf",
                 $"cv-{(slug.Length == 0 ? "posting" : slug)}.pdf");
         });
 
@@ -2413,7 +2416,7 @@ public static class RoadmapEndpoints
         //   cv_changes   — one-line summary of what the CV changed vs. the master (optional)
         //   cv_fit_score — CV-vs-JD fit, 0–100 (optional)
         //   cv_fit_gaps  — JSON array of {label, points, note} gaps, highest-impact first (optional)
-        jobs.MapPost("/postings/{postingId:guid}/cv", async (Guid postingId, HttpRequest request, RoadmapDbContext db) =>
+        jobs.MapPost("/postings/{postingId:guid}/cv", async (Guid postingId, HttpRequest request, RoadmapDbContext db, IBlobStore store) =>
         {
             if (!request.HasFormContentType) return Results.BadRequest("Expected multipart/form-data with a 'file' field.");
             var form = await request.ReadFormAsync();
@@ -2426,7 +2429,7 @@ public static class RoadmapEndpoints
 
             using var ms = new MemoryStream();
             await file.CopyToAsync(ms);
-            posting.TailoredCvPdf = ms.ToArray();
+            await BlobFiles.StoreAsync(store, posting, BlobFiles.JobCvKey(store, posting.Id), ms.ToArray(), "application/pdf");
 
             var changes = form["cv_changes"].ToString();
             if (!string.IsNullOrWhiteSpace(changes)) posting.CvChangeList = changes;
@@ -2442,7 +2445,7 @@ public static class RoadmapEndpoints
             {
                 postingId = posting.Id,
                 company = posting.Company,
-                bytes = posting.TailoredCvPdf.Length,
+                bytes = posting.CvSizeBytes,
                 hasChanges = posting.CvChangeList != null,
                 fitScore = posting.CvFitScore,
                 gapCount = CvFitGapsJson.Parse(posting.CvFitGaps).Count
@@ -2518,7 +2521,7 @@ public static class RoadmapEndpoints
             p.PostedAt?.ToString("yyyy-MM-dd"), p.Description, p.Bucket,
             p.SeniorityClass, p.AiKeywordHits, p.GeoHints, p.Queries,
             p.Score, p.Reasoning, p.SortOrder,
-            p.TailoredCvPdf != null && p.TailoredCvPdf.Length > 0, p.CvChangeList,
+            p.HasCv, p.CvChangeList,
             p.CvFitScore, CvFitGapsJson.Parse(p.CvFitGaps),
             p.ApplicationStatus, p.AppliedAt?.ToString("yyyy-MM-dd"),
             p.RespondedAt?.ToString("yyyy-MM-dd"), p.ApplicationNotes)).ToList());

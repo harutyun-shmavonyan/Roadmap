@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ModelContextProtocol.Server;
 using Roadmap.Api.Data;
+using Roadmap.Api.Storage;
 using Roadmap.Api.Dtos;
 using Roadmap.Api.Entities;
 
@@ -18,7 +19,7 @@ namespace Roadmap.Api.Mcp;
 /// argument keeps the stored value and an empty array is the explicit way to clear a list.
 /// </summary>
 [McpServerToolType]
-public sealed class MealMcpTools(RoadmapDbContext db, IHttpClientFactory httpFactory)
+public sealed class MealMcpTools(RoadmapDbContext db, IHttpClientFactory httpFactory, IBlobStore store)
 {
     private static string J(object? v) => JsonSerializer.Serialize(v, new JsonSerializerOptions { WriteIndented = true });
 
@@ -246,7 +247,7 @@ public sealed class MealMcpTools(RoadmapDbContext db, IHttpClientFactory httpFac
         var ct = MealLogic.ResolveImageContentType(mime, file_name, bytes);
         if (ct is null) return J(new { error = "that is not an image — pass an image/* content_type if the bytes are unusual" });
 
-        var image = await MealLogic.StoreImageAsync(db, meal, bytes, ct, file_name);
+        var image = await MealLogic.StoreImageAsync(db, store, meal, bytes, ct, file_name);
         await db.SaveChangesAsync();
         return J(new { status = "image set", meal_id, content_type = image.ContentType, bytes = bytes.Length });
     }
@@ -302,7 +303,7 @@ public sealed class MealMcpTools(RoadmapDbContext db, IHttpClientFactory httpFac
         var ct = MealLogic.ResolveImageContentType(content_type ?? headerType, fileName, bytes);
         if (ct is null) return J(new { error = $"that URL did not return an image (content type '{headerType ?? "unknown"}')" });
 
-        var image = await MealLogic.StoreImageAsync(db, meal, bytes, ct, fileName);
+        var image = await MealLogic.StoreImageAsync(db, store, meal, bytes, ct, fileName);
         await db.SaveChangesAsync();
         return J(new { status = "image set", meal_id, content_type = image.ContentType, bytes = bytes.Length, source_url = uri.ToString() });
     }

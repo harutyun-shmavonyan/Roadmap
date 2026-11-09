@@ -1,3 +1,4 @@
+using Roadmap.Api.Storage;
 using Microsoft.EntityFrameworkCore;
 using Roadmap.Api.Data;
 using Roadmap.Api.Dtos;
@@ -89,7 +90,7 @@ public static class ExperienceEndpoints
         // ── pictures ──
 
         // One or more files in one request: a phone's photo picker hands over a handful at once.
-        xp.MapPost("/{id:guid}/images", async (Guid id, HttpRequest request, RoadmapDbContext db) =>
+        xp.MapPost("/{id:guid}/images", async (Guid id, HttpRequest request, RoadmapDbContext db, IBlobStore store) =>
         {
             if (!request.HasFormContentType) return Results.BadRequest("Expected multipart/form-data.");
             var x = await db.Experiences.FirstOrDefaultAsync(e => e.Id == id);
@@ -110,7 +111,7 @@ public static class ExperienceEndpoints
                 var ct = ImageLogic.ResolveContentType(file.ContentType, file.FileName, bytes);
                 if (ct is null) return Results.BadRequest($"{file.FileName} is not an image (png, jpeg, gif, webp, avif).");
                 // A caption only makes sense for a single picture; a batch arrives uncaptioned.
-                await ExperienceLogic.AddImageAsync(db, x, bytes, ct, file.FileName, files.Count == 1 ? caption : null);
+                await ExperienceLogic.AddImageAsync(db, store, x, bytes, ct, file.FileName, files.Count == 1 ? caption : null);
                 await db.SaveChangesAsync(); // per file, so each takes the next position
             }
             return Results.Ok(ExperienceLogic.ToDto((await ExperienceLogic.LoadAsync(db, id: id))[0]));
@@ -118,10 +119,13 @@ public static class ExperienceEndpoints
 
         // Raw bytes. Fetched with the bearer token and turned into an object URL by the client,
         // rather than pointed at by an <img>, which would not carry the token.
-        xp.MapGet("/images/{imageId:guid}", async (Guid imageId, RoadmapDbContext db) =>
+        xp.MapGet("/images/{imageId:guid}", async (Guid imageId, RoadmapDbContext db, IBlobStore store) =>
         {
-            var img = await db.ExperienceImages.AsNoTracking().FirstOrDefaultAsync(i => i.Id == imageId);
-            return img is null ? Results.NotFound() : Results.File(img.Data, img.ContentType);
+            var img = await db.ExperienceImages.AsNoTracking().Where(i => i.Id == imageId)
+                .Select(i => new { i.ContentType, i.StorageKey, Inline = i.StorageKey == null ? i.Data : null })
+                .FirstOrDefaultAsync();
+            var bytes = img is null ? null : await BlobFiles.LoadAsync(store, img.StorageKey, img.Inline);
+            return bytes is null ? Results.NotFound() : Results.File(bytes, img!.ContentType);
         });
 
         xp.MapPatch("/images/{imageId:guid}", async (Guid imageId, UpdateExperienceImageRequest req, RoadmapDbContext db) =>

@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ModelContextProtocol.Server;
 using Roadmap.Api.Data;
+using Roadmap.Api.Storage;
 using Roadmap.Api.Dtos;
 using Roadmap.Api.Endpoints;
 using Roadmap.Api.Entities;
@@ -10,7 +11,7 @@ using Roadmap.Api.Entities;
 namespace Roadmap.Api.Mcp;
 
 [McpServerToolType]
-public sealed class RoadmapMcpTools(RoadmapDbContext db)
+public sealed class RoadmapMcpTools(RoadmapDbContext db, IBlobStore store)
 {
     private static string J(object? v) => JsonSerializer.Serialize(v, new JsonSerializerOptions { WriteIndented = true });
 
@@ -788,7 +789,7 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
             DateOnly? posted = DateOnly.TryParse(p.posted_at, out var pd) ? pd : null;
             carriedApplications.TryGetValue(p.url!, out var prior);
             if (prior is not null) applicationsCarried++;
-            db.JobPostings.Add(new JobPosting
+            var posting = new JobPosting
             {
                 ApplicationStatus = prior?.ApplicationStatus,
                 AppliedAt = prior?.AppliedAt,
@@ -810,12 +811,16 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
                 Queries = [.. p.queries ?? []],
                 Score = p.score,
                 Reasoning = p.reasoning,
-                TailoredCvPdf = DecodeCvPdf(p.cv_pdf_base64),
                 CvChangeList = string.IsNullOrWhiteSpace(p.cv_changes) ? null : p.cv_changes,
                 CvFitScore = p.cv_fit_score,
                 CvFitGaps = string.IsNullOrWhiteSpace(p.cv_fit_gaps) ? null : p.cv_fit_gaps,
                 SortOrder = order++,
-            });
+            };
+            // The CV goes to the bucket before the save; a failed save leaves only an
+            // unreferenced object, which the sweeper removes.
+            if (DecodeCvPdf(p.cv_pdf_base64) is byte[] cv)
+                await BlobFiles.StoreAsync(store, posting, BlobFiles.JobCvKey(store, posting.Id), cv, "application/pdf");
+            db.JobPostings.Add(posting);
         }
 
         await db.SaveChangesAsync();
@@ -867,7 +872,7 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db)
                 p.PostedAt?.ToString("yyyy-MM-dd"), p.Description, p.Bucket,
                 p.SeniorityClass, p.AiKeywordHits, p.GeoHints, p.Queries,
                 p.Score, p.Reasoning, p.SortOrder,
-                p.TailoredCvPdf != null && p.TailoredCvPdf.Length > 0, p.CvChangeList,
+                p.HasCv, p.CvChangeList,
                 p.CvFitScore, CvFitGapsJson.Parse(p.CvFitGaps),
                 p.ApplicationStatus, p.AppliedAt?.ToString("yyyy-MM-dd"),
                 p.RespondedAt?.ToString("yyyy-MM-dd"), p.ApplicationNotes)).ToList()));

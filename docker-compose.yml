@@ -10,5 +10,23 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  # Local stand-in for the Railway bucket. Point the app at it with:
+  #   BLOB_BUCKET=roadmap BLOB_ENDPOINT=http://localhost:9000 BLOB_REGION=us-east-1
+  #   BLOB_ACCESS_KEY_ID=minio BLOB_SECRET_ACCESS_KEY=minio12345 BLOB_FORCE_PATH_STYLE=true
+  # (create the bucket once in the console at http://localhost:9001). Without BLOB_* the app keeps
+  # files in Postgres.
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio12345
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+
 volumes:
   pgdata:
+  miniodata:

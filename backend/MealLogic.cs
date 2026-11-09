@@ -1,3 +1,4 @@
+using Roadmap.Api.Storage;
 using Microsoft.EntityFrameworkCore;
 using Roadmap.Api.Data;
 using Roadmap.Api.Dtos;
@@ -87,7 +88,7 @@ public static class MealLogic
     /// this only writes the row and touches the meal so the tab sees it as changed. Does not save.
     /// </summary>
     public static async Task<MealImage> StoreImageAsync(
-        RoadmapDbContext db, Meal meal, byte[] bytes, string contentType, string? fileName)
+        RoadmapDbContext db, IBlobStore store, Meal meal, byte[] bytes, string contentType, string? fileName)
     {
         var now = DateTime.UtcNow;
         var image = await db.MealImages.FirstOrDefaultAsync(i => i.MealId == meal.Id);
@@ -96,8 +97,8 @@ public static class MealLogic
             image = new MealImage { MealId = meal.Id };
             db.MealImages.Add(image);
         }
-        image.Data = bytes;
         image.ContentType = contentType;
+        await BlobFiles.StoreAsync(store, image, BlobFiles.MealImageKey(store, meal.Id), bytes, contentType);
         var clean = string.IsNullOrWhiteSpace(fileName) ? "" : ArticleLogic.SanitizeImageName(fileName);
         image.FileName = clean.Length == 0 ? null : clean;
         image.UpdatedAt = now;

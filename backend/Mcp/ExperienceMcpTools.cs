@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ModelContextProtocol.Server;
 using Roadmap.Api.Data;
+using Roadmap.Api.Storage;
 using Roadmap.Api.Entities;
 
 namespace Roadmap.Api.Mcp;
@@ -17,7 +18,7 @@ namespace Roadmap.Api.Mcp;
 /// rarely restates everything it is not changing, and should not lose it for that.
 /// </summary>
 [McpServerToolType]
-public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory httpFactory)
+public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory httpFactory, IBlobStore store)
 {
     private static readonly JsonSerializerOptions Out = new()
     {
@@ -230,7 +231,7 @@ public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory h
         var ct = ImageLogic.ResolveContentType(content_type ?? declared, file_name, bytes);
         if (ct is null) return J(new { error = "that is not an image — pass an image/* content_type if the bytes are unusual" });
 
-        var image = await ExperienceLogic.AddImageAsync(db, x, bytes!, ct, file_name, caption);
+        var image = await ExperienceLogic.AddImageAsync(db, store, x, bytes!, ct, file_name, caption);
         await db.SaveChangesAsync();
         return J(new { added = true, image = ExperienceLogic.ToDto(image), bytes = bytes!.Length });
     }
@@ -254,7 +255,7 @@ public sealed class ExperienceMcpTools(RoadmapDbContext db, IHttpClientFactory h
         var ct = ImageLogic.ResolveContentType(content_type ?? headerType, fileName, bytes);
         if (ct is null) return J(new { error = $"that URL did not return an image (content type '{headerType ?? "unknown"}')" });
 
-        var image = await ExperienceLogic.AddImageAsync(db, x, bytes!, ct, fileName, caption);
+        var image = await ExperienceLogic.AddImageAsync(db, store, x, bytes!, ct, fileName, caption);
         await db.SaveChangesAsync();
         return J(new { added = true, image = ExperienceLogic.ToDto(image), bytes = bytes!.Length, sourceUrl = url });
     }
