@@ -80,7 +80,7 @@ call to move them: "store those in bucket").
   keeps the disk space) is a separate cleanup the user starts when they decide. The cleanup also
   removes the bytea fallback in `BlobFiles` and the `Inline` projections.
 - **CI:** `.github/workflows/storage-test.yml` runs `.github/storage-test/run.py` against Postgres
-  and MinIO on every branch push touching `backend/` — before/after the bucket, backfill, byte-exact
+  and an S3 emulator (moto) on every branch push touching `backend/` — before/after the bucket, backfill, byte-exact
   reads, new writes, the sweep, and every file still served after the Postgres copies are wiped. It
   also runs `dotnet ef` (these sessions have no .NET SDK): a model change with no migration gets one
   generated and committed back to the branch, then the check must pass.

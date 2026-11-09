@@ -2401,7 +2401,7 @@ public static class RoadmapEndpoints
                 .FirstOrDefaultAsync();
             var pdf = p is null ? null : await BlobFiles.LoadAsync(store, p.CvStorageKey, p.Inline);
             if (pdf is null) return Results.NotFound();
-            var slug = new string((p.Company ?? "cv").ToLowerInvariant()
+            var slug = new string((p!.Company ?? "cv").ToLowerInvariant()
                 .Where(c => char.IsLetterOrDigit(c) || c is '-').ToArray());
             return Results.File(pdf, "application/pdf",
                 $"cv-{(slug.Length == 0 ? "posting" : slug)}.pdf");

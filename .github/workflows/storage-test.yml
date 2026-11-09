@@ -1,7 +1,7 @@
 name: storage test
 
 # End-to-end test of file storage (bucket vs the legacy bytea columns): builds the backend, runs it
-# against Postgres and a MinIO bucket, and checks backfill, reads, writes, sweeping and that nothing
+# against Postgres and an S3 emulator (moto), and checks backfill, reads, writes, sweeping and that nothing
 # is served from Postgres any more (.github/storage-test/run.py). Also generates an EF migration
 # when the model has changes no migration covers, and commits it back to the branch — the remote
 # Claude sessions have no .NET SDK, so this is where `dotnet ef` runs for them.
@@ -61,16 +61,15 @@ jobs:
         working-directory: backend
         run: dotnet publish -c Release -o ../out
 
-      - name: Start MinIO
+      - name: Start an S3 emulator (moto)
         run: |
-          docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER=minio -e MINIO_ROOT_PASSWORD=minio12345 \
-            minio/minio server /data
-          for i in $(seq 1 30); do curl -sf http://127.0.0.1:9000/minio/health/live && break; sleep 1; done
+          pip install "moto[server]" boto3 >/dev/null
+          nohup moto_server -H 127.0.0.1 -p 9000 > moto.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:9000/ >/dev/null && exit 0; sleep 1; done
+          cat moto.log; exit 1
 
       - name: Run the end-to-end storage test
         run: |
-          pip install boto3 >/dev/null
           sudo apt-get install -y postgresql-client >/dev/null 2>&1 || true
           python3 .github/storage-test/run.py out/Roadmap.Api.dll
 

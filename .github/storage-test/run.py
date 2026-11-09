@@ -2,7 +2,7 @@
 """
 End-to-end test of the move from bytea columns to the bucket (2026-11-09).
 
-Runs the real app twice against a real Postgres and a MinIO bucket:
+Runs the real app twice against a real Postgres and an S3-compatible bucket (moto):
 
   Phase A  no BLOB_* variables: every file lands in Postgres, exactly as production
            did before this change.
@@ -11,7 +11,7 @@ Runs the real app twice against a real Postgres and a MinIO bucket:
            deleted files are swept, and — the proof — every file still downloads
            after the legacy Postgres copies are wiped.
 
-Usage: run.py <path-to-Roadmap.Api.dll>. Needs psql, boto3, Postgres on :5432, MinIO on :9000.
+Usage: run.py <path-to-Roadmap.Api.dll>. Needs psql, boto3, Postgres on :5432, an S3 endpoint (moto) on :9000.
 """
 import base64, json, os, subprocess, sys, time, uuid, urllib.request, urllib.error
 import boto3
