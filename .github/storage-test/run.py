@@ -16,7 +16,7 @@ Usage: run.py <path-to-Roadmap.Api.dll>. Needs psql, boto3, Postgres on :5432, a
 import base64, json, os, subprocess, sys, time, uuid, urllib.request, urllib.error
 import boto3
 
-DLL = sys.argv[1]
+DLL = os.path.abspath(sys.argv[1])
 PORT = 5055
 BASE = f"http://127.0.0.1:{PORT}"
 PG = "postgresql://postgres:postgres@127.0.0.1:5432/roadmap"
