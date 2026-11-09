@@ -76,4 +76,4 @@ jobs:
 
       - name: App logs
         if: always()
-        run: for f in app-*.log; do echo "=== $f"; tail -n 200 "$f"; done
+        run: for f in app-*.log; do [ -f "$f" ] && { echo "=== $f"; tail -n 200 "$f"; }; done; true

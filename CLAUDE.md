@@ -32,11 +32,58 @@ follow it, and `get-deployment-diagnosis` explains a failed one.
   you can.
 - The build ships the **committed tree**, not the working tree: uncommitted edits never deploy.
 - Rollback: the Railway MCP `redeploy` tool with a previous `deploymentId`, or revert on `master`.
-- The service's variables (`AUTH_PASSWORD`, `DATABASE_URL`, `JWT_SECRET`) are untouched by the
-  source switch; `PORT` is injected by Railway.
+- The service's variables (`AUTH_PASSWORD`, `DATABASE_URL`, `JWT_SECRET`, and since 2026-11-09 the
+  `BLOB_*` bucket references — see File storage) are untouched by the source switch; `PORT` is
+  injected by Railway.
 - The `build and push image` workflow (`.github/workflows/deploy-image.yml`, from the Stock Signals
   branch) still builds and pushes `h317280/roadmap-app` on GitHub's runners, but Railway no longer
   pulls that image — it is a spare artifact, not the deploy path.
+
+## File storage — the Railway bucket (2026-11-09)
+
+Every file the app holds — article images, experience photos, meal photos, tailored CV PDFs — lives
+in the Railway bucket `embedded-tin` (S3-compatible, private), not in Postgres. Until 2026-11-09 they
+were `bytea` columns, and four tables were ~270 MB of a 308 MB database on a 500 MB volume (the user's
+call to move them: "store those in bucket").
+
+- **`backend/Storage/`** owns it. `IBlobStore` (`S3BlobStore` over AWSSDK.S3, or `DisabledBlobStore`)
+  is a singleton; `BlobFiles` is the only code that decides where bytes go and where they are read
+  from, and every write and read site goes through it (REST uploads/downloads, the MCP image tools,
+  `import_job_run`, the article HTML builder). Keys are `roadmap/articles/{articleId}/{imageId}-…`,
+  `roadmap/experiences/…`, `roadmap/meals/{mealId}-…`, `roadmap/job-cvs/{postingId}-….pdf`, stored in
+  full (prefix included) in `StorageKey` (`CvStorageKey` on `job_postings`) with `SizeBytes`.
+- **Every write is a new object** (random suffix): a replace never overwrites bytes a reader is
+  using; the old object becomes unreferenced.
+- **Reads are bucket-first.** A query projects the old bytea only when the key is null
+  (`Inline = StorageKey == null ? Data : null`), so a moved row never drags its old bytes out of
+  Postgres. The REST URLs, the MCP tools' inputs and outputs and the frontend are unchanged — the
+  tab, the skills (article-writer, job-scout, job-apply) and Finder's `attach-cvs.py` needed nothing.
+- **No bucket configured → Postgres, exactly as before.** The `BLOB_*` variables on the service are
+  Railway references to the bucket's own credentials: `BLOB_BUCKET=${{embedded-tin.BUCKET}}`,
+  `BLOB_ENDPOINT=${{embedded-tin.ENDPOINT}}`, `BLOB_REGION=${{embedded-tin.REGION}}`,
+  `BLOB_ACCESS_KEY_ID=${{embedded-tin.ACCESS_KEY_ID}}`,
+  `BLOB_SECRET_ACCESS_KEY=${{embedded-tin.SECRET_ACCESS_KEY}}`. Optional: `BLOB_PREFIX` (default
+  `roadmap/`), `BLOB_FORCE_PATH_STYLE` (only if the bucket's Credentials tab says path style),
+  `BLOB_BACKFILL` / `BLOB_SWEEP` (default true), `BLOB_SWEEP_GRACE_MINUTES` (default 60).
+- **`BlobMaintenanceService`** runs ~20 s after start and then daily: the **backfill** copies any file
+  still only in Postgres into the bucket, reads it back, and records the key only if the bytes match;
+  the **sweep** deletes objects no row references that are older than the grace period. Deletes in
+  the database cascade (an article, an experience, a meal, a re-imported job-run day), so the sweep is
+  the one mechanism that cleans up after all of them. It refuses to run when no row references
+  anything while the bucket holds objects (wrong database, not an empty one).
+- **The proof:** MCP `storage_status` (`deep=true` compares every bucket file with its Postgres copy
+  byte for byte) / REST `GET /api/storage/status?deep=true`. `postgresOnly` > 0 means a file still
+  depends on Postgres; `readyForCleanup` is true only when none does and every referenced object
+  exists. `run_storage_maintenance` / `POST /api/storage/maintenance` runs a pass now.
+- **The legacy columns are still there, on purpose.** The backfill leaves the old bytes in place;
+  dropping `Data` / `TailoredCvPdf` (and `VACUUM FULL` on the four tables, without which Postgres
+  keeps the disk space) is a separate cleanup the user starts when they decide. The cleanup also
+  removes the bytea fallback in `BlobFiles` and the `Inline` projections.
+- **CI:** `.github/workflows/storage-test.yml` runs `.github/storage-test/run.py` against Postgres
+  and MinIO on every branch push touching `backend/` — before/after the bucket, backfill, byte-exact
+  reads, new writes, the sweep, and every file still served after the Postgres copies are wiped. It
+  also runs `dotnet ef` (these sessions have no .NET SDK): a model change with no migration gets one
+  generated and committed back to the branch, then the check must pass.
 
 ## Auth — REST tokens, MCP sign-in (OAuth) and the MCP secret (2026-10-20, OAuth 2026-10-24)
 
@@ -408,7 +455,8 @@ required: a plan is worth saving before it has a place, a date or a picture.
 - **REST PUT replaces, MCP `update_experience` patches.** Same split as the meal book: the tab's
   form always sends every field, an assistant rarely restates what it is not changing. In the MCP
   tool a null argument keeps the stored value and an empty string clears it.
-- **Photos live in `experience_images`**, many per experience, bytes never loaded by a list query.
+- **Photos are rows in `experience_images`**, many per experience, their bytes in the bucket (see
+  File storage) and never loaded by a list query.
   The lowest `SortOrder` is the cover. They are fetched with the bearer token and shown from
   object URLs, like meal photos.
 - **`ImageLogic` is the shared image code** — type sniffing, base64/data-URI decoding, and the

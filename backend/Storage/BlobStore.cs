@@ -150,8 +150,7 @@ public sealed class S3BlobStore : IBlobStore, IDisposable
         {
             var resp = await _s3.ListObjectsV2Async(req, ct);
             foreach (var o in resp.S3Objects ?? [])
-                yield return new BlobObject(o.Key, o.Size ?? 0,
-                    (o.LastModified ?? DateTime.UtcNow).ToUniversalTime());
+                yield return new BlobObject(o.Key, o.Size, o.LastModified.ToUniversalTime());
             if (resp.IsTruncated != true || string.IsNullOrEmpty(resp.NextContinuationToken)) yield break;
             req.ContinuationToken = resp.NextContinuationToken;
         }
