@@ -449,6 +449,10 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.Property(p => p.SeniorityClass).HasMaxLength(64);
             // Tailored CV: PDF bytes as bytea, change list as unbounded text. Both nullable.
             e.Property(p => p.TailoredCvPdf).HasColumnType("bytea");
+            // Since 2026-11-09 the CV lives in the bucket under this key; the bytea above is legacy.
+            e.Property(p => p.CvStorageKey).HasMaxLength(512);
+            e.Property(p => p.CvSizeBytes).HasDefaultValue(0L);
+            e.Ignore(p => p.HasCv);
             e.Property(p => p.CvChangeList).HasColumnType("text");
             // CV-vs-JD fit: an int score and the gap breakdown as raw JSON text. Both nullable.
             e.Property(p => p.CvFitScore);
@@ -585,6 +589,8 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.Property(i => i.Name).HasMaxLength(256).IsRequired();
             e.Property(i => i.ContentType).HasMaxLength(128).IsRequired();
             e.Property(i => i.Data).HasColumnType("bytea");
+            e.Property(i => i.StorageKey).HasMaxLength(512);
+            e.Property(i => i.SizeBytes).HasDefaultValue(0L);
             // One image name per article — re-uploading the same name replaces it.
             e.HasIndex(i => new { i.ArticleId, i.Name }).IsUnique();
         });
@@ -657,6 +663,8 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.Property(i => i.FileName).HasMaxLength(256);
             e.Property(i => i.ContentType).HasMaxLength(128).IsRequired();
             e.Property(i => i.Data).HasColumnType("bytea");
+            e.Property(i => i.StorageKey).HasMaxLength(512);
+            e.Property(i => i.SizeBytes).HasDefaultValue(0L);
             e.HasOne(i => i.Meal!)
                 .WithOne(m => m.Image!)
                 .HasForeignKey<MealImage>(i => i.MealId)
@@ -690,6 +698,8 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
             e.Property(i => i.ContentType).HasMaxLength(100).IsRequired();
             e.Property(i => i.FileName).HasMaxLength(255);
             e.Property(i => i.Caption).HasMaxLength(512);
+            e.Property(i => i.StorageKey).HasMaxLength(512);
+            e.Property(i => i.SizeBytes).HasDefaultValue(0L);
             e.HasOne(i => i.Experience).WithMany(x => x.Images)
                 .HasForeignKey(i => i.ExperienceId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(i => new { i.ExperienceId, i.SortOrder });

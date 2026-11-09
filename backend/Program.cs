@@ -8,6 +8,7 @@ using Roadmap.Api.Data;
 using Roadmap.Api.Endpoints;
 using Roadmap.Api.Mcp;
 using Roadmap.Api.Seeding;
+using Roadmap.Api.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -48,6 +49,15 @@ else
 }
 
 builder.Services.AddDbContext<RoadmapDbContext>(options => options.UseNpgsql(connStr));
+
+// File storage: the Railway bucket when BLOB_* is set (see Storage/BlobStore.cs), else Postgres as
+// before — so the app runs, and keeps writing files, whether or not the bucket is wired yet.
+var blobSettings = BlobSettings.FromEnvironment();
+builder.Services.AddSingleton(blobSettings);
+builder.Services.AddSingleton<IBlobStore>(blobSettings.Complete
+    ? new S3BlobStore(blobSettings)
+    : new DisabledBlobStore(blobSettings.Prefix));
+builder.Services.AddHostedService<BlobMaintenanceService>();
 
 // HttpClient for server-side image fetches (add_article_image_from_url MCP tool).
 builder.Services.AddHttpClient();
@@ -152,6 +162,7 @@ app.MapExperienceEndpoints();
 app.MapFoodLogEndpoints();
 app.MapFlashcardEndpoints();
 app.MapSignalEndpoints();
+app.MapStorageEndpoints();
 
 // OAuth for the MCP door: discovery, client registration, the sign-in page and the token endpoint.
 app.MapOAuthEndpoints(oauth, issuer);

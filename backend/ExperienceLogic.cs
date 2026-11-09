@@ -1,3 +1,4 @@
+using Roadmap.Api.Storage;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -222,18 +223,19 @@ public static partial class ExperienceLogic
     // ── pictures ──
 
     /// <summary>Add one picture at the end of the gallery. Validated by the caller; does not save.</summary>
-    public static async Task<ExperienceImage> AddImageAsync(RoadmapDbContext db, Experience x,
+    public static async Task<ExperienceImage> AddImageAsync(RoadmapDbContext db, IBlobStore store, Experience x,
         byte[] bytes, string contentType, string? fileName, string? caption)
     {
         var next = (await db.ExperienceImages.Where(i => i.ExperienceId == x.Id)
             .Select(i => (int?)i.SortOrder).MaxAsync() ?? -1) + 1;
         var image = new ExperienceImage
         {
-            Id = Guid.NewGuid(), ExperienceId = x.Id, Data = bytes, ContentType = contentType,
+            Id = Guid.NewGuid(), ExperienceId = x.Id, ContentType = contentType,
             FileName = ImageLogic.CleanFileName(fileName),
             Caption = string.IsNullOrWhiteSpace(caption) ? null : caption.Trim()[..Math.Min(caption.Trim().Length, 512)],
             SortOrder = next,
         };
+        await BlobFiles.StoreAsync(store, image, BlobFiles.ExperienceImageKey(store, x.Id, image.Id), bytes, contentType);
         db.ExperienceImages.Add(image);
         x.UpdatedAt = DateTime.UtcNow;
         return image;

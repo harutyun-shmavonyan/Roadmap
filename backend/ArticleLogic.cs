@@ -1,5 +1,8 @@
+using Microsoft.EntityFrameworkCore;
+using Roadmap.Api.Data;
 using Roadmap.Api.Dtos;
 using Roadmap.Api.Entities;
+using Roadmap.Api.Storage;
 
 namespace Roadmap.Api;
 
@@ -84,7 +87,24 @@ public static class ArticleLogic
     /// <c>&lt;!doctype</c> or <c>&lt;html</c>) it is returned as-is; a bare fragment is wrapped in a
     /// minimal responsive shell.
     /// </summary>
-    public static string BuildStandaloneHtml(Article a, IEnumerable<ArticleImage> images)
+    public static async Task<string> BuildStandaloneHtmlAsync(RoadmapDbContext db, IBlobStore store, Article a,
+        CancellationToken ct = default)
+    {
+        // Bytes come from the bucket; the bytea column is read only for an image not yet moved
+        // (the projection picks Data only when StorageKey is null).
+        var rows = await db.ArticleImages.AsNoTracking().Where(i => i.ArticleId == a.Id)
+            .Select(i => new { i.Name, i.ContentType, i.StorageKey, Inline = i.StorageKey == null ? i.Data : null })
+            .ToListAsync(ct);
+        var images = new List<(string Name, string ContentType, byte[] Data)>();
+        foreach (var r in rows)
+        {
+            var bytes = await BlobFiles.LoadAsync(store, r.StorageKey, r.Inline, ct);
+            if (bytes is not null) images.Add((r.Name, r.ContentType, bytes));
+        }
+        return BuildStandaloneHtml(a, images);
+    }
+
+    public static string BuildStandaloneHtml(Article a, IEnumerable<(string Name, string ContentType, byte[] Data)> images)
     {
         var html = a.Content ?? "";
         // Longest names first so "cover" never partially matches inside "cover2" — the closing
@@ -140,6 +160,29 @@ public static class ArticleLogic
             try { return TimeZoneInfo.FindSystemTimeZoneById(id); } catch { }
         return TimeZoneInfo.CreateCustomTimeZone("Yerevan+4", TimeSpan.FromHours(4), "Yerevan", "Yerevan");
     }
+    /// <summary>
+    /// Add an image to an article, or replace the one with the same name. The bytes go to the
+    /// bucket (or inline when none is configured) through <see cref="BlobFiles"/>. Shared by the
+    /// multipart upload and both MCP image tools, which used to carry three copies of this. Does
+    /// not save.
+    /// </summary>
+    public static async Task<ArticleImage> StoreImageAsync(RoadmapDbContext db, IBlobStore store,
+        Guid articleId, string name, string contentType, byte[] bytes, CancellationToken ct = default)
+    {
+        var image = await db.ArticleImages.FirstOrDefaultAsync(i => i.ArticleId == articleId && i.Name == name, ct);
+        if (image is null)
+        {
+            var maxSort = await db.ArticleImages.Where(i => i.ArticleId == articleId).MaxAsync(i => (int?)i.SortOrder, ct) ?? -1;
+            // Local adds not yet saved (a multi-file upload) count too, so two new files never share a slot.
+            var pending = db.ArticleImages.Local.Where(i => i.ArticleId == articleId).Select(i => i.SortOrder).DefaultIfEmpty(-1).Max();
+            image = new ArticleImage { Id = Guid.NewGuid(), ArticleId = articleId, Name = name, SortOrder = Math.Max(maxSort, pending) + 1 };
+            db.ArticleImages.Add(image);
+        }
+        image.ContentType = contentType;
+        await BlobFiles.StoreAsync(store, image, BlobFiles.ArticleImageKey(store, articleId, image.Id), bytes, contentType, ct);
+        return image;
+    }
+
     public static DateOnly YerevanToday() =>
         DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, YerevanTz));
 }

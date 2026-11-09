@@ -1,3 +1,4 @@
+using Roadmap.Api.Storage;
 namespace Roadmap.Api.Entities;
 
 /// <summary>Whether an experience is still ahead of you or already had.</summary>
@@ -64,7 +65,7 @@ public class Experience
 /// One picture of an experience — of the place before you go, or of it once you were there. Many
 /// per experience, kept in their own table so the bytes stay out of every list query.
 /// </summary>
-public class ExperienceImage
+public class ExperienceImage : IBlobHolder
 {
     public Guid Id { get; set; }
     public Guid ExperienceId { get; set; }
@@ -73,8 +74,19 @@ public class ExperienceImage
     /// <summary>MIME type, always image/* — anything else is refused at the door.</summary>
     public string ContentType { get; set; } = "application/octet-stream";
 
-    /// <summary>Raw bytes, as Postgres bytea.</summary>
+    /// <summary>
+    /// Legacy: the picture as Postgres bytea. Empty for every picture written since the bucket
+    /// (2026-11-09); read through <see cref="BlobFiles"/>, never directly.
+    /// </summary>
     public byte[] Data { get; set; } = Array.Empty<byte>();
+
+    /// <summary>Full object key in the bucket (prefix included). Null = bytes are still in <see cref="Data"/>.</summary>
+    public string? StorageKey { get; set; }
+
+    /// <summary>The picture's size in bytes, wherever it lives.</summary>
+    public long SizeBytes { get; set; }
+
+    byte[]? IBlobHolder.InlineBytes { get => Data; set => Data = value ?? Array.Empty<byte>(); }
 
     /// <summary>Original filename, kept only so a re-download has a sensible name.</summary>
     public string? FileName { get; set; }

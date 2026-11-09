@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using ModelContextProtocol.Server;
 using Roadmap.Api;
 using Roadmap.Api.Data;
+using Roadmap.Api.Storage;
 using Roadmap.Api.Dtos;
 using Roadmap.Api.Entities;
 
@@ -16,7 +17,7 @@ namespace Roadmap.Api.Mcp;
 /// unread and delete paths clean up.
 /// </summary>
 [McpServerToolType]
-public sealed class ArticleMcpTools(RoadmapDbContext db, IHttpClientFactory httpFactory)
+public sealed class ArticleMcpTools(RoadmapDbContext db, IHttpClientFactory httpFactory, IBlobStore store)
 {
     private static string J(object? v) => JsonSerializer.Serialize(v, new JsonSerializerOptions { WriteIndented = true });
 
@@ -184,17 +185,7 @@ public sealed class ArticleMcpTools(RoadmapDbContext db, IHttpClientFactory http
         if (bytes.Length > 40 * 1024 * 1024) return J(new { error = "Image exceeds 40 MB." });
 
         var ct = string.IsNullOrWhiteSpace(mime) ? ArticleLogic.GuessContentType(cleanName) : mime!.Trim();
-        var existing = await db.ArticleImages.FirstOrDefaultAsync(i => i.ArticleId == article_id && i.Name == cleanName);
-        if (existing is null)
-        {
-            var maxSort = await db.ArticleImages.Where(i => i.ArticleId == article_id).MaxAsync(i => (int?)i.SortOrder) ?? -1;
-            db.ArticleImages.Add(new ArticleImage
-            {
-                Id = Guid.NewGuid(), ArticleId = article_id, Name = cleanName,
-                ContentType = ct, Data = bytes, SortOrder = maxSort + 1,
-            });
-        }
-        else { existing.ContentType = ct; existing.Data = bytes; }
+        await ArticleLogic.StoreImageAsync(db, store, article_id, cleanName, ct, bytes);
         article.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         return J(new { article_id, name = cleanName, content_type = ct, bytes = bytes.Length, reference = $"{{{{img:{cleanName}}}}}" });
@@ -252,17 +243,7 @@ public sealed class ArticleMcpTools(RoadmapDbContext db, IHttpClientFactory http
             : !string.IsNullOrWhiteSpace(headerType) ? headerType!
             : ArticleLogic.GuessContentType(cleanName);
 
-        var existing = await db.ArticleImages.FirstOrDefaultAsync(i => i.ArticleId == article_id && i.Name == cleanName);
-        if (existing is null)
-        {
-            var maxSort = await db.ArticleImages.Where(i => i.ArticleId == article_id).MaxAsync(i => (int?)i.SortOrder) ?? -1;
-            db.ArticleImages.Add(new ArticleImage
-            {
-                Id = Guid.NewGuid(), ArticleId = article_id, Name = cleanName,
-                ContentType = ct, Data = bytes, SortOrder = maxSort + 1,
-            });
-        }
-        else { existing.ContentType = ct; existing.Data = bytes; }
+        await ArticleLogic.StoreImageAsync(db, store, article_id, cleanName, ct, bytes);
         article.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         return J(new { article_id, name = cleanName, content_type = ct, bytes = bytes.Length, source_url = uri.ToString(), reference = $"{{{{img:{cleanName}}}}}" });
@@ -274,7 +255,7 @@ public sealed class ArticleMcpTools(RoadmapDbContext db, IHttpClientFactory http
         if (!await db.Articles.AnyAsync(x => x.Id == article_id)) return J(new { error = "Article not found" });
         var imgs = await db.ArticleImages.AsNoTracking().Where(i => i.ArticleId == article_id)
             .OrderBy(i => i.SortOrder).ThenBy(i => i.Name)
-            .Select(i => new { i.Name, i.ContentType, bytes = i.Data.Length })
+            .Select(i => new { i.Name, i.ContentType, bytes = i.StorageKey != null ? i.SizeBytes : (long)i.Data.Length })
             .ToListAsync();
         return J(imgs.Select(i => new { i.Name, i.ContentType, i.bytes, reference = $"{{{{img:{i.Name}}}}}" }));
     }

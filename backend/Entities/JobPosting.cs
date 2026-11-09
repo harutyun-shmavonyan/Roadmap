@@ -1,3 +1,5 @@
+using Roadmap.Api.Storage;
+
 namespace Roadmap.Api.Entities;
 
 /// <summary>
@@ -5,7 +7,7 @@ namespace Roadmap.Api.Entities;
 /// deterministic signals the pipeline extracted and (optionally) the score an LLM
 /// assigned against the user's profile.
 /// </summary>
-public class JobPosting
+public class JobPosting : IBlobHolder
 {
     public Guid Id { get; set; }
 
@@ -45,8 +47,24 @@ public class JobPosting
     public string? Reasoning { get; set; }
 
     // --- Optional tailored CV for this specific posting ---
-    /// <summary>An ATS-ready PDF résumé tailored to this posting (bytea). Null if none was supplied.</summary>
+    /// <summary>
+    /// Legacy: the tailored CV as Postgres bytea. Null for every CV written since the bucket
+    /// (2026-11-09); read through <see cref="BlobFiles"/>, never directly.
+    /// </summary>
     public byte[]? TailoredCvPdf { get; set; }
+
+    /// <summary>Full bucket key of the tailored CV PDF (prefix included). Null = no CV, or still in <see cref="TailoredCvPdf"/>.</summary>
+    public string? CvStorageKey { get; set; }
+
+    /// <summary>The CV's size in bytes, wherever it lives; 0 when there is none.</summary>
+    public long CvSizeBytes { get; set; }
+
+    /// <summary>Whether the posting has a tailored CV, wherever it lives. Not mapped.</summary>
+    public bool HasCv => CvStorageKey is not null || TailoredCvPdf is { Length: > 0 };
+
+    string? IBlobHolder.StorageKey { get => CvStorageKey; set => CvStorageKey = value; }
+    long IBlobHolder.SizeBytes { get => CvSizeBytes; set => CvSizeBytes = value; }
+    byte[]? IBlobHolder.InlineBytes { get => TailoredCvPdf; set => TailoredCvPdf = value; }
     /// <summary>Human-readable list of what the tailored CV changed vs. the master CV.</summary>
     public string? CvChangeList { get; set; }
 
