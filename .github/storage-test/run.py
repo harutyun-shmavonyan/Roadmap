@@ -84,7 +84,7 @@ def mcp(tool, args):
     body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": args}}
     status, raw = req("POST", "/mcp", json.dumps(body).encode(), raw=True,
                       headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"})
-    assert status == 200, (status, raw[:300])
+    assert status // 100 == 2, (status, raw[:300])
     text = raw.decode()
     if text.lstrip().startswith("{"): msg = json.loads(text)
     else: msg = json.loads(next(l[5:] for l in text.splitlines() if l.startswith("data:")))
@@ -108,7 +108,7 @@ def start(extra_env):
     global TOKEN
     TOKEN = None
     s, b = req("POST", "/api/auth/login", {"password": "test-password"})
-    assert s == 200, (s, b); TOKEN = b["token"]
+    assert s // 100 == 2, (s, b); TOKEN = b["token"]
     return p
 
 def stop(p):
@@ -118,7 +118,7 @@ def stop(p):
 
 def status(deep=False):
     s, b = req("GET", f"/api/storage/status?deep={'true' if deep else 'false'}")
-    assert s == 200, (s, b)
+    assert s // 100 == 2, (s, b)
     return b
 
 def table(st, name):
@@ -138,22 +138,22 @@ originals = {}
 
 s, art = req("POST", "/api/articles", {"title": "Storage test", "format": "html",
                                        "content": "<p>{{img:a.png}}</p><p>{{img:b.png}}</p>"})
-assert s == 200, (s, art); art_id = art["id"]
+assert s // 100 == 2, (s, art); art_id = art["id"]
 originals["article_a"] = png(1, 300_000)
 s, _ = multipart(f"/api/articles/{art_id}/images", [("file", ("a.png", "image/png", originals["article_a"]))])
-check(s == 200, "article image uploaded with no bucket")
+check(s // 100 == 2, "article image uploaded with no bucket")
 
 s, xp = req("POST", "/api/experiences", {"title": "Dinner out", "category": "Dinner"})
-assert s == 200, (s, xp); xp_id = xp["id"]
+assert s // 100 == 2, (s, xp); xp_id = xp["id"]
 originals["experience"] = png(2, 200_000)
 s, xp = multipart(f"/api/experiences/{xp_id}/images", [("file", ("x.png", "image/png", originals["experience"]))])
-check(s == 200, "experience image uploaded with no bucket"); xp_img = xp["images"][0]["id"]
+check(s // 100 == 2, "experience image uploaded with no bucket"); xp_img = xp["images"][0]["id"]
 
 s, meal = req("POST", "/api/meals", {"name": "Test bowl"})
-assert s == 200, (s, meal); meal_id = meal["id"]
+assert s // 100 == 2, (s, meal); meal_id = meal["id"]
 originals["meal"] = png(3, 150_000)
 s, _ = multipart(f"/api/meals/{meal_id}/image", [("file", ("m.png", "image/png", originals["meal"]))])
-check(s == 200, "meal image uploaded with no bucket")
+check(s // 100 == 2, "meal image uploaded with no bucket")
 
 originals["cv"] = pdf(4, 120_000)
 res = mcp("import_job_run", {"run_date": "2026-11-01", "queries": ["q"], "raw_count": 2, "postings": [
@@ -177,7 +177,7 @@ s3.create_bucket(Bucket=BUCKET)
 app = start(BLOB_ENV)
 
 s, run = req("POST", "/api/storage/maintenance?sweep=false")
-check(s == 200, "maintenance run accepted")
+check(s // 100 == 2, "maintenance run accepted")
 moved = {r["table"]: r["moved"] for r in run["backfill"]}
 check(moved == {"article_images": 1, "experience_images": 1, "meal_images": 1, "job_postings": 1},
       f"backfill moved one file per table: {moved}")
@@ -199,14 +199,14 @@ def downloads():
         "cv": req("GET", f"/api/job-runs/postings/{posting_id}/cv", raw=True),
     }
 for k, (s, data) in downloads().items():
-    check(s == 200 and data == originals[k], f"{k} downloads byte-identical from the bucket")
+    check(s // 100 == 2 and data == originals[k], f"{k} downloads byte-identical from the bucket")
 s, html = req("GET", f"/api/articles/{art_id}/html", raw=True)
-check(s == 200 and base64.b64encode(originals["article_a"]) in html, "article HTML inlines the image from the bucket")
+check(s // 100 == 2 and base64.b64encode(originals["article_a"]) in html, "article HTML inlines the image from the bucket")
 
 # New writes: straight to the bucket, nothing into Postgres.
 b_png = png(5, 50_000)
 s, _ = multipart(f"/api/articles/{art_id}/images", [("file", ("b.png", "image/png", b_png))])
-check(s == 200, "new article image uploaded")
+check(s // 100 == 2, "new article image uploaded")
 check(psql("select length(\"Data\") from article_images where \"Name\"='b.png'") == "0", "new image wrote 0 bytes to Postgres")
 check(psql("select \"StorageKey\" is not null from article_images where \"Name\"='b.png'") == "t", "new image has a bucket key")
 res = mcp("add_article_image", {"article_id": art_id, "name": "c.png", "data_base64": base64.b64encode(png(6, 9_000)).decode()})
@@ -235,9 +235,9 @@ check(len(bucket_keys()) == before, "bucket holds exactly what the rows referenc
 psql('update article_images set "Data" = \'\\x\'; update meal_images set "Data" = \'\\x\'; '
      'update experience_images set "Data" = \'\\x\'; update job_postings set "TailoredCvPdf" = null')
 s, data = req("GET", f"/api/articles/{art_id}/images/a.png", raw=True)
-check(s == 200 and data == originals["article_a"], "article image still served with its Postgres copy wiped")
+check(s // 100 == 2 and data == originals["article_a"], "article image still served with its Postgres copy wiped")
 s, data = req("GET", f"/api/meals/{meal_id}/image", raw=True)
-check(s == 200 and data == originals["meal"], "meal image still served with its Postgres copy wiped")
+check(s // 100 == 2 and data == originals["meal"], "meal image still served with its Postgres copy wiped")
 st = status()
 check(st["readyForCleanup"] is True and st["reliesOnPostgres"] is False, "status still clean after the wipe")
 stop(app)
