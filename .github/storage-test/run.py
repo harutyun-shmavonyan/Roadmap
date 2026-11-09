@@ -218,7 +218,6 @@ info = mcp("get_job_run", {"date": "2026-11-01"})
 check([p["HasCv"] for p in info["Postings"] if p["Url"].endswith("/1")] == [True], "get_job_run still reports hasCv")
 
 # Replace, delete, re-import: the orphans they leave are swept.
-before = len(bucket_keys())
 s, _ = multipart(f"/api/articles/{art_id}/images", [("file", ("b.png", "image/png", png(7, 40_000)))])
 s, _ = req("DELETE", f"/api/experiences/{xp_id}")
 check(s in (200, 204), "experience deleted (its image cascades in the database)")
@@ -229,7 +228,7 @@ s, run = req("POST", "/api/storage/maintenance")
 check(run["sweep"]["deleted"] == 3, f"sweep deleted the 3 orphans (replaced image, deleted experience, replaced CV): {run['sweep']}")
 st = status()
 check(st["unreferencedObjects"] == 0, "no unreferenced objects left")
-check(len(bucket_keys()) == before, "bucket holds exactly what the rows reference")
+check(len(bucket_keys()) == run["sweep"]["referenced"] == 4, "bucket holds exactly the 4 files the rows reference")
 
 # The proof: wipe every legacy Postgres copy; everything must still be served.
 psql('update article_images set "Data" = \'\\x\'; update meal_images set "Data" = \'\\x\'; '
