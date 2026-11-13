@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { marked } from 'marked';
 import type { NoteDto } from './types';
 import { api } from './api';
+import { usePhone, usePhoneDetail } from './usePhone';
 
 type Book = 'red' | 'green';
 
@@ -18,8 +19,13 @@ export function NotesPage() {
   const [notes, setNotes] = useState<NoteDto[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const phone = usePhone();
+  const shell = useRef<HTMLDivElement>(null);
+  const detail = usePhoneDetail(shell);
+  const showList = !phone || !detail.open, showNote = !phone || detail.open;
 
   useEffect(() => {
+    detail.back();
     setLoading(true);
     api.getNotes(book)
       .then(list => {
@@ -33,7 +39,7 @@ export function NotesPage() {
   const accent = book === 'red' ? '#e5484d' : '#30a46c';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div ref={shell} className="m-shell" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Red / Green subtabs */}
       <div style={{ display: 'flex', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
         {(['red', 'green'] as Book[]).map(b => {
@@ -61,13 +67,14 @@ export function NotesPage() {
       ) : notes.length === 0 ? (
         <div style={{ padding: 24, color: 'var(--text-muted)' }}>No notes in the {book} book yet.</div>
       ) : (
-        <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-          {/* Day list */}
-          <div style={{ width: 220, flexShrink: 0, overflowY: 'auto', borderRight: '1px solid var(--border-subtle)', padding: 8 }}>
+        <div className="m-flow" style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+          {/* Day list — on a phone a screen of its own, the note opening on the next */}
+          {showList && <div className="m-flow" style={phone ? { flex: 1, padding: 8 }
+            : { width: 220, flexShrink: 0, overflowY: 'auto', borderRight: '1px solid var(--border-subtle)', padding: 8 }}>
             {notes.map(n => {
               const active = n.dayNumber === selected;
               return (
-                <button key={n.dayNumber} onClick={() => setSelected(n.dayNumber)}
+                <button key={n.dayNumber} onClick={() => { setSelected(n.dayNumber); if (phone) detail.show(); }}
                   style={{
                     display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', marginBottom: 4,
                     borderRadius: 'var(--radius-sm)', cursor: 'pointer', border: 'none',
@@ -80,10 +87,11 @@ export function NotesPage() {
                 </button>
               );
             })}
-          </div>
+          </div>}
 
           {/* Visualized markdown */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>
+          {showNote && <div className="m-flow" style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: phone ? '12px 16px 24px' : '20px 28px' }}>
+            {phone && <button className="btn btn-ghost btn-sm" style={{ marginBottom: 10, paddingLeft: 0 }} onClick={detail.back}>← All days</button>}
             {current && (
               <>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 16 }}>
@@ -93,7 +101,7 @@ export function NotesPage() {
                 <div className="md-body" dangerouslySetInnerHTML={{ __html: marked.parse(current.content) as string }} />
               </>
             )}
-          </div>
+          </div>}
         </div>
       )}
     </div>

@@ -51,10 +51,10 @@ export function HabitsPage({ roadmapId, onBack }: Props) {
   if (loading) return <div className="app-shell"><div className="empty-state"><p>Loading...</p></div></div>;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="m-shell" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0, gap: 10, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 16, fontWeight: 600 }}>Habits</span>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div className="perf-head-actions" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {sprints.length > 0 && (
             <select className="sprint-select" value={selectedSprint} onChange={e => setSelectedSprint(e.target.value)}>
               {sprints.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -63,7 +63,7 @@ export function HabitsPage({ roadmapId, onBack }: Props) {
         </div>
       </div>
 
-      <div className="perf-content">
+      <div className="perf-content m-flow">
         {/* Global habit library */}
         <div className="perf-section">
           <h2>Habit Library</h2>

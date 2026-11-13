@@ -79,7 +79,7 @@ export function WeekPlanPage({ roadmapId, onBack }: Props) {
   if (loading) return <div className="app-shell"><div className="empty-state"><p>Loading...</p></div></div>;
 
   if (noSprint || !plan) return (
-    <div className="app-shell">
+    <div className="app-shell m-shell">
       <header className="app-header">
         <div><h1><span>◆</span> Week Plan</h1></div>
         <div className="header-actions">
@@ -102,7 +102,7 @@ export function WeekPlanPage({ roadmapId, onBack }: Props) {
   const goalsCompleted = plan.customGoals.filter(g => g.isCompleted).length;
 
   return (
-    <div className="app-shell">
+    <div className="app-shell m-shell">
       <header className="app-header">
         <div><h1><span>◆</span> Week Plan</h1></div>
         <div className="header-actions">
@@ -119,7 +119,7 @@ export function WeekPlanPage({ roadmapId, onBack }: Props) {
         </div>
       </header>
 
-      <div className="week-content">
+      <div className="week-content m-flow">
         {plan.isClosed && <div className="week-closed-banner">This week is closed.</div>}
 
         {/* Summary cards */}

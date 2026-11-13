@@ -150,7 +150,7 @@ export function FlashcardsReview({ book, onStatsChanged }: { book: 'red' | 'gree
   const position = phase === 'review' ? index + 1 : total;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 24px 32px' }}>
+    <div className="m-flow" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 24px 32px' }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', maxWidth: 720, width: '100%', margin: '0 auto 14px' }}>
         <Pill text={`${book} book`} color={BOOK_COLOR[book]} />
         <span style={{ flex: 1 }} />

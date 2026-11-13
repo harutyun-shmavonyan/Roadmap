@@ -119,7 +119,7 @@ export function EnglishPage() {
   const filters: Filter[] = ['all', 'due', 'New', 'Learning', 'Young', 'Mature'];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+    <div className="m-shell" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Stats */}
       <div style={{ display: 'flex', gap: 10, padding: '14px 16px', flexWrap: 'wrap', flexShrink: 0 }}>
         <Stat label="words" value={stats?.total ?? 0} />
@@ -171,7 +171,7 @@ export function EnglishPage() {
       ) : shown.length === 0 ? (
         <div style={{ padding: 24, color: 'var(--text-muted)' }}>No entries match this filter.</div>
       ) : (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
+        <div className="m-flow" style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
           {shown.map(e => {
             const open = expanded === e.id;
             return (

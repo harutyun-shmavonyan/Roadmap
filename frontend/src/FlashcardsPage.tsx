@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, type CSSProperties } from 'react';
+import { useState, useEffect, useCallback, useRef, type CSSProperties } from 'react';
 import { marked } from 'marked';
 import type { FlashcardDto, FlashcardPromptDto, FlashcardStatsDto, FlashcardPromptState } from './types';
 import { api } from './api';
 import { FlashcardsReview } from './FlashcardsReview';
 import { FlashcardsDashboard } from './FlashcardsDashboard';
+import { usePhone, usePhoneDetail } from './usePhone';
 
 // Notes v2. A card is one note in one book; its date is a property and a filter, and its prompts are
 // what get scheduled. Cards and prompts are mostly written by the skills in chat; here they are read,
@@ -291,11 +292,16 @@ function NewCardForm({ book, onCreated }: { book: Book; onCreated: (card: Flashc
 
 export function FlashcardsPage() {
   const [mode, setMode] = useState<'cards' | 'review' | 'dashboard'>('cards');
+  // On a phone the card list and the open card are two screens, not two squeezed columns.
+  const phone = usePhone();
+  const shell = useRef<HTMLDivElement>(null);
+  const detail = usePhoneDetail(shell);
+  const showList = !phone || !detail.open, showCard = !phone || detail.open;
   // Red and green are separate worlds: the book is chosen first and everything below belongs to it.
   const [book, setBookState] = useState<Book>(() => {
     try { return localStorage.getItem('notesv2.book') === 'green' ? 'green' : 'red'; } catch { return 'red'; }
   });
-  const setBook = (b: Book) => { setBookState(b); try { localStorage.setItem('notesv2.book', b); } catch { /* private mode */ } };
+  const setBook = (b: Book) => { setBookState(b); detail.back(); try { localStorage.setItem('notesv2.book', b); } catch { /* private mode */ } };
   const [date, setDate] = useState('');
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
@@ -367,6 +373,7 @@ export function FlashcardsPage() {
     if (!card || !confirm(`Delete this card (${fmtDate(card.entryDate)}) with its ${card.promptCount} prompts?`)) return;
     await api.deleteFlashcard(card.id);
     setSelected(null);
+    detail.back();
     loadCards(false);
     loadStats();
   };
@@ -375,7 +382,7 @@ export function FlashcardsPage() {
   const tr = stats?.trueRetention30d;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div ref={shell} className="m-shell" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Book first (red and green share nothing), then the view, then that book's totals */}
       <div style={{ display: 'flex', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
         {(['red', 'green'] as Book[]).map(b => {
@@ -432,9 +439,10 @@ export function FlashcardsPage() {
       ) : loading ? (
         <div style={{ padding: 24, color: 'var(--text-muted)' }}>Loading...</div>
       ) : (
-        <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+        <div className="m-flow" style={{ display: 'flex', flex: 1, minHeight: 0 }}>
           {/* Card list, grouped by date; filters on top */}
-          <div style={{ width: 300, flexShrink: 0, overflowY: 'auto', borderRight: '1px solid var(--border-subtle)', padding: 8 }}>
+          {showList && <div className="m-flow" style={phone ? { flex: 1, minWidth: 0, padding: 8 }
+            : { width: 300, flexShrink: 0, overflowY: 'auto', borderRight: '1px solid var(--border-subtle)', padding: 8 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 <input type="date" value={date} onChange={e => setDate(e.target.value)} title="Show only the cards of this day"
@@ -443,7 +451,7 @@ export function FlashcardsPage() {
               </div>
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search cards and questions…"
                 style={{ padding: '6px 10px', fontSize: 13, borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
-              <NewCardForm book={book} onCreated={c => { loadCards(false).then(() => setSelected(c.id)); loadStats(); }} />
+              <NewCardForm book={book} onCreated={c => { loadCards(false).then(() => { setSelected(c.id); if (phone) detail.show(); }); loadStats(); }} />
               <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{cards.length} card{cards.length === 1 ? '' : 's'}{date ? ` on ${fmtDate(date)}` : ''}</div>
             </div>
             {cards.length === 0 && <div style={{ padding: '12px 10px', fontSize: 13, color: 'var(--text-muted)' }}>No cards match.</div>}
@@ -457,7 +465,7 @@ export function FlashcardsPage() {
                 {g.cards.map(c => {
                   const active = c.id === selected;
                   return (
-                    <button key={c.id} onClick={() => setSelected(c.id)}
+                    <button key={c.id} onClick={() => { setSelected(c.id); if (phone) detail.show(); }}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '7px 10px', marginBottom: 3,
                         borderRadius: 'var(--radius-sm)', cursor: 'pointer', border: 'none',
@@ -484,15 +492,16 @@ export function FlashcardsPage() {
                 })}
               </div>
             ))}
-          </div>
+          </div>}
 
           {/* Card content + prompts */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>
+          {showCard && <div className="m-flow" style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: phone ? '12px 16px 24px' : '20px 28px' }}>
+            {phone && <button className="btn btn-ghost btn-sm" style={{ marginBottom: 10, paddingLeft: 0 }} onClick={detail.back}>← All cards</button>}
             {card && (
               <>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 16 }}>
                   <Pill text={card.book} color={bookColor(card.book)} />
-                  <button onClick={() => setDate(card.entryDate)} title="Show all cards of this day"
+                  <button onClick={() => { setDate(card.entryDate); detail.back(); }} title="Show all cards of this day"
                     style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 14, color: 'var(--text-muted)', padding: 0 }}>{fmtDate(card.entryDate)}</button>
                   <span style={{ flex: 1 }} />
                   {editingContent ? (
@@ -527,7 +536,7 @@ export function FlashcardsPage() {
                 </div>
               </>
             )}
-          </div>
+          </div>}
         </div>
       )}
     </div>

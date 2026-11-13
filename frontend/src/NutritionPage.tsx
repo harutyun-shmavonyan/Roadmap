@@ -135,15 +135,15 @@ export function NutritionPage() {
 
   if (view === 'log') {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div className="m-shell" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <div style={{ padding: '12px 20px 0', flexShrink: 0 }}>{viewSwitch}</div>
-        <div style={{ flex: 1, minHeight: 0 }}><FoodLogView refreshKey={logKey} /></div>
+        <div className="m-flow" style={{ flex: 1, minHeight: 0 }}><FoodLogView refreshKey={logKey} /></div>
       </div>
     );
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="m-shell" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: '12px 20px 0', flexShrink: 0 }}>{viewSwitch}</div>
       {/* Slot switcher + the line that says how this slot is doing */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px',
@@ -164,7 +164,7 @@ export function NutritionPage() {
           onClick={() => setEditing('new')}>+ Add meal</button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+      <div className="m-flow" style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
         {loading ? (
           <div style={{ color: 'var(--text-muted)' }}>Loading...</div>
         ) : error ? (

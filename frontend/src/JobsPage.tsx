@@ -134,7 +134,7 @@ export function JobsPage() {
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="m-shell" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Day picker + run meta */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
         borderBottom: '1px solid var(--border-subtle)', flexShrink: 0, flexWrap: 'wrap' }}>
@@ -161,7 +161,7 @@ export function JobsPage() {
             ))}
           </span>
         )}
-        <span style={{ fontSize: 12, color: 'var(--text-muted)', opacity: 0.8 }}>
+        <span className="jobs-queries" style={{ fontSize: 12, color: 'var(--text-muted)', opacity: 0.8 }}>
           {run.queries.join(' · ')}
         </span>
       </div>
@@ -169,10 +169,10 @@ export function JobsPage() {
       {total === 0 ? (
         <div style={{ padding: 24, color: 'var(--text-muted)' }}>No postings survived the filters on this day.</div>
       ) : (
-        <div style={{ flex: 1, display: 'flex', alignItems: 'stretch', minHeight: 0 }}>
+        <div className="m-flow" style={{ flex: 1, display: 'flex', alignItems: 'stretch', minHeight: 0 }}>
           <ArrowButton dir="left" onClick={prev} disabled={idx === 0} />
 
-          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 8px', minWidth: 0 }}>
+          <div className="m-flow jobs-card-pane" style={{ flex: 1, overflowY: 'auto', padding: '20px 8px', minWidth: 0 }}>
             {current && <PostingCard key={current.id} posting={current} onOpen={setModal}
               onApplicationSaved={patchPosting} />}
           </div>
@@ -183,14 +183,17 @@ export function JobsPage() {
 
       {current && modal && <PostingModal kind={modal} posting={current} onClose={() => setModal(null)} />}
 
-      {/* Position counter */}
+      {/* Position counter. On a phone the side arrows would take 112px of a 390px screen, so the
+          card gets the width and the arrows move here, into a footer that stays on screen. */}
       {total > 0 && (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10,
+        <div className="jobs-foot" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10,
           padding: '10px 16px', borderTop: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+          <button className="btn btn-sm jobs-bar-arrow" onClick={prev} disabled={idx === 0} aria-label="Previous posting">‹ Prev</button>
           <span style={{ fontSize: 13, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
             {idx + 1} / {total}
           </span>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)', opacity: 0.6 }}>← → to navigate</span>
+          <span className="jobs-keyhint" style={{ fontSize: 11, color: 'var(--text-muted)', opacity: 0.6 }}>← → to navigate</span>
+          <button className="btn btn-sm jobs-bar-arrow" onClick={next} disabled={idx >= total - 1} aria-label="Next posting">Next ›</button>
         </div>
       )}
     </div>
@@ -199,7 +202,7 @@ export function JobsPage() {
 
 function ArrowButton({ dir, onClick, disabled }: { dir: 'left' | 'right'; onClick: () => void; disabled: boolean }) {
   return (
-    <button onClick={onClick} disabled={disabled}
+    <button className="jobs-side-arrow" onClick={onClick} disabled={disabled}
       aria-label={dir === 'left' ? 'Previous posting' : 'Next posting'}
       style={{
         flexShrink: 0, width: 56, border: 'none', background: 'transparent',
@@ -384,9 +387,9 @@ function PostingCard({ posting: p, onOpen, onApplicationSaved }: {
       {/* Eligibility accent strip */}
       <div style={{ height: 4, background: eligColor }} />
 
-      <div style={{ padding: '22px 26px 26px' }}>
+      <div className="jobs-card-body" style={{ padding: '22px 26px 26px' }}>
         {/* Header: eligibility pill + title + company | score tiles */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20 }}>
+        <div className="jobs-card-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20 }}>
           <div style={{ minWidth: 0 }}>
             <span title={lane.hint}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700,

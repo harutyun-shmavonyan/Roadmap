@@ -540,3 +540,23 @@ allowed, each with its distance from the last close, the size and the time stop.
 `context.chain_steps` ([{step, detail, lag, facts:[{actor, date, magnitude, url, tier}]}], Screener prompts v3): one
 numbered step per link with its source chips and the lag to the next step; a step with no facts is marked as the one
 the card is betting on, and "What would break it" closes the chain in red. Older runs show the one-line chain.
+
+## Phones — one scroller per tab (2026-11-13)
+
+Below 768px each tab scrolls as one page between the top of the screen and the bottom bar; its
+header, stats and filters scroll away with the content (the user: "not mobile friendly, sometimes it
+doesn't scroll well"). Measured before: inner panes of 289–552px of a 664px screen under pinned
+headers, and two side-by-side panes on Notes / Notes v2.
+
+- **`m-shell` / `m-flow`** (`styles.css`, mobile block): `m-shell` on the tab's root makes it the
+  scroller; `m-flow` on every box between it and the content that scrolls on a desktop makes that box
+  flow instead. They are inert on a desktop, which keeps its pinned headers. A new tab with its own
+  inner scroller needs both, or its list is a slot again on a phone.
+- **The document never scrolls** (`html, body` overflow hidden, overscroll none, on phones too). It
+  used to be `overflow: auto` on phones, and a few pixels of slack let a swipe move the document
+  instead of the tab.
+- **List beside detail → list, then detail** (`usePhoneDetail` in `usePhone.ts`): Notes and Notes v2
+  show the list, open the item on its own screen with a back link, and restore the list's scroll.
+- Not converted, because they are already one scroller or keep their own: Articles (the reader's
+  scroll position is saved), Courses (the lesson rail spies on its scroller), Newsletter,
+  Experiences, and the Schedule time grid (a calendar; its habits row is one swipeable line).

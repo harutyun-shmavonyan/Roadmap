@@ -102,7 +102,7 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 .btn-ghost:hover { color: var(--text-primary); background: var(--bg-hover); }
 
 /* ─── Layout ─── */
-.app-shell { display: flex; flex-direction: column; height: 100vh; }
+.app-shell { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 .app-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 24px; border-bottom: 1px solid var(--border-subtle);
@@ -140,7 +140,7 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 .status-dot.status-completed { background: var(--success); }
 
 /* ─── Picker Screen ─── */
-.picker-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; gap: 36px; padding: 24px; }
+.picker-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; height: 100dvh; gap: 36px; padding: 24px; }
 .picker-screen h1 { font-size: 32px; font-weight: 400; letter-spacing: 0.02em; color: var(--text-primary); }
 .picker-screen h1 span { color: var(--accent); font-weight: 600; }
 .picker-list { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 420px; }
@@ -232,7 +232,7 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 
 /* ─── Modal ─── */
 .modal-overlay { position: fixed; inset: 0; background: var(--overlay-bg); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
-.modal { background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 28px; width: 100%; max-width: 480px; box-shadow: var(--shadow-lg); max-height: 90vh; overflow-y: auto; }
+.modal { background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 28px; width: 100%; max-width: 480px; box-shadow: var(--shadow-lg); max-height: 90vh; max-height: 90dvh; overflow-y: auto; }
 .modal h2 { font-size: 18px; font-weight: 600; margin-bottom: 20px; }
 .modal label { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
 .modal input[type="text"], .modal input[type="number"], .modal input[type="date"], .modal select, .modal textarea {
@@ -504,8 +504,26 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 
 /* ─── Mobile ─── */
 @media (max-width: 768px) {
-  /* Global */
-  html, body, #root { height: 100%; overflow: auto; -webkit-overflow-scrolling: touch; }
+  /* Global. The document never scrolls — the app frame is exactly the screen and each tab
+     scrolls inside it. It used to be overflow: auto here, and whenever the frame and the
+     document differed by a few pixels (iOS resizing the toolbar) a swipe moved the whole
+     document instead of the tab, which is the "sometimes it doesn't scroll". */
+  html, body, #root { height: 100%; overflow: hidden; overscroll-behavior: none; }
+
+  /* One scroller per tab. On a desktop a tab pins its header and scrolls the body below it; on
+     a phone that left the list a slot between the header and the bottom bar (289px of 664 on
+     English). Here the tab's shell scrolls and everything in it flows, so headers, stats and
+     filters scroll away with the content. m-shell marks the shell, m-flow each box between it
+     and the content that used to scroll on its own. !important because most of those boxes
+     set their layout inline. Grow and shrink stay on: min-height: auto already stops a column
+     from squeezing its content, and a box in a row (a list beside a card) has to be able to
+     shrink to the screen's width or its text never wraps. */
+  .m-shell { overflow-y: auto !important; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
+  .m-shell .m-flow { flex: 1 1 auto !important; min-height: auto !important; height: auto !important; min-width: 0; overflow: visible !important; }
+
+  /* A sprint picker names the dates too, which is wider than a phone: let it shrink. */
+  .perf-head-actions { min-width: 0; max-width: 100%; }
+  .perf-head-actions .sprint-select { min-width: 0; flex: 0 1 auto; max-width: 100%; }
 
   /* App header / nav */
   .app-header { padding: 8px 10px; }
@@ -543,7 +561,10 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
   .hour-line { left: -48px; }
   .hour-label { width: 42px; font-size: 10px; }
 
-  .sched-habits-row { padding: 8px 10px; gap: 6px; flex-wrap: wrap; }
+  /* One swipeable line, like the tasks row below it: wrapped, three habits took two rows of
+     the calendar's height. */
+  .sched-habits-row { padding: 8px 10px; gap: 6px; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .sched-habits-row > * { flex-shrink: 0; }
   .habit-chip { font-size: 12px; padding: 4px 8px; }
   .sched-tasks-row { padding: 8px 10px; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
@@ -570,13 +591,13 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
 
   /* Modals */
   .modal-overlay { padding: 10px; }
-  .modal { padding: 20px; max-height: 85vh; max-width: calc(100vw - 20px); }
+  .modal { padding: 20px; max-height: 85vh; max-height: 85dvh; max-width: calc(100vw - 20px); }
 
   /* Sprint modal */
   .sprint-modal { max-width: calc(100vw - 20px); }
 
   /* Context menu */
-  .node-actions { max-height: calc(100vh - 32px); overflow-y: auto; }
+  .node-actions { max-height: calc(100dvh - 32px); overflow-y: auto; }
 }
 
 /* ===== Markdown (Notes) ===== */
@@ -819,6 +840,20 @@ body { font-family: var(--font-body); background: var(--bg-primary); color: var(
   /* The bottom bar owns the foot of the screen, so page-level floating buttons
      (the Schedule sidebar toggle) have to clear it. */
   .sidebar-toggle { bottom: calc(65px + env(safe-area-inset-bottom)); }
+}
+
+/* Jobs tab on a phone: the card takes the width, prev/next sit in a footer pinned to the bottom
+   of the tab's scroller, and the long query list in the header is left out. */
+.jobs-bar-arrow { display: none; }
+@media (max-width: 768px) {
+  .jobs-side-arrow { display: none !important; }
+  .jobs-bar-arrow { display: inline-flex; }
+  .jobs-keyhint, .jobs-queries { display: none; }
+  .jobs-card-pane { padding: 12px 10px !important; }
+  .jobs-card-body { padding: 16px 16px 20px !important; }
+  /* The title gets the width; the score tiles wrap below it instead of squeezing it. */
+  .jobs-card-head { flex-wrap: wrap; gap: 12px !important; }
+  .jobs-foot { position: sticky; bottom: 0; z-index: 4; background: var(--bg-primary); justify-content: space-between !important; }
 }
 
 /* A button whose whole label is a drawn icon: centre it and let the glyph, not a font metric,

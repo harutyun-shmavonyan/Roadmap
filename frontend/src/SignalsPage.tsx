@@ -342,7 +342,7 @@ export function SignalsPage() {
     try { localStorage.setItem(BOARD_KEY, b); } catch { /* a remembered tab is a convenience */ }
   };
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="m-shell" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ display: 'flex', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
         {BOARDS.map(b => {
           const active = board === b.id;
@@ -360,7 +360,7 @@ export function SignalsPage() {
           );
         })}
       </div>
-      <div style={{ flex: 1, minHeight: 0 }}>
+      <div className="m-flow" style={{ flex: 1, minHeight: 0 }}>
         <SignalsBoard key={board} board={board} onUnread={setUnread} />
       </div>
     </div>
@@ -496,7 +496,7 @@ function SignalsBoard({ board, onUnread }: { board: Board; onUnread: React.Dispa
   );
 
   return (
-    <div style={{ height: '100%', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+    <div className="m-flow" style={{ height: '100%', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
       {/* Day picker: a strip of recent days (dot = fired / degraded / quiet) and a select for the rest. */}
       <div style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--bg-primary)', borderBottom: '1px solid var(--border-subtle)',
         padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

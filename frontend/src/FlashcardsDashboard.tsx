@@ -161,7 +161,7 @@ export function FlashcardsDashboard({ book }: { book: 'red' | 'green' }) {
   if (!data || !view) return <div style={{ padding: 24, color: 'var(--text-muted)' }}>Loading…</div>;
 
   return (
-    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 24px 32px' }}>
+    <div className="m-flow" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '16px 24px 32px' }}>
       <section style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg, 12px)', background: 'var(--bg-secondary)', padding: '18px 20px', maxWidth: 900 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>Predicted recall across prompts</h3>

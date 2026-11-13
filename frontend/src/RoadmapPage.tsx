@@ -208,7 +208,7 @@ export function RoadmapPage({ roadmapId, onBack }: { roadmapId: string; onBack: 
   if (loading) return <div style={{display:'flex',height:'100%',alignItems:'center',justifyContent:'center',color:'var(--text-muted)',fontSize:16}}>Loading...</div>;
 
   return (
-    <div style={{display:'flex',flexDirection:'column',height:'100%'}}>
+    <div className="m-shell" style={{display:'flex',flexDirection:'column',height:'100%'}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 20px',borderBottom:'1px solid var(--border-subtle)',flexShrink:0}}>
         <span style={{fontSize:14,color:'var(--text-muted)'}}>
           {selectedCat ? categories.find(c => c.id === selectedCat)?.path : 'All Items'} · {filtered.length} items
@@ -216,7 +216,7 @@ export function RoadmapPage({ roadmapId, onBack }: { roadmapId: string; onBack: 
         <button className="btn btn-sm" onClick={() => setAddModal({ parentId: selectedCat, sortOrder: 0 })}>+ Add</button>
       </div>
 
-      <div className="roadmap-body">
+      <div className="roadmap-body m-flow">
         <aside className="cat-panel">
           <h2>Categories</h2>
           <div className={`cat-tree-item cat-all ${!selectedCat ? 'selected' : ''}`} onClick={() => setSelectedCat(null)}>
@@ -308,7 +308,7 @@ export function RoadmapPage({ roadmapId, onBack }: { roadmapId: string; onBack: 
           </div>
         </aside>
 
-        <div className="items-panel">
+        <div className="items-panel m-flow">
           {filtered.length === 0 && <div className="empty-state" style={{height:'auto',padding:60}}><p>No items here yet.</p></div>}
           {filtered.map(({ node, categories: cats }) => {
             const isCompleted = node.status === 'Completed';

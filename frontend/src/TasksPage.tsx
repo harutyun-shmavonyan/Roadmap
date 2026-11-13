@@ -125,7 +125,7 @@ export function TasksPage({ roadmapId }: Props) {
   const createIn = filter !== 'all' && filter !== NO_PROJECT ? filter : null;
 
   return (
-    <div className="tk-shell">
+    <div className="tk-shell m-shell">
       <div className="tk-header">
         <div>
           <span className="tk-title">Tasks</span>
@@ -157,7 +157,7 @@ export function TasksPage({ roadmapId }: Props) {
         </div>
       )}
 
-      <div className="tk-body">
+      <div className="tk-body m-flow">
         {error && <div className="tk-error" role="alert">{error}</div>}
 
         {tasks.length === 0 && projects.length === 0 ? (

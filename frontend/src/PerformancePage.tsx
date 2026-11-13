@@ -74,10 +74,10 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
   const sortedItems = perf ? sortItems(perf.items, sortKey, sortDir) : [];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="m-shell" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0, gap: 10, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 16, fontWeight: 600 }}>Performance</span>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div className="perf-head-actions" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {sprints.length > 0 && (
             <select className="sprint-select" value={selectedSprint} onChange={e => setSelectedSprint(e.target.value)}>
               {sprints.map(s => <option key={s.id} value={s.id}>{s.name} ({s.startDate} → {s.endDate})</option>)}
@@ -87,7 +87,7 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
         </div>
       </div>
 
-      <div className="perf-content">
+      <div className="perf-content m-flow">
         {loading ? (
           <div className="empty-state" style={{ height: 'auto', padding: 60 }}>
             <p>Loading...</p>

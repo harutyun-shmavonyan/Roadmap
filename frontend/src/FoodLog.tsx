@@ -120,7 +120,7 @@ export function FoodLogView({ refreshKey }: { refreshKey: number }) {
   const avgKcal = avgOf(t => t.calories), avgProtein = avgOf(t => t.proteinG);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <div className="m-flow" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', flexWrap: 'wrap',
         borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
         <div className="nav-tabs" role="group" aria-label="Range">
@@ -140,7 +140,7 @@ export function FoodLogView({ refreshKey }: { refreshKey: number }) {
           onClick={() => setEditing({ date: todayIso() })}>+ Log food</button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+      <div className="m-flow" style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
         {loading ? (
           <div style={{ color: 'var(--text-muted)' }}>Loading...</div>
         ) : error ? (
