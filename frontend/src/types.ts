@@ -77,6 +77,8 @@ export interface SprintExperienceSchedule {
 
 export interface PerformanceSummary {
   experiences?: SprintExperienceSchedule | null;
+  /** A new person each week — tasks of the Tasks tab's "Network" project, by due date. Same shape. */
+  network?: SprintExperienceSchedule | null;
   items: PerformanceItem[]; totalPlannedPoints: number; totalEarnedPoints: number;
   dailyPoints: { date: string; points: number }[];
   /**
@@ -133,6 +135,7 @@ export interface WeekPlan {
   activeSprint: SprintDto | null;
   sprintGoals: SprintGoalDto[];
   experiences?: SprintExperienceWeek | null;
+  network?: SprintExperienceWeek | null;
 }
 
 export interface WeekScheduledItem {

@@ -222,6 +222,7 @@ export function WeekPlanPage({ roadmapId, onBack }: Props) {
 
         {/* Experiences this week — at least 2 a week */}
         {plan.experiences && <WeekExperiencesSection week={plan.experiences} />}
+        {plan.network && <WeekExperiencesSection week={plan.network} kind="network" />}
 
         {/* Completed tasks this week */}
         {plan.completedTasks && plan.completedTasks.length > 0 && (

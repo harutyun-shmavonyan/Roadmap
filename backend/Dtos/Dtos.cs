@@ -128,7 +128,9 @@ public record PerformanceSummaryDto(
     /// <summary>"Fixed" or "Weighted" — how this sprint's earned figures were priced.</summary>
     string ScoringMode = "Fixed",
     /// <summary>The sprint's experiences schedule, week by week — see <c>SprintExperiences</c>.</summary>
-    SprintExperienceScheduleDto? Experiences = null
+    SprintExperienceScheduleDto? Experiences = null,
+    /// <summary>The sprint's network schedule — a new person each week, see <c>SprintNetwork</c>.</summary>
+    SprintExperienceScheduleDto? Network = null
 );
 
 // --- Sprint experiences schedule (at least 2 a week, required to start a sprint) ---
@@ -216,7 +218,8 @@ public record WeekPlanDto(
     List<CustomLogDto> CustomLogs,
     SprintDto ActiveSprint,
     List<SprintGoalDto> SprintGoals,
-    SprintExperienceWeekDto? Experiences = null
+    SprintExperienceWeekDto? Experiences = null,
+    SprintExperienceWeekDto? Network = null
 );
 
 public record CompletedTaskDto(Guid Id, string Title, string Priority, double EstimatedHours, double Points, string CompletedDate);

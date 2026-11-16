@@ -178,6 +178,7 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
 
             {/* Experiences schedule — at least 2 a week, required to start the sprint */}
             {perf.experiences && <SprintExperiencesSection schedule={perf.experiences} />}
+            {perf.network && <SprintExperiencesSection schedule={perf.network} kind="network" />}
 
             {/* Category time breakdown */}
             {perf.categoryBreakdown && perf.categoryBreakdown.length > 0 && (

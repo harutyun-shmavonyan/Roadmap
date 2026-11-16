@@ -599,3 +599,20 @@ Styles are the `sp-*` block in `styles.css`. A new start condition belongs in th
 (safe areas respected, sticky Sprints header, 44px close/⋯ targets, dates and "days left" on separate
 lines); in schedule mode the Experiences cards drop their cover image so "Schedule on <day>" stays in
 reach. Inline badge icons (`NavIcons.tsx`: `ScalesIcon` for Weighted scoring, `CalendarIcon` for Schedule, `BookIcon` / `PlateIcon` for the Nutrition views) are app-icon tiles — gradient + gloss in `currentColor` (or `tone`), glyph knocked out in `ink` (white; on a filled button pass the button colour as `ink` and `tone="#fff"`). No emoji for these.
+
+## Sprint network schedule (2026-11-16)
+
+The second start condition (the user's call): **a new person to meet each week** of the sprint. The people
+are the tasks of the roadmap's **Network** task project (matched by name, any case —
+`SprintNetwork.ProjectName`); one task = one person, its **DueDate is the meeting** (it counts in that
+Monday–Sunday week), completing the task = met. A clipped week owes ceil(1 × days ÷ 7) = 1. No points of
+its own — the task's own points apply. `SprintNetwork` (`backend/SprintNetwork.cs`) reuses the experiences
+DTOs (`SprintExperienceScheduleDto` / `WeekDto` / `RefDto`, Category null) and owns
+`StartChecksAsync`, the **one place every Start Sprint check runs** (REST start and MCP `start_sprint`
+both call it; refusals are joined). Surfaces: `GET /sprints/{id}/network`, `network` on the Performance
+summary and on `WeekPlanDto`, MCP `get_sprint_performance`. Frontend `SprintNetwork.tsx`: the draft
+card's second check + week list; "+ Add" opens the **Network picker** (`.nw-*` styles; full-screen on
+phones) — your Network list (unscheduled first; search; "Show met"), a day picker for the week, "Meet
+<day>" sets the task's DueDate (and StartDate no later than it, so it shows that day), and "Someone new"
+adds a task (creating the Network project on first use). Sections reuse `SprintExperiencesSection` /
+`WeekExperiencesSection` with `kind="network"` (title Network, "met").

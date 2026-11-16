@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { SprintDto, SprintExperienceSchedule } from './types';
 import { api } from './api';
 import { SprintExperiencesChecklist } from './SprintExperiences';
+import { SprintNetworkChecklist } from './SprintNetwork';
 import { ScalesIcon } from './NavIcons';
 
 // The Sprints window (redesign 2026-11-16). One job per area, in the order you need them:
@@ -81,8 +82,8 @@ function SprintFields({ name, start, end, setName, setStart, setEnd, autoFocus }
   );
 }
 
-function SprintCard({ s, exp, busy, roadmapId, onChanged, onError, setBusy }: {
-  s: SprintDto; exp?: SprintExperienceSchedule; busy: boolean; roadmapId: string;
+function SprintCard({ s, exp, net, busy, roadmapId, onChanged, onError, setBusy }: {
+  s: SprintDto; exp?: SprintExperienceSchedule; net?: SprintExperienceSchedule; busy: boolean; roadmapId: string;
   onChanged: () => Promise<void>; onError: (m: string) => void; setBusy: (b: boolean) => void;
 }) {
   const kind = kindOf(s);
@@ -131,8 +132,9 @@ function SprintCard({ s, exp, busy, roadmapId, onChanged, onError, setBusy }: {
     );
   }
 
-  const ready = !!exp?.ready;
-  const readyWeeks = exp ? exp.weeks.filter(w => w.met).length : 0;
+  const expReady = !!exp?.ready, netReady = !!net?.ready;
+  const ready = expReady && netReady;
+  const readyWeeks = (x?: SprintExperienceSchedule) => (x ? `${x.weeks.filter(w => w.met).length} of ${x.weeks.length} weeks` : '…');
 
   return (
     <article className={`sp-card sp-card-${kind}`} aria-label={s.name}>
@@ -173,23 +175,42 @@ function SprintCard({ s, exp, busy, roadmapId, onChanged, onError, setBusy }: {
               <span className="sp-muted">· {exp.scheduled} scheduled{exp.earnedPoints > 0 ? ` · +${exp.earnedPoints} pts` : ''}</span>
             </div>
           )}
+          {net && (
+            <div className="sp-stat-line">
+              <span>Network</span>
+              <strong>{net.done} of {net.required} met</strong>
+              <span className="sp-muted">· {net.scheduled} scheduled</span>
+            </div>
+          )}
         </>
       )}
 
       {kind === 'draft' && !editing && (
         <section className="sp-ready" aria-label="Ready to start?">
           <h4>Ready to start?</h4>
-          <div className={`sp-check ${ready ? 'ok' : ''}`}>
-            <span className="sp-check-mark" aria-hidden="true">{ready ? '✓' : '○'}</span>
+          <div className={`sp-check ${expReady ? 'ok' : ''}`}>
+            <span className="sp-check-mark" aria-hidden="true">{expReady ? '✓' : '○'}</span>
             <span>Experiences scheduled — at least {exp?.perWeek ?? 2} a week</span>
-            <span className="sp-muted sp-check-count">{exp ? `${readyWeeks} of ${exp.weeks.length} weeks` : '…'}</span>
+            <span className="sp-muted sp-check-count">{readyWeeks(exp)}</span>
           </div>
           {exp && <SprintExperiencesChecklist schedule={exp} onAdded={onChanged} hideHeader />}
+          <div className={`sp-check ${netReady ? 'ok' : ''}`}>
+            <span className="sp-check-mark" aria-hidden="true">{netReady ? '✓' : '○'}</span>
+            <span>Network — a new person to meet each week</span>
+            <span className="sp-muted sp-check-count">{readyWeeks(net)}</span>
+          </div>
+          {net && <SprintNetworkChecklist roadmapId={roadmapId} schedule={net} onChanged={onChanged} />}
           <button className="btn btn-accent sp-start" disabled={busy || !ready}
             onClick={() => run(() => api.startSprint(roadmapId, s.id))}>
             ▶ Start sprint
           </button>
-          {!ready && exp && <div className="sp-hint" style={{ textAlign: 'center' }}>Schedule the missing experiences above to unlock Start.</div>}
+          {!ready && exp && net && (
+            <div className="sp-hint" style={{ textAlign: 'center' }}>
+              {!expReady && !netReady ? 'Schedule the missing experiences and people above to unlock Start.'
+                : !expReady ? 'Schedule the missing experiences above to unlock Start.'
+                : 'Choose who to meet in the missing weeks above to unlock Start.'}
+            </div>
+          )}
         </section>
       )}
 
@@ -219,6 +240,7 @@ function SprintCard({ s, exp, busy, roadmapId, onChanged, onError, setBusy }: {
 export function SprintModal({ roadmapId, onClose }: Props) {
   const [sprints, setSprints] = useState<SprintDto[]>([]);
   const [exp, setExp] = useState<Record<string, SprintExperienceSchedule>>({});
+  const [net, setNet] = useState<Record<string, SprintExperienceSchedule>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -235,14 +257,16 @@ export function SprintModal({ roadmapId, onClose }: Props) {
     // Experiences schedule for every sprint still open: drafts need it to start, the active
     // sprint shows how it is going.
     const open = list.filter(s => s.isOpen);
-    const entries = await Promise.all(open.map(async s => [s.id, await api.getSprintExperiences(roadmapId, s.id)] as const));
-    setExp(Object.fromEntries(entries));
+    const entries = await Promise.all(open.map(async s =>
+      [s.id, await api.getSprintExperiences(roadmapId, s.id), await api.getSprintNetwork(roadmapId, s.id)] as const));
+    setExp(Object.fromEntries(entries.map(([id, e]) => [id, e])));
+    setNet(Object.fromEntries(entries.map(([id, , n]) => [id, n])));
   }, [roadmapId]);
   useEffect(() => { setLoading(true); load().catch(e => setError(String(e))).finally(() => setLoading(false)); }, [load]);
 
   // Escape closes the window (a menu open inside it handles its own Escape first).
   useEffect(() => {
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('.xp-modal, .xp-tab-modal')) onClose(); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('.xp-modal, .xp-tab-modal, .nw-modal')) onClose(); };
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
   }, [onClose]);
@@ -321,14 +345,14 @@ export function SprintModal({ roadmapId, onClose }: Props) {
             {active.length > 0 && (
               <section className="sp-section">
                 <h4 className="sp-section-h">Active</h4>
-                {active.map(s => <SprintCard key={s.id} s={s} exp={exp[s.id]} {...cardProps} />)}
+                {active.map(s => <SprintCard key={s.id} s={s} exp={exp[s.id]} net={net[s.id]} {...cardProps} />)}
               </section>
             )}
 
             {drafts.length > 0 && (
               <section className="sp-section">
                 <h4 className="sp-section-h">{drafts.length === 1 ? 'Draft' : `Drafts · ${drafts.length}`}</h4>
-                {drafts.map(s => <SprintCard key={s.id} s={s} exp={exp[s.id]} {...cardProps} />)}
+                {drafts.map(s => <SprintCard key={s.id} s={s} exp={exp[s.id]} net={net[s.id]} {...cardProps} />)}
               </section>
             )}
 

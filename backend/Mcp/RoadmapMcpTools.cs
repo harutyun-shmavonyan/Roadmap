@@ -211,7 +211,7 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db, IBlobStore store)
         return J(new SprintDto(sp.Id, sp.Name, sp.StartDate.ToString("yyyy-MM-dd"), sp.EndDate.ToString("yyyy-MM-dd"), sp.IsOpen, sp.IsStarted, sp.RelaxDays, sp.ScoringMode.ToString()));
     }
 
-    [McpServerTool(Name = "start_sprint"), Description("Start a sprint — snapshots the planned schedule for all active/scheduled nodes. Required before logging work. Refused until every Monday–Sunday week of the sprint has at least 2 experiences dated in it (Experiences tab; a partial week owes ceil(2 × days ÷ 7)) — the error lists the short weeks.")]
+    [McpServerTool(Name = "start_sprint"), Description("Start a sprint — snapshots the planned schedule for all active/scheduled nodes. Required before logging work. Refused until every Monday–Sunday week of the sprint has at least 2 experiences dated in it (Experiences tab; a partial week owes ceil(2 × days ÷ 7)) and a new person to meet each week (a task in the Tasks tab's \"Network\" project, due that week) — the error lists the short weeks.")]
     public async Task<string> StartSprint(
         [Description("Roadmap UUID")] Guid roadmap_id,
         [Description("Sprint UUID")] Guid sprint_id)
@@ -219,9 +219,9 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db, IBlobStore store)
         var sprint = await db.Sprints.Include(s => s.PlanEntries).FirstOrDefaultAsync(s => s.Id == sprint_id && s.RoadmapId == roadmap_id);
         if (sprint is null) return J(new { error = "Sprint not found" });
         if (sprint.IsStarted) return J(new { error = "Sprint already started" });
-        var expSchedule = await SprintExperiences.ComputeAsync(db, sprint.StartDate, sprint.EndDate);
-        if (SprintExperiences.StartRefusal(expSchedule) is string expRefusal)
-            return J(new { error = expRefusal, experiences = expSchedule });
+        var (startRefusal, expSchedule, netSchedule) = await SprintNetwork.StartChecksAsync(db, sprint);
+        if (startRefusal is not null)
+            return J(new { error = startRefusal, experiences = expSchedule, network = netSchedule });
 
         var allNodes = await db.Nodes.AsNoTracking().Where(n => n.RoadmapId == roadmap_id).OrderBy(n => n.SortOrder).ToListAsync();
         var blocks = await db.ScheduleBlocks.AsNoTracking().Include(sb => sb.Items).Where(sb => sb.RoadmapId == roadmap_id).ToListAsync();
@@ -340,7 +340,8 @@ public sealed class RoadmapMcpTools(RoadmapDbContext db, IBlobStore store)
             items,
             pools,
             dailyPoints = dailyMap.Select(kv => new { date = kv.Key.ToString("yyyy-MM-dd"), points = Math.Round(kv.Value, 1) }).OrderBy(x => x.date),
-            experiences = await SprintExperiences.ComputeAsync(db, sprint.StartDate, sprint.EndDate)
+            experiences = await SprintExperiences.ComputeAsync(db, sprint.StartDate, sprint.EndDate),
+            network = await SprintNetwork.ComputeAsync(db, roadmap_id, sprint.StartDate, sprint.EndDate)
         });
     }
 

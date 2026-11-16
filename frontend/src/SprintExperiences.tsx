@@ -12,24 +12,27 @@ import { api } from './api';
 /** What a done experience earns its sprint — SprintExperiences.PointsPerDone on the server. */
 const POINTS_PER_DONE = 5;
 
-const todayIso = () => {
+export const todayIso = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-const fmt = (iso: string) =>
+export const fmt = (iso: string) =>
   new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 /** "Nov 24 – 30" within a month, "Nov 30 – Dec 6" across one, "Dec 7" for a single day. */
-const fmtRange = (from: string, to: string) => {
+export const fmtRange = (from: string, to: string) => {
   if (from === to) return fmt(from);
   const [a, b] = [new Date(from + 'T00:00:00'), new Date(to + 'T00:00:00')];
   return a.getMonth() === b.getMonth() ? `${fmt(from)} – ${b.getDate()}` : `${fmt(from)} – ${fmt(to)}`;
 };
-const fmtDay = (iso: string) =>
-  new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+/** "Mon 30" — weekday first, whatever order the locale would pick. */
+export const fmtDay = (iso: string) => {
+  const d = new Date(iso + 'T00:00:00');
+  return `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${d.getDate()}`;
+};
 
 /** done of required, with how many are scheduled — the colour says whether the week's minimum is met. */
-function WeekCount({ w, mode }: { w: SprintExperienceWeek; mode: 'schedule' | 'done' }) {
+export function WeekCount({ w, mode, doneWord = 'done' }: { w: SprintExperienceWeek; mode: 'schedule' | 'done'; doneWord?: string }) {
   const ended = w.to < todayIso();
   const metDone = w.done >= w.required;
   const color = mode === 'schedule'
@@ -39,15 +42,23 @@ function WeekCount({ w, mode }: { w: SprintExperienceWeek; mode: 'schedule' | 'd
     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color }}>
       {mode === 'schedule'
         ? `${w.scheduled}/${w.required} scheduled`
-        : `${w.done}/${w.required} done · ${w.scheduled} scheduled`}
+        : `${w.done}/${w.required} ${doneWord} · ${w.scheduled} scheduled`}
     </span>
   );
 }
 
-function ExperienceList({ w }: { w: SprintExperienceWeek }) {
+/** The two sprint schedules share one shape; these are the words and extras that differ. */
+export type ScheduleKind = 'experiences' | 'network';
+const KIND = {
+  experiences: { title: 'Experiences', doneWord: 'done', empty: 'No experiences scheduled this week.', points: true, doneTitle: 'Done', missedTitle: 'Date passed — not marked done' },
+  network: { title: 'Network', doneWord: 'met', empty: 'Nobody to meet this week.', points: false, doneTitle: 'Met', missedTitle: 'Date passed — task not completed' },
+} as const;
+
+function ExperienceList({ w, kind = 'experiences' }: { w: SprintExperienceWeek; kind?: ScheduleKind }) {
   const today = todayIso();
+  const K = KIND[kind];
   if (w.experiences.length === 0)
-    return <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '4px 0' }}>No experiences scheduled this week.</div>;
+    return <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '4px 0' }}>{K.empty}</div>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {w.experiences.map(e => {
@@ -57,12 +68,12 @@ function ExperienceList({ w }: { w: SprintExperienceWeek }) {
           <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
             background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)', fontSize: 14 }}>
             <span style={{ width: 16, textAlign: 'center', color: done ? 'var(--success)' : missed ? 'var(--danger)' : 'var(--text-muted)', fontWeight: 600 }}
-              title={done ? 'Done' : missed ? 'Date passed — not marked done' : 'Planned'}>
+              title={done ? K.doneTitle : missed ? K.missedTitle : 'Planned'}>
               {done ? '✓' : missed ? '✕' : '○'}
             </span>
             <span style={{ flex: 1, minWidth: 0, color: missed ? 'var(--text-muted)' : undefined }}>{e.title}</span>
             {e.category && <span style={{ fontSize: 11, color: 'var(--text-muted)', border: '1px solid var(--border-subtle)', borderRadius: 4, padding: '1px 6px' }}>{e.category}</span>}
-            {done && <span style={{ fontSize: 12, color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>+{POINTS_PER_DONE}pt</span>}
+            {done && K.points && <span style={{ fontSize: 12, color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>+{POINTS_PER_DONE}pt</span>}
             <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{fmtDay(e.date)}</span>
           </div>
         );
@@ -72,15 +83,16 @@ function ExperienceList({ w }: { w: SprintExperienceWeek }) {
 }
 
 /** Performance: the whole sprint, a summary line and one block per week. */
-export function SprintExperiencesSection({ schedule }: { schedule: SprintExperienceSchedule }) {
+export function SprintExperiencesSection({ schedule, kind = 'experiences' }: { schedule: SprintExperienceSchedule; kind?: ScheduleKind }) {
+  const K = KIND[kind];
   return (
     <div className="perf-section">
-      <h2>Experiences
+      <h2>{K.title}
         <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 600, fontFamily: 'var(--font-mono)',
           color: schedule.done >= schedule.required ? 'var(--success)' : 'var(--text-muted)' }}>
-          {schedule.done}/{schedule.required} done · {schedule.scheduled} scheduled · min {schedule.perWeek}/week
+          {schedule.done}/{schedule.required} {K.doneWord} · {schedule.scheduled} scheduled · min {schedule.perWeek}/week
         </span>
-        {schedule.earnedPoints > 0 && (
+        {K.points && schedule.earnedPoints > 0 && (
           <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 600, color: 'var(--success)', fontFamily: 'var(--font-mono)' }}>
             +{schedule.earnedPoints}pt earned
           </span>
@@ -91,9 +103,9 @@ export function SprintExperiencesSection({ schedule }: { schedule: SprintExperie
           <div key={w.weekStart}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
               <span style={{ fontSize: 13, fontWeight: 600 }}>{fmt(w.from)} – {fmt(w.to)}</span>
-              <WeekCount w={w} mode="done" />
+              <WeekCount w={w} mode="done" doneWord={K.doneWord} />
             </div>
-            <ExperienceList w={w} />
+            <ExperienceList w={w} kind={kind} />
           </div>
         ))}
       </div>
@@ -102,17 +114,18 @@ export function SprintExperiencesSection({ schedule }: { schedule: SprintExperie
 }
 
 /** Week view: just this week. */
-export function WeekExperiencesSection({ week }: { week: SprintExperienceWeek }) {
+export function WeekExperiencesSection({ week, kind = 'experiences' }: { week: SprintExperienceWeek; kind?: ScheduleKind }) {
+  const K = KIND[kind];
   return (
     <div className="perf-section">
-      <h2>Experiences <span style={{ marginLeft: 8 }}><WeekCount w={week} mode="done" /></span>
-        {week.earnedPoints > 0 && (
+      <h2>{K.title} <span style={{ marginLeft: 8 }}><WeekCount w={week} mode="done" doneWord={K.doneWord} /></span>
+        {K.points && week.earnedPoints > 0 && (
           <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 600, color: 'var(--success)', fontFamily: 'var(--font-mono)' }}>
             +{week.earnedPoints}pt
           </span>
         )}
       </h2>
-      <ExperienceList w={week} />
+      <ExperienceList w={week} kind={kind} />
     </div>
   );
 }
