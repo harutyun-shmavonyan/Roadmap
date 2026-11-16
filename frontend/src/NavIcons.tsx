@@ -233,18 +233,19 @@ function Tile({ size, title, ink, tone, children }: {
   );
 }
 
-/** Balance scales on a tile — the mark for Weighted scoring (no ⚖ emoji anywhere). */
+/** Balance scales on a tile — the mark for Weighted scoring (no ⚖ emoji anywhere). The user's pick
+ *  (2026-11-16, option A of six): a gently curved beam, finial on top, deep pans, a domed foot. */
 export function ScalesIcon({ size = '1.3em', title, ink = '#fff', tone }: { size?: string | number; title?: string; ink?: string; tone?: string }) {
   return (
     <Tile size={size} title={title} ink={ink} tone={tone}>{k => (
       <>
-        <path d="M12 6.4v11" stroke={k} strokeWidth="1.7" strokeLinecap="round" />
-        <path d="M8.6 18.2h6.8" stroke={k} strokeWidth="1.9" strokeLinecap="round" />
-        <path d="M5.6 8.2h12.8" stroke={k} strokeWidth="1.7" strokeLinecap="round" />
-        <path d="M5.6 8.2 3.9 12.6M5.6 8.2l1.7 4.4M18.4 8.2l-1.7 4.4M18.4 8.2l1.7 4.4" stroke={k} strokeWidth="1.1" strokeLinecap="round" opacity=".9" />
-        <path d="M3.4 12.6h4.4a2.2 2.2 0 0 1-4.4 0Z" fill={k} />
-        <path d="M16.2 12.6h4.4a2.2 2.2 0 0 1-4.4 0Z" fill={k} />
-        <circle cx="12" cy="5.6" r="1.35" fill={k} />
+        <path d="M12 6v11.2" stroke={k} strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M8.4 18.6c.6-1 2-1.6 3.6-1.6s3 .6 3.6 1.6z" fill={k} />
+        <path d="M5.2 8.4c2.2-.9 4.5-1.3 6.8-1.3s4.6.4 6.8 1.3" fill="none" stroke={k} strokeWidth="1.5" strokeLinecap="round" />
+        <circle cx="12" cy="5.4" r="1.3" fill={k} />
+        <path d="M5.2 8.4 3.5 13M5.2 8.4 6.9 13M18.8 8.4 17.1 13M18.8 8.4l1.7 4.6" stroke={k} strokeWidth=".9" strokeLinecap="round" opacity=".85" />
+        <path d="M2.9 13h4.6c-.2 1.5-1.2 2.4-2.3 2.4S3.1 14.5 2.9 13z" fill={k} />
+        <path d="M16.5 13h4.6c-.2 1.5-1.2 2.4-2.3 2.4s-2.1-.9-2.3-2.4z" fill={k} />
       </>
     )}</Tile>
   );
