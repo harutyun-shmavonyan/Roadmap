@@ -3,6 +3,7 @@ import { marked } from 'marked';
 import type { ExperienceDto, ExperienceImageDto, ExperienceStatus, SaveExperienceRequest } from './types';
 import { api } from './api';
 import { EXPERIENCE_CATEGORIES } from './types';
+import { CalendarIcon } from './NavIcons';
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -216,7 +217,7 @@ function Card({ x, onOpen, onTag, scheduleAction }: {
           scheduleAction.inWeek
             ? <div className="xp-sched-in" style={{ position: 'relative', zIndex: 1, marginTop: 6, fontSize: 12, fontWeight: 600, color: 'var(--success)' }}>✓ In this week</div>
             : <button type="button" className="btn btn-sm btn-accent" style={{ position: 'relative', zIndex: 1, marginTop: 6, justifySelf: 'start' }}
-                onClick={scheduleAction.onClick}><Cal /> {scheduleAction.label}</button>
+                onClick={scheduleAction.onClick}><CalendarIcon ink="var(--accent)" tone="#fff" /> {scheduleAction.label}</button>
         )}
       </div>
     </div>
@@ -353,7 +354,7 @@ function Detail({ x, onClose, onEdit, onChanged, onDeleted, onTag, scheduleActio
             <button className="btn btn-sm" onClick={onClose}>Close</button>
             <button className="btn btn-sm" onClick={onEdit}>Edit</button>
             {scheduleAction && !scheduleAction.inWeek && x.status === 'planned' &&
-              <button className="btn btn-sm btn-accent" onClick={scheduleAction.onClick}><Cal /> {scheduleAction.label}</button>}
+              <button className="btn btn-sm btn-accent" onClick={scheduleAction.onClick}><CalendarIcon ink="var(--accent)" tone="#fff" /> {scheduleAction.label}</button>}
             <button className={`btn btn-sm ${x.status === 'planned' ? 'btn-accent' : ''}`} disabled={busy} onClick={flip}>
               {x.status === 'planned' ? '✓ Mark done' : 'Back to planned'}
             </button>

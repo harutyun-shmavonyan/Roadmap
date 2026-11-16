@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 
 /**
  * The app's icons: one flat set, drawn here rather than pulled from a library or the platform's
@@ -200,25 +200,94 @@ export const NAV_ICON: Record<string, ReactNode> = {
   ),
 };
 
-/**
- * Balance scales — the mark for Weighted scoring (replaces the ⚖ emoji, which every platform drew
- * differently). Line art in `currentColor`, so it takes the colour of the text it sits in (accent,
- * a price's good/warning colour, muted); pans tinted at 25%. Sized in em so it matches its line.
- */
-export function ScalesIcon({ size = '1.2em', title }: { size?: string | number; title?: string }) {
+
+/* ─── Inline badge icons ───
+   The app-icon look at text size: a rounded tile with a soft top-to-bottom gradient, a glossy top
+   edge, and the glyph knocked out in `ink` (white by default). The tile takes `currentColor`, so a
+   badge keeps the meaning of the text it sits in (accent, a price's good/warning colour); on a
+   filled button pass `ink` as the button's colour and the tile turns white. */
+
+function Tile({ size, title, ink, tone, children }: {
+  size: string | number; title?: string; ink: string; tone?: string; children: (ink: string) => ReactNode;
+}) {
+  const id = useId().replace(/:/g, '');
+  const fill = tone ?? 'currentColor';
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} role={title ? 'img' : undefined}
       aria-hidden={title ? undefined : true} aria-label={title} focusable="false"
-      style={{ display: 'inline-block', verticalAlign: '-0.22em', flexShrink: 0 }}>
-      <g fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 4.6v15" />
-        <path d="M8.2 20h7.6" />
-        <path d="M4.6 7.2h14.8" />
-        <path d="M4.6 7.2 2.4 13.2M4.6 7.2l2.2 6M19.4 7.2l-2.2 6M19.4 7.2l2.2 6" />
-        <path d="M2 13.2h5.2a2.6 2.6 0 0 1-5.2 0Z" fill="currentColor" fillOpacity=".25" />
-        <path d="M16.8 13.2H22a2.6 2.6 0 0 1-5.2 0Z" fill="currentColor" fillOpacity=".25" />
-      </g>
-      <circle cx="12" cy="4" r="1.5" fill="currentColor" />
+      style={{ display: 'inline-block', verticalAlign: '-0.24em', flexShrink: 0, color: tone ? undefined : 'inherit' }}>
+      <defs>
+        <linearGradient id={`g${id}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor={fill} stopOpacity="1" />
+          <stop offset="1" stopColor={fill} stopOpacity=".78" />
+        </linearGradient>
+        <linearGradient id={`h${id}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#fff" stopOpacity=".35" />
+          <stop offset=".5" stopColor="#fff" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <rect x="1" y="1" width="22" height="22" rx="6.5" fill={`url(#g${id})`} />
+      <rect x="1" y="1" width="22" height="22" rx="6.5" fill={`url(#h${id})`} />
+      {children(ink)}
     </svg>
+  );
+}
+
+/** Balance scales on a tile — the mark for Weighted scoring (no ⚖ emoji anywhere). */
+export function ScalesIcon({ size = '1.3em', title, ink = '#fff', tone }: { size?: string | number; title?: string; ink?: string; tone?: string }) {
+  return (
+    <Tile size={size} title={title} ink={ink} tone={tone}>{k => (
+      <>
+        <path d="M12 6.4v11" stroke={k} strokeWidth="1.7" strokeLinecap="round" />
+        <path d="M8.6 18.2h6.8" stroke={k} strokeWidth="1.9" strokeLinecap="round" />
+        <path d="M5.6 8.2h12.8" stroke={k} strokeWidth="1.7" strokeLinecap="round" />
+        <path d="M5.6 8.2 3.9 12.6M5.6 8.2l1.7 4.4M18.4 8.2l-1.7 4.4M18.4 8.2l1.7 4.4" stroke={k} strokeWidth="1.1" strokeLinecap="round" opacity=".9" />
+        <path d="M3.4 12.6h4.4a2.2 2.2 0 0 1-4.4 0Z" fill={k} />
+        <path d="M16.2 12.6h4.4a2.2 2.2 0 0 1-4.4 0Z" fill={k} />
+        <circle cx="12" cy="5.6" r="1.35" fill={k} />
+      </>
+    )}</Tile>
+  );
+}
+
+/** A calendar page on a tile — scheduling. */
+export function CalendarIcon({ size = '1.3em', title, ink = '#fff', tone }: { size?: string | number; title?: string; ink?: string; tone?: string }) {
+  return (
+    <Tile size={size} title={title} ink={ink} tone={tone}>{k => (
+      <>
+        <rect x="5.2" y="6.6" width="13.6" height="12" rx="2.2" fill="none" stroke={k} strokeWidth="1.6" />
+        <path d="M5.2 10.2h13.6" stroke={k} strokeWidth="1.6" />
+        <path d="M8.8 5v3M15.2 5v3" stroke={k} strokeWidth="1.7" strokeLinecap="round" />
+        <circle cx="9" cy="13.4" r="1.05" fill={k} /><circle cx="12" cy="13.4" r="1.05" fill={k} /><circle cx="15" cy="13.4" r="1.05" fill={k} />
+        <circle cx="9" cy="16.1" r="1.05" fill={k} /><circle cx="12" cy="16.1" r="1.05" fill={k} opacity=".55" />
+      </>
+    )}</Tile>
+  );
+}
+
+/** An open book on a tile — the meal book. */
+export function BookIcon({ size = '1.3em', title, ink = '#fff', tone }: { size?: string | number; title?: string; ink?: string; tone?: string }) {
+  return (
+    <Tile size={size} title={title} ink={ink} tone={tone}>{k => (
+      <>
+        <path d="M12 8.2c-1.6-1.3-3.8-1.8-6.6-1.6v10.6c2.8-.2 5 .3 6.6 1.6 1.6-1.3 3.8-1.8 6.6-1.6V6.6c-2.8-.2-5 .3-6.6 1.6Z" fill={k} fillOpacity=".22" stroke={k} strokeWidth="1.5" strokeLinejoin="round" />
+        <path d="M12 8.2v10.6" stroke={k} strokeWidth="1.5" />
+        <path d="M7.6 10.2c1.1 0 2 .2 2.8.6M7.6 12.8c1.1 0 2 .2 2.8.6M13.6 10.8c.8-.4 1.7-.6 2.8-.6" stroke={k} strokeWidth="1.1" strokeLinecap="round" opacity=".9" />
+      </>
+    )}</Tile>
+  );
+}
+
+/** A plate with fork and knife on a tile — the food log. */
+export function PlateIcon({ size = '1.3em', title, ink = '#fff', tone }: { size?: string | number; title?: string; ink?: string; tone?: string }) {
+  return (
+    <Tile size={size} title={title} ink={ink} tone={tone}>{k => (
+      <>
+        <circle cx="12" cy="12.4" r="4.6" fill="none" stroke={k} strokeWidth="1.5" />
+        <circle cx="12" cy="12.4" r="2.4" fill={k} fillOpacity=".35" />
+        <path d="M5 6.2v4.2a1.3 1.3 0 0 0 1.3 1.3M7.6 6.2v4.2a1.3 1.3 0 0 1-1.3 1.3M6.3 6.2v12" stroke={k} strokeWidth="1.2" strokeLinecap="round" fill="none" />
+        <path d="M18.6 18.2V6.4c-1.3.7-1.9 2.6-1.9 4.6 0 1 .6 1.6 1.9 1.6" stroke={k} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      </>
+    )}</Tile>
   );
 }

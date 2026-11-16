@@ -3,6 +3,7 @@ import type { MealDto, MealSlot, SaveMealRequest } from './types';
 import { api } from './api';
 import { SLOTS, SLOT_EMOJI, KCAL_EMOJI, PROTEIN_EMOJI, CARBS_EMOJI, FAT_EMOJI } from './nutritionShared';
 import { FoodLogView, FoodLogForm } from './FoodLog';
+import { BookIcon, PlateIcon } from './NavIcons';
 
 // Photos live behind the same bearer token as the rest of the API, so they are fetched as blobs
 // and rendered from object URLs. One URL per (meal, photo version): cached so a card re-render or
@@ -127,9 +128,9 @@ export function NutritionPage() {
   const viewSwitch = (
     <div className="nav-tabs" role="tablist" aria-label="Nutrition view">
       <button role="tab" aria-selected={view === 'book'} className={`nav-tab ${view === 'book' ? 'active' : ''}`}
-        onClick={() => setView('book')}>📖 Meal book</button>
+        onClick={() => setView('book')}><BookIcon tone="var(--ic-nutrition)" /> Meal book</button>
       <button role="tab" aria-selected={view === 'log'} className={`nav-tab ${view === 'log' ? 'active' : ''}`}
-        onClick={() => setView('log')}>📅 Food log</button>
+        onClick={() => setView('log')}><PlateIcon tone="var(--ic-schedule)" /> Food log</button>
     </div>
   );
 

@@ -598,4 +598,4 @@ Styles are the `sp-*` block in `styles.css`. A new start condition belongs in th
 **On phones** (< 768px) the Sprints window and the Experiences tab opened from it are full-screen sheets
 (safe areas respected, sticky Sprints header, 44px close/⋯ targets, dates and "days left" on separate
 lines); in schedule mode the Experiences cards drop their cover image so "Schedule on <day>" stays in
-reach. Weighted scoring is drawn with `ScalesIcon` (`NavIcons.tsx`, `currentColor`) — no ⚖ emoji anywhere.
+reach. Inline badge icons (`NavIcons.tsx`: `ScalesIcon` for Weighted scoring, `CalendarIcon` for Schedule, `BookIcon` / `PlateIcon` for the Nutrition views) are app-icon tiles — gradient + gloss in `currentColor` (or `tone`), glyph knocked out in `ink` (white; on a filled button pass the button colour as `ink` and `tone="#fff"`). No emoji for these.
