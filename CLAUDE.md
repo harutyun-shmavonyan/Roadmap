@@ -560,3 +560,15 @@ headers, and two side-by-side panes on Notes / Notes v2.
 - Not converted, because they are already one scroller or keep their own: Articles (the reader's
   scroll position is saved), Courses (the lesson rail spies on its scroller), Newsletter,
   Experiences, and the Schedule time grid (a calendar; its habits row is one swipeable line).
+
+## Sprint experiences schedule (2026-11-16)
+
+A sprint cannot be started until every Monday–Sunday week of it (clipped to the sprint window) has
+**at least 2 experiences** dated in it — the user's call. A clipped week owes ceil(2 × days ÷ 7), so a
+1–3 day stub owes 1. An experience counts in the week of its `StartDate`; `done` = had, `planned` =
+scheduled. Nothing is stored: `SprintExperiences` (`backend/SprintExperiences.cs`) reads the
+Experiences tab live, and REST Start, MCP `start_sprint` (refusal lists the short weeks), Performance
+(`experiences` on the summary), MCP `get_sprint_performance`, the week view (`experiences` on
+`WeekPlanDto`) and `GET /sprints/{id}/experiences` all go through it. The sprint modal shows each
+draft sprint's weeks, disables ▶ Start until they are met, and can add a planned experience to a
+week in place (`SprintExperiences.tsx`). Already-started sprints are not affected by the rule.

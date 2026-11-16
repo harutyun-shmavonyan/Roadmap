@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { SprintDto } from './types';
+import type { SprintDto, SprintExperienceSchedule } from './types';
 import { api } from './api';
+import { SprintExperiencesChecklist } from './SprintExperiences';
 
 interface Props { roadmapId: string; onClose: () => void; }
 
@@ -20,7 +21,15 @@ export function SprintModal({ roadmapId, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const load = useCallback(async () => { setSprints(await api.getSprints(roadmapId)); }, [roadmapId]);
+  // Experiences schedule of every draft sprint that can still be started — Start needs it complete.
+  const [expSchedules, setExpSchedules] = useState<Record<string, SprintExperienceSchedule>>({});
+  const load = useCallback(async () => {
+    const list = await api.getSprints(roadmapId);
+    setSprints(list);
+    const drafts = list.filter(s => !s.isStarted && s.isOpen);
+    const entries = await Promise.all(drafts.map(async s => [s.id, await api.getSprintExperiences(roadmapId, s.id)] as const));
+    setExpSchedules(Object.fromEntries(entries));
+  }, [roadmapId]);
   useEffect(() => { setLoading(true); load().finally(() => setLoading(false)); }, [load]);
 
   const handleCreate = async () => {
@@ -104,7 +113,9 @@ export function SprintModal({ roadmapId, onClose }: Props) {
                       <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{s.startDate} → {s.endDate}</span>
                       <div style={{ display: 'flex', gap: 6 }}>
                         {!s.isStarted && s.isOpen && (
-                          <button className="btn btn-sm btn-accent" onClick={() => handleStart(s.id)} disabled={busy}>▶ Start</button>
+                          <button className="btn btn-sm btn-accent" onClick={() => handleStart(s.id)}
+                            disabled={busy || !expSchedules[s.id]?.ready}
+                            title={expSchedules[s.id]?.ready ? 'Start the sprint' : 'Schedule at least 2 experiences a week first'}>▶ Start</button>
                         )}
                         <button className="btn btn-sm" onClick={() => startEdit(s)} disabled={busy} title="Edit name & dates">✎ Edit</button>
                         {s.isOpen && (
@@ -124,6 +135,9 @@ export function SprintModal({ roadmapId, onClose }: Props) {
                           onClick={() => handleDelete(s.id)} disabled={busy}>{confirmDelete === s.id ? 'Sure?' : '✕'}</button>
                       </div>
                     </>
+                  )}
+                  {!s.isStarted && s.isOpen && editing !== s.id && expSchedules[s.id] && (
+                    <SprintExperiencesChecklist schedule={expSchedules[s.id]} onAdded={load} />
                   )}
                 </div>
               ))}

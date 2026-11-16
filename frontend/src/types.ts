@@ -62,7 +62,18 @@ export type SprintScoringMode = 'Fixed' | 'Weighted';
 export interface SprintDto { id: string; name: string; startDate: string; endDate: string; isOpen: boolean; isStarted: boolean; relaxDays: string | null; scoringMode: SprintScoringMode; }
 export interface WorkLogDto { id: string; nodeId: string; nodeTitle: string; date: string; amount: number; unit: string | null; note: string | null; }
 
+/** The experiences a sprint must carry — at least `perWeek` dated in each Monday–Sunday week (SprintExperiences on the server). */
+export interface SprintExperienceRef { id: string; title: string; category: string | null; status: 'planned' | 'done'; date: string; }
+export interface SprintExperienceWeek {
+  weekStart: string; from: string; to: string; days: number;
+  required: number; scheduled: number; done: number; met: boolean; experiences: SprintExperienceRef[];
+}
+export interface SprintExperienceSchedule {
+  perWeek: number; required: number; scheduled: number; done: number; ready: boolean; weeks: SprintExperienceWeek[];
+}
+
 export interface PerformanceSummary {
+  experiences?: SprintExperienceSchedule | null;
   items: PerformanceItem[]; totalPlannedPoints: number; totalEarnedPoints: number;
   dailyPoints: { date: string; points: number }[];
   /**
@@ -118,6 +129,7 @@ export interface WeekPlan {
   customLogs: { id: string; title: string; points: number; date: string; note: string | null }[];
   activeSprint: SprintDto | null;
   sprintGoals: SprintGoalDto[];
+  experiences?: SprintExperienceWeek | null;
 }
 
 export interface WeekScheduledItem {

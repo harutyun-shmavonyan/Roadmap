@@ -126,8 +126,21 @@ public record PerformanceSummaryDto(
     /// <summary>Total flat bonus earned for sprint goals reached. Earned, never planned.</summary>
     double GoalBonusPoints = 0,
     /// <summary>"Fixed" or "Weighted" — how this sprint's earned figures were priced.</summary>
-    string ScoringMode = "Fixed"
+    string ScoringMode = "Fixed",
+    /// <summary>The sprint's experiences schedule, week by week — see <c>SprintExperiences</c>.</summary>
+    SprintExperienceScheduleDto? Experiences = null
 );
+
+// --- Sprint experiences schedule (at least 2 a week, required to start a sprint) ---
+public record SprintExperienceRefDto(Guid Id, string Title, string? Category, string Status, string Date);
+
+/// <summary>One Monday–Sunday week clipped to the sprint. Met = Scheduled ≥ Required.</summary>
+public record SprintExperienceWeekDto(string WeekStart, string From, string To, int Days,
+    int Required, int Scheduled, int Done, bool Met, List<SprintExperienceRefDto> Experiences);
+
+/// <summary>Ready = every week met — the condition for Start Sprint.</summary>
+public record SprintExperienceScheduleDto(int PerWeek, int Required, int Scheduled, int Done, bool Ready,
+    List<SprintExperienceWeekDto> Weeks);
 
 /// <summary>
 /// Per-item performance within a sprint.
@@ -201,7 +214,8 @@ public record WeekPlanDto(
     List<CompletedTaskDto> CompletedTasks,
     List<CustomLogDto> CustomLogs,
     SprintDto ActiveSprint,
-    List<SprintGoalDto> SprintGoals
+    List<SprintGoalDto> SprintGoals,
+    SprintExperienceWeekDto? Experiences = null
 );
 
 public record CompletedTaskDto(Guid Id, string Title, string Priority, double EstimatedHours, double Points, string CompletedDate);

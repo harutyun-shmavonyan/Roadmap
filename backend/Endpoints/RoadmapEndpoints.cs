@@ -956,6 +956,10 @@ public static class RoadmapEndpoints
             var sprint = await db.Sprints.Include(s => s.PlanEntries).FirstOrDefaultAsync(s => s.Id == sprintId && s.RoadmapId == roadmapId);
             if (sprint is null) return Results.NotFound();
             if (sprint.IsStarted) return Results.BadRequest("Sprint already started");
+            // No sprint starts without its experiences schedule — at least 2 a week.
+            var expRefusal = SprintExperiences.StartRefusal(
+                await SprintExperiences.ComputeAsync(db, sprint.StartDate, sprint.EndDate));
+            if (expRefusal is not null) return Results.BadRequest(expRefusal);
 
             var allNodes = await db.Nodes.AsNoTracking().Where(n => n.RoadmapId == roadmapId).OrderBy(n => n.SortOrder).ToListAsync();
             var blocks = await db.ScheduleBlocks.AsNoTracking().Include(sb => sb.Items).Where(sb => sb.RoadmapId == roadmapId).ToListAsync();
@@ -1017,6 +1021,14 @@ public static class RoadmapEndpoints
                     sessions = g.Select(c => c.Date).Distinct().Count()
                 }).OrderByDescending(x => x.plannedUnits).ToList()
             });
+        });
+
+        // The sprint's experiences schedule, week by week — what Start Sprint checks.
+        sprints.MapGet("/{sprintId:guid}/experiences", async (Guid roadmapId, Guid sprintId, RoadmapDbContext db) =>
+        {
+            var sprint = await db.Sprints.AsNoTracking().FirstOrDefaultAsync(s => s.Id == sprintId && s.RoadmapId == roadmapId);
+            if (sprint is null) return Results.NotFound();
+            return Results.Ok(await SprintExperiences.ComputeAsync(db, sprint.StartDate, sprint.EndDate));
         });
 
         sprints.MapGet("/{sprintId:guid}/plan", async (Guid roadmapId, Guid sprintId, RoadmapDbContext db) =>
@@ -1525,7 +1537,8 @@ public static class RoadmapEndpoints
                 dates.Select(d => new DailyPointsDto(d.ToString("yyyy-MM-dd"), Math.Round(dailyPointsMap[d], 1))).ToList(),
                 dailyProgress,
                 ctDtos, customLogDtos, catDtos, goalDtos, Math.Round(totalGoalBonusPts, 1),
-                sprint.ScoringMode.ToString()));
+                sprint.ScoringMode.ToString(),
+                await SprintExperiences.ComputeAsync(db, sprint.StartDate, sprint.EndDate)));
         });
 
         // ===== Work Logs (sprint-scoped) =====
@@ -1756,7 +1769,8 @@ public static class RoadmapEndpoints
 
             return Results.Ok(new WeekPlanDto(plan.Id, plan.RoadmapId, monday.ToString("yyyy-MM-dd"), plan.IsClosed, plan.Notes,
                 scheduledItems, weekGoalDtos,
-                ctDtos, clDtos, ToSprintDto(sprint), goalDtos));
+                ctDtos, clDtos, ToSprintDto(sprint), goalDtos,
+                await SprintExperiences.WeekAsync(db, sprint, monday)));
         });
 
         weeks.MapPost("/{date}/goals", async (Guid roadmapId, string date, CreateWeekPlanGoalRequest req, RoadmapDbContext db) =>

@@ -12,7 +12,7 @@ import type { RoadmapSummary, RoadmapTree, NodeDto, CreateNodeRequest, Actionabl
   CourseSummaryDto, CourseDetailDto, LessonDetailDto, CourseEventDto, CourseResumeDto,
   CourseStatus, LessonStatus,
   ExperienceDto, ExperienceImageDto, ExperienceStatus, SaveExperienceRequest,
-  SignalRunDto, SignalRunSummaryDto, SignalDto } from './types';
+  SignalRunDto, SignalRunSummaryDto, SignalDto, SprintExperienceSchedule } from './types';
 
 const B = '/api/roadmaps';
 
@@ -97,6 +97,7 @@ export const api = {
   closeSprint: (r: string, sid: string) => req<SprintDto>(`${B}/${r}/sprints/${sid}/close`, { method: 'PATCH' }),
   updateSprint: (r: string, sid: string, name: string, s: string, e: string) => req<SprintDto>(`${B}/${r}/sprints/${sid}`, { method: 'PATCH', body: JSON.stringify({ name, startDate: s, endDate: e }) }),
   toggleRelaxDay: (r: string, sid: string, date: string) => req<SprintDto>(`${B}/${r}/sprints/${sid}/relax/${date}`, { method: 'PATCH' }),
+  getSprintExperiences: (r: string, sid: string) => req<SprintExperienceSchedule>(`${B}/${r}/sprints/${sid}/experiences`),
   getPerformance: (r: string, sid: string) => req<PerformanceSummary>(`${B}/${r}/sprints/${sid}/performance`),
 
   getWorkLogs: (r: string, date: string) => req<WorkLogDto[]>(`${B}/${r}/worklogs/${date}`),

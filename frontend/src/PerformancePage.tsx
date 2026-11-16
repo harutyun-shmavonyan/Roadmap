@@ -3,6 +3,7 @@ import type { SprintDto, PerformanceSummary, PerformanceItem, CategoryTimeNode, 
 import { api } from './api';
 import { fmtUnit } from './unitFormat';
 import { SprintModal } from './SprintModal';
+import { SprintExperiencesSection } from './SprintExperiences';
 
 interface Props { roadmapId: string; onBack: () => void; }
 
@@ -173,6 +174,9 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
               </h2>
               <SprintGoalsPanel roadmapId={roadmapId} sprintId={selectedSprint!} goals={perf.sprintGoals || []} onChanged={loadPerf} />
             </div>
+
+            {/* Experiences schedule — at least 2 a week, required to start the sprint */}
+            {perf.experiences && <SprintExperiencesSection schedule={perf.experiences} />}
 
             {/* Category time breakdown */}
             {perf.categoryBreakdown && perf.categoryBreakdown.length > 0 && (

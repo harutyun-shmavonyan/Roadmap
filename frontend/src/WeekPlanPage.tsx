@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { WeekPlan, WeekPlanGoal } from './types';
 import { api } from './api';
 import { fmtUnit } from './unitFormat';
+import { WeekExperiencesSection } from './SprintExperiences';
 
 interface Props { roadmapId: string; onBack: () => void; }
 
@@ -218,6 +219,9 @@ export function WeekPlanPage({ roadmapId, onBack }: Props) {
             </div>
           ) : null;
         })()}
+
+        {/* Experiences this week — at least 2 a week */}
+        {plan.experiences && <WeekExperiencesSection week={plan.experiences} />}
 
         {/* Completed tasks this week */}
         {plan.completedTasks && plan.completedTasks.length > 0 && (
