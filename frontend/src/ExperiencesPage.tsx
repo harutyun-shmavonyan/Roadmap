@@ -353,17 +353,47 @@ function Detail({ x, onClose, onEdit, onChanged, onDeleted, onTag }: {
 
 /* ─── the form ─── */
 
-function Form({ x, tagsByCategory, onCancel, onSaved }: {
+/** Tags per category (keyed lower-case), most used first — what the form offers for a category. */
+export function buildTagsByCategory(items: ExperienceDto[]): Map<string, string[]> {
+  const counts = new Map<string, Map<string, number>>();
+  items.forEach(x => {
+    if (!x.category) return;
+    const key = x.category.toLowerCase();
+    const m = counts.get(key) ?? new Map<string, number>();
+    x.tags.forEach(t => m.set(t, (m.get(t) ?? 0) + 1));
+    counts.set(key, m);
+  });
+  const out = new Map<string, string[]>();
+  counts.forEach((m, k) => out.set(k, [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t]) => t)));
+  return out;
+}
+
+/** yyyy-MM-dd shifted by whole days (local calendar). */
+function shiftIso(iso: string, days: number) {
+  const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * The experience form — the tab's own, also opened from the sprint modal to schedule experiences.
+ * `initialStart` pre-fills the From date (an end date moves with it, keeping a trip's length).
+ */
+export function ExperienceForm({ x, tagsByCategory, onCancel, onSaved, initialStart }: {
   x: ExperienceDto | null; tagsByCategory: Map<string, string[]>;
   onCancel: () => void; onSaved: (saved: ExperienceDto) => void;
+  initialStart?: string;
 }) {
   const [title, setTitle] = useState(x?.title ?? '');
   const [category, setCategory] = useState(x?.category ?? '');
   const [tags, setTags] = useState<string[]>(x?.tags ?? []);
   const [status, setStatus] = useState<ExperienceStatus>(x?.status ?? 'planned');
   const [location, setLocation] = useState(x?.location ?? '');
-  const [start, setStart] = useState(x?.startDate ?? '');
-  const [end, setEnd] = useState(x?.endDate ?? '');
+  const [start, setStart] = useState(initialStart ?? x?.startDate ?? '');
+  const [end, setEnd] = useState(() => {
+    if (initialStart && x?.startDate && x.endDate)
+      return shiftIso(initialStart, Math.round((new Date(x.endDate + 'T00:00:00').getTime() - new Date(x.startDate + 'T00:00:00').getTime()) / 86400000));
+    return initialStart && !x?.startDate ? '' : x?.endDate ?? '';
+  });
   const [description, setDescription] = useState(x?.descriptionMd ?? '');
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
@@ -500,19 +530,7 @@ export function ExperiencesPage() {
 
   // Tags per category (keyed lower-case), most used first. A tag is picked from what the
   // experiences in the same category carry, so the form and the filter row both scope by it.
-  const tagsByCategory = useMemo(() => {
-    const counts = new Map<string, Map<string, number>>();
-    (items ?? []).forEach(x => {
-      if (!x.category) return;
-      const key = x.category.toLowerCase();
-      const m = counts.get(key) ?? new Map<string, number>();
-      x.tags.forEach(t => m.set(t, (m.get(t) ?? 0) + 1));
-      counts.set(key, m);
-    });
-    const out = new Map<string, string[]>();
-    counts.forEach((m, k) => out.set(k, [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t]) => t)));
-    return out;
-  }, [items]);
+  const tagsByCategory = useMemo(() => buildTagsByCategory(items ?? []), [items]);
 
   // The tag filter row: the selected category's tags, or every tag when no category is picked.
   const knownTags = useMemo(() => {
@@ -629,7 +647,7 @@ export function ExperiencesPage() {
       )}
 
       {editing !== null && (
-        <Form x={editing === 'new' ? null : editing} tagsByCategory={tagsByCategory}
+        <ExperienceForm x={editing === 'new' ? null : editing} tagsByCategory={tagsByCategory}
           onCancel={() => setEditing(null)}
           onSaved={saved => { replace(saved); setEditing(null); setOpen(saved.id); load(); }} />
       )}
