@@ -179,7 +179,11 @@ function TagInput({ value, onChange, known, scope }: {
 
 /* ─── a card ─── */
 
-function Card({ x, onOpen, onTag }: { x: ExperienceDto; onOpen: () => void; onTag: (t: string) => void }) {
+function Card({ x, onOpen, onTag, scheduleAction }: {
+  x: ExperienceDto; onOpen: () => void; onTag: (t: string) => void;
+  /** Schedule mode (opened from the sprint modal): the card's own button to date it into the week. */
+  scheduleAction?: { label: string; inWeek: boolean; onClick: () => void };
+}) {
   const cover = usePicture(x.images[0]?.id);
   const date = when(x.startDate, x.endDate);
   const soon = x.status === 'planned' ? howSoon(x.startDate) : null;
@@ -208,6 +212,12 @@ function Card({ x, onOpen, onTag }: { x: ExperienceDto; onOpen: () => void; onTa
           {soon && <span className="xp-soon">· {soon}</span>}
         </div>
         {x.tags.length > 0 && <div style={{ marginTop: 3 }}><Tags tags={x.tags} onPick={onTag} /></div>}
+        {scheduleAction && (
+          scheduleAction.inWeek
+            ? <div className="xp-sched-in" style={{ position: 'relative', zIndex: 1, marginTop: 6, fontSize: 12, fontWeight: 600, color: 'var(--success)' }}>✓ In this week</div>
+            : <button type="button" className="btn btn-sm btn-accent" style={{ position: 'relative', zIndex: 1, marginTop: 6, justifySelf: 'start' }}
+                onClick={scheduleAction.onClick}>📅 {scheduleAction.label}</button>
+        )}
       </div>
     </div>
   );
@@ -292,9 +302,10 @@ function GalleryItem({ img, cover, onCaption, onCover, onRemove }: {
   );
 }
 
-function Detail({ x, onClose, onEdit, onChanged, onDeleted, onTag }: {
+function Detail({ x, onClose, onEdit, onChanged, onDeleted, onTag, scheduleAction }: {
   x: ExperienceDto; onClose: () => void; onEdit: () => void;
   onChanged: (next: ExperienceDto) => void; onDeleted: () => void; onTag: (t: string) => void;
+  scheduleAction?: { label: string; inWeek: boolean; onClick: () => void };
 }) {
   const [busy, setBusy] = useState(false);
   const date = when(x.startDate, x.endDate);
@@ -341,6 +352,8 @@ function Detail({ x, onClose, onEdit, onChanged, onDeleted, onTag }: {
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn-sm" onClick={onClose}>Close</button>
             <button className="btn btn-sm" onClick={onEdit}>Edit</button>
+            {scheduleAction && !scheduleAction.inWeek && x.status === 'planned' &&
+              <button className="btn btn-sm btn-accent" onClick={scheduleAction.onClick}>📅 {scheduleAction.label}</button>}
             <button className={`btn btn-sm ${x.status === 'planned' ? 'btn-accent' : ''}`} disabled={busy} onClick={flip}>
               {x.status === 'planned' ? '✓ Mark done' : 'Back to planned'}
             </button>
@@ -504,10 +517,31 @@ export function ExperienceForm({ x, tagsByCategory, onCancel, onSaved, initialSt
 
 type Filter = 'all' | ExperienceStatus;
 
-export function ExperiencesPage() {
+/**
+ * Schedule mode: the whole tab opened from the sprint modal for one week of a draft sprint. A day
+ * picker sits on top, "+ New experience" starts on that day, and every planned card (and its detail
+ * view) gets "📅 Schedule" — the form opens with From set to the day. Every save, status flip or
+ * delete calls `onChanged` so the sprint modal's week counts follow.
+ */
+export interface ExperienceScheduleMode { from: string; to: string; onChanged: () => void; onClose: () => void; }
+
+const isoToday = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const shortDay = (iso: string) =>
+  new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+
+export function ExperiencesPage({ schedule }: { schedule?: ExperienceScheduleMode } = {}) {
   const [items, setItems] = useState<ExperienceDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Filter>('all');
+  const [filter, setFilter] = useState<Filter>(schedule ? 'planned' : 'all');
+  const [day, setDay] = useState(() => {
+    if (!schedule) return '';
+    const t = isoToday();
+    return t >= schedule.from && t <= schedule.to ? t : schedule.from;
+  });
+  const [formStart, setFormStart] = useState<string | undefined>(undefined);
   const [category, setCategory] = useState<string | null>(null);
   const [tag, setTag] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -550,11 +584,20 @@ export function ExperiencesPage() {
   const done = shown.filter(x => x.status === 'done');
   const opened = items?.find(x => x.id === open) ?? null;
 
-  const replace = (next: ExperienceDto) =>
+  const replace = (next: ExperienceDto) => {
     setItems(prev => {
       const list = prev ?? [];
       return list.some(x => x.id === next.id) ? list.map(x => (x.id === next.id ? next : x)) : [next, ...list];
     });
+    schedule?.onChanged();
+  };
+
+  const inWeek = (x: ExperienceDto) => !!schedule && !!x.startDate && x.startDate >= schedule.from && x.startDate <= schedule.to;
+  const scheduleActionFor = (x: ExperienceDto) => schedule && x.status === 'planned'
+    ? { label: `Schedule on ${shortDay(day)}`, inWeek: inWeek(x),
+        onClick: () => { setOpen(null); setFormStart(day); setEditing(x); } }
+    : undefined;
+  const weekCount = schedule ? (items ?? []).filter(inWeek).length : 0;
 
   if (error) return <p style={{ padding: 24, color: 'var(--danger)' }}>{error}</p>;
 
@@ -573,8 +616,23 @@ export function ExperiencesPage() {
               </div>
             )}
           </div>
-          <button className="btn btn-accent" onClick={() => setEditing('new')}>+ New experience</button>
+          <button className="btn btn-accent" onClick={() => { setFormStart(schedule ? day : undefined); setEditing('new'); }}>+ New experience</button>
+          {schedule && <button className="btn" onClick={schedule.onClose}>Close</button>}
         </div>
+
+        {schedule && (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '10px 14px',
+            background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', fontSize: 14 }}>
+            <span>📅 Scheduling for <strong>{shortDay(schedule.from)} – {shortDay(schedule.to)}</strong></span>
+            <span style={{ color: 'var(--text-secondary)' }}>· {weekCount} in this week</span>
+            <span style={{ flex: 1 }} />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, margin: 0, fontSize: 13, textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
+              Day
+              <input type="date" value={day} min={schedule.from} max={schedule.to}
+                onChange={e => e.target.value && setDay(e.target.value)} style={{ width: 'auto', padding: '6px 10px' }} />
+            </label>
+          </div>
+        )}
 
         {items && total > 0 && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -628,7 +686,7 @@ export function ExperiencesPage() {
         {planned.length > 0 && (
           <section style={{ display: 'grid', gap: 12 }}>
             {filter === 'all' && <h3 className="xp-h">Planned <span>{planned.length}</span></h3>}
-            <div className="xp-grid">{planned.map(x => <Card key={x.id} x={x} onOpen={() => setOpen(x.id)} onTag={pickTag} />)}</div>
+            <div className="xp-grid">{planned.map(x => <Card key={x.id} x={x} onOpen={() => setOpen(x.id)} onTag={pickTag} scheduleAction={scheduleActionFor(x)} />)}</div>
           </section>
         )}
 
@@ -641,15 +699,16 @@ export function ExperiencesPage() {
       </div>
 
       {opened && editing === null && (
-        <Detail x={opened} onClose={() => setOpen(null)} onEdit={() => setEditing(opened)}
-          onChanged={replace} onTag={pickTag}
-          onDeleted={() => { setItems(prev => (prev ?? []).filter(x => x.id !== opened.id)); setOpen(null); }} />
+        <Detail x={opened} onClose={() => setOpen(null)} onEdit={() => { setFormStart(undefined); setEditing(opened); }}
+          onChanged={replace} onTag={pickTag} scheduleAction={scheduleActionFor(opened)}
+          onDeleted={() => { setItems(prev => (prev ?? []).filter(x => x.id !== opened.id)); setOpen(null); schedule?.onChanged(); }} />
       )}
 
       {editing !== null && (
         <ExperienceForm x={editing === 'new' ? null : editing} tagsByCategory={tagsByCategory}
+          initialStart={formStart}
           onCancel={() => setEditing(null)}
-          onSaved={saved => { replace(saved); setEditing(null); setOpen(saved.id); load(); }} />
+          onSaved={saved => { replace(saved); setEditing(null); setOpen(schedule ? null : saved.id); load(); }} />
       )}
     </div>
   );

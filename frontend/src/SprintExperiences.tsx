@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { ExperienceForm, buildTagsByCategory } from './ExperiencesPage';
+import { ExperienceForm, ExperiencesPage, buildTagsByCategory } from './ExperiencesPage';
 import type { ExperienceDto, SprintExperienceSchedule, SprintExperienceWeek } from './types';
 import { api } from './api';
 
@@ -113,17 +113,14 @@ export function WeekExperiencesSection({ week }: { week: SprintExperienceWeek })
 
 /**
  * Sprint modal, draft sprint: what Start needs, week by week. Each week lists the experiences
- * dated in it (click one to edit it in the Experiences tab's own form). "+ Add" lets you pick one of
- * your planned experiences — it opens in that same form with the date set into the week — or start
- * a new one there, so scheduling has the tab's full functionality: category, tags, location,
- * description, photos.
+ * dated in it (click one to edit it in the Experiences tab's own form). "+ Add" opens the whole
+ * Experiences tab over the sprint modal in schedule mode for that week — the same cards, filters,
+ * detail view and form, plus a day picker and "📅 Schedule" on every planned card.
  */
 export function SprintExperiencesChecklist({ schedule, onAdded }: { schedule: SprintExperienceSchedule; onAdded: () => void }) {
   const [all, setAll] = useState<ExperienceDto[] | null>(null);
-  const [addingWeek, setAddingWeek] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
-  const [date, setDate] = useState('');
-  const [form, setForm] = useState<{ x: ExperienceDto | null; initialStart?: string } | null>(null);
+  const [tabWeek, setTabWeek] = useState<SprintExperienceWeek | null>(null);
+  const [editing, setEditing] = useState<ExperienceDto | null>(null);
   const [error, setError] = useState('');
 
   const loadAll = useCallback(async () => {
@@ -133,24 +130,7 @@ export function SprintExperiencesChecklist({ schedule, onAdded }: { schedule: Sp
   useEffect(() => { loadAll(); }, [loadAll]);
 
   const tagsByCategory = useMemo(() => buildTagsByCategory(all ?? []), [all]);
-
-  const open = (w: SprintExperienceWeek) => {
-    setAddingWeek(w.weekStart); setQuery(''); setError('');
-    const t = todayIso();
-    setDate(t >= w.from && t <= w.to ? t : w.from);
-  };
-
-  const week = schedule.weeks.find(w => w.weekStart === addingWeek);
-  const candidates = (all ?? [])
-    .filter(x => x.status === 'planned')
-    .filter(x => !week || !(x.startDate && x.startDate >= week.from && x.startDate <= week.to))
-    .filter(x => !query.trim() || `${x.title} ${x.category ?? ''} ${x.tags.join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()))
-    .sort((a, b) => (a.startDate ? 1 : 0) - (b.startDate ? 1 : 0) || (a.startDate ?? '').localeCompare(b.startDate ?? '') || a.title.localeCompare(b.title));
-
-  const editExisting = (id: string) => {
-    const x = (all ?? []).find(e => e.id === id);
-    if (x) setForm({ x });
-  };
+  const changed = useCallback(() => { loadAll(); onAdded(); }, [loadAll, onAdded]);
 
   return (
     <div style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}>
@@ -165,13 +145,13 @@ export function SprintExperiencesChecklist({ schedule, onAdded }: { schedule: Sp
             <span style={{ fontWeight: 600 }}>{fmt(w.from)} – {fmt(w.to)}</span>
             <WeekCount w={w} mode="schedule" />
             <span style={{ flex: 1 }} />
-            {addingWeek !== w.weekStart &&
-              <button className="btn btn-sm" onClick={() => open(w)}>+ Add</button>}
+            <button className="btn btn-sm" onClick={() => setTabWeek(w)}>+ Add</button>
           </div>
           {w.experiences.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }}>
               {w.experiences.map(e => (
-                <button key={e.id} type="button" onClick={() => editExisting(e.id)} title="Open in the experience form"
+                <button key={e.id} type="button" title="Open in the experience form"
+                  onClick={() => { const x = (all ?? []).find(a => a.id === e.id); if (x) setEditing(x); }}
                   style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '3px 4px', background: 'none', border: 'none',
                     color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer', borderRadius: 4 }}>
                   <span style={{ width: 14, color: e.status === 'done' ? 'var(--success)' : 'var(--text-muted)' }}>{e.status === 'done' ? '✓' : '○'}</span>
@@ -182,51 +162,24 @@ export function SprintExperiencesChecklist({ schedule, onAdded }: { schedule: Sp
               ))}
             </div>
           )}
-          {addingWeek === w.weekStart && (
-            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                <span style={{ color: 'var(--text-muted)' }}>On</span>
-                <input type="date" value={date} min={w.from} max={w.to} onChange={e => setDate(e.target.value)} style={{ width: 'auto' }} />
-                <span style={{ flex: 1 }} />
-                <button className="btn btn-sm btn-accent" onClick={() => setForm({ x: null, initialStart: date })} disabled={!date}>＋ New experience</button>
-                <button className="btn btn-sm" onClick={() => setAddingWeek(null)}>Cancel</button>
-              </div>
-              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)' }}>
-                Or pick one of your planned experiences
-              </div>
-              <input type="text" value={query} onChange={e => setQuery(e.target.value)} placeholder="Filter…" />
-              <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {all === null
-                  ? <span style={{ color: 'var(--text-muted)' }}>Loading…</span>
-                  : candidates.length === 0
-                    ? <span style={{ color: 'var(--text-muted)' }}>No planned experiences{query ? ' match' : ' to pick'}.</span>
-                    : candidates.map(x => (
-                      <button key={x.id} type="button" onClick={() => setForm({ x, initialStart: date })} disabled={!date}
-                        title={`Open it with the date set to ${date}`}
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', textAlign: 'left',
-                          background: 'var(--bg-primary, transparent)', border: '1px solid var(--border-subtle)',
-                          borderRadius: 'var(--radius-sm)', color: 'inherit', cursor: 'pointer', font: 'inherit' }}>
-                        <span style={{ flex: 1, minWidth: 0 }}>{x.title}</span>
-                        {x.category && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{x.category}</span>}
-                        <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                          {x.startDate ? `now ${fmt(x.startDate)}` : 'undated'}
-                        </span>
-                      </button>
-                    ))}
-              </div>
-            </div>
-          )}
         </div>
       ))}
       {error && <div style={{ color: 'var(--danger)', marginTop: 6 }}>{error}</div>}
 
-      {/* The Experiences tab's own form, over the sprint modal. A portal so the sprint modal's
-          scrolling box never clips it; React events still bubble to the sprint modal, whose card
-          stops them, so a click here never closes it. */}
-      {form && createPortal(
-        <ExperienceForm x={form.x} initialStart={form.initialStart} tagsByCategory={tagsByCategory}
-          onCancel={() => setForm(null)}
-          onSaved={() => { setForm(null); setAddingWeek(null); loadAll(); onAdded(); }} />,
+      {/* Portals so the sprint modal's scrolling box never clips them; React events still bubble
+          to the sprint modal's card, which stops them, so a click inside never closes it. */}
+      {tabWeek && createPortal(
+        <div className="modal-overlay" onClick={() => setTabWeek(null)}>
+          <div className="modal xp-tab-modal" onClick={e => e.stopPropagation()} role="dialog" aria-label="Experiences"
+            style={{ maxWidth: 1180, width: '100%', height: '90vh', padding: 0, overflow: 'hidden' }}>
+            <ExperiencesPage schedule={{ from: tabWeek.from, to: tabWeek.to, onChanged: changed, onClose: () => setTabWeek(null) }} />
+          </div>
+        </div>,
+        document.body)}
+      {editing && createPortal(
+        <ExperienceForm x={editing} tagsByCategory={tagsByCategory}
+          onCancel={() => setEditing(null)}
+          onSaved={() => { setEditing(null); changed(); }} />,
         document.body)}
     </div>
   );

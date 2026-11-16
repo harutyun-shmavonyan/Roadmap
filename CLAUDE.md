@@ -571,11 +571,13 @@ Experiences tab live, and REST Start, MCP `start_sprint` (refusal lists the shor
 (`experiences` on the summary), MCP `get_sprint_performance`, the week view (`experiences` on
 `WeekPlanDto`) and `GET /sprints/{id}/experiences` all go through it. The sprint modal shows each
 draft sprint's weeks with the experiences dated in each, disables ▶ Start until they are met, and its
-"+ Add" offers "＋ New experience" or a pick from the planned experiences (undated first, filterable).
-Both open **the Experiences tab's own form** (`ExperienceForm`, exported from `ExperiencesPage.tsx`
-with `buildTagsByCategory`) with From pre-set to the chosen day in the week (`initialStart`; an end
-date shifts with it), in a portal over the sprint modal; a week's listed experience opens the same
-form to edit (`SprintExperiences.tsx`). Already-started sprints are not affected by the rule.
+"+ Add" opens **the whole Experiences tab** over the sprint modal (`ExperiencesPage` with its
+`schedule` prop — `ExperienceScheduleMode`: the week's from/to, `onChanged`, `onClose`): the same cards,
+filters, detail view and form, filtered to Planned by default, plus a day picker in a banner,
+"+ New experience" starting on that day, and "📅 Schedule on <day>" on every planned card and its detail
+view (opens `ExperienceForm` with `initialStart`; an end date shifts with it); cards already in the week
+say so. Every save, flip or delete calls `onChanged`, so the sprint modal's counts follow. A week's listed
+experience opens `ExperienceForm` to edit. Both are portals over the sprint modal (`SprintExperiences.tsx`). Already-started sprints are not affected by the rule.
 
 **A done experience earns 5 points** (`SprintExperiences.PointsPerDone`, mirrored by `POINTS_PER_DONE`
 in `SprintExperiences.tsx`) on its start date — earned only, never planned, in the "other" bucket with
