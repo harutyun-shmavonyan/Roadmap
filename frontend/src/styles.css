@@ -1672,3 +1672,71 @@ li:last-child > .foodlog-row { border-bottom: 0; }
   .tk-sub { display: block; margin: 2px 0 0; }
   .tk-proj-counts { display: none; }
 }
+
+/* ─── Sprints window (redesign 2026-11-16): Active card · Draft cards with a readiness check · History ─── */
+.modal.sp-modal { max-width: 640px; display: grid; gap: 16px; align-content: start; }
+.sp-modal h2 { margin: 0; }
+.sp-top { display: flex; align-items: center; gap: 8px; }
+.sp-top h2 { flex: 1; }
+.sp-error { background: var(--danger-dim); border: 1px solid var(--danger); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 13px; color: var(--danger); }
+.sp-muted { color: var(--text-muted); }
+.sp-hint { font-size: 12px; color: var(--text-muted); }
+.sp-section { display: grid; gap: 10px; }
+.sp-section-h { margin: 0; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+.sp-card { border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-primary); padding: 14px 16px; display: grid; gap: 12px; }
+.sp-card-active { border-color: var(--success); box-shadow: inset 3px 0 0 var(--success); }
+.sp-card-draft { box-shadow: inset 3px 0 0 var(--accent); }
+.sp-new { border-color: var(--accent); }
+.sp-card-head { display: flex; align-items: flex-start; gap: 8px; }
+.sp-card-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sp-card-title h3 { margin: 0; font-size: 16px; font-weight: 600; color: var(--text-primary); overflow-wrap: anywhere; }
+.sp-card-dates { margin-top: 4px; font-size: 13px; color: var(--text-secondary); }
+.sp-badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; border: 1px solid; }
+.sp-badge-active { color: var(--success); border-color: var(--success); background: var(--success-light); }
+.sp-badge-draft { color: var(--accent); border-color: var(--accent); background: var(--accent-light); }
+.sp-badge-ended { color: var(--text-muted); border-color: var(--border); background: var(--bg-hover); }
+.sp-chip { font-size: 11px; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 6px; }
+.sp-weighted { margin-left: 6px; font-size: 12px; color: var(--accent); }
+.sp-progress { height: 6px; border-radius: 3px; background: var(--bg-tertiary); overflow: hidden; }
+.sp-progress > div { height: 100%; background: var(--success); border-radius: 3px; transition: width .3s; }
+.sp-stat-line { display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; font-size: 13px; color: var(--text-secondary); }
+.sp-stat-line strong { color: var(--text-primary); }
+.sp-ready { display: grid; gap: 10px; border-top: 1px solid var(--border-subtle); padding-top: 12px; }
+.sp-ready h4 { margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-secondary); }
+.sp-check { display: flex; gap: 8px; align-items: baseline; font-size: 14px; }
+.sp-check > span:nth-child(2) { flex: 1; }
+.sp-check-mark { width: 18px; text-align: center; color: var(--text-muted); font-weight: 700; }
+.sp-check.ok .sp-check-mark { color: var(--success); }
+.sp-start { width: 100%; justify-content: center; padding: 10px; font-size: 14px; }
+.sp-start:disabled { opacity: .5; cursor: not-allowed; }
+.sp-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.sp-edit { display: grid; gap: 12px; }
+.sp-confirm { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--warning-light); border: 1px solid var(--warning); font-size: 13px; }
+.sp-confirm.danger { background: var(--danger-dim); border-color: var(--danger); }
+.sp-menu { position: relative; flex-shrink: 0; }
+.sp-menu-btn { font-size: 18px; line-height: 1; padding: 4px 10px; }
+.sp-menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 10; min-width: 180px; display: grid; padding: 4px; background: var(--bg-elevated, var(--bg-primary)); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-md); }
+.sp-menu-list button { text-align: left; padding: 8px 10px; background: none; border: none; border-radius: 4px; color: var(--text-primary); font: inherit; font-size: 13px; cursor: pointer; }
+.sp-menu-list button:hover, .sp-menu-list button:focus-visible { background: var(--bg-hover); outline: none; }
+.sp-menu-list button.danger { color: var(--danger); }
+.sp-history-toggle { justify-self: start; background: none; border: none; padding: 4px 0; font: inherit; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); cursor: pointer; }
+.sp-history-toggle:hover { color: var(--text-primary); }
+.sp-history { display: grid; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
+.sp-row { display: flex; align-items: center; gap: 10px; padding: 8px 6px 8px 14px; font-size: 13px; }
+.sp-row + .sp-row { border-top: 1px solid var(--border-subtle); }
+.sp-row-name { flex: 1; min-width: 0; color: var(--text-primary); overflow-wrap: anywhere; }
+.sp-row-dates { color: var(--text-muted); white-space: nowrap; }
+.sp-row-confirm { display: flex; gap: 6px; }
+.sp-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sp-seg button { display: grid; gap: 2px; text-align: left; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-primary); font: inherit; cursor: pointer; }
+.sp-seg button span { font-size: 12px; color: var(--text-muted); }
+.sp-seg button.on { border-color: var(--accent); background: var(--accent-light); }
+.sp-empty { display: grid; gap: 8px; justify-items: start; padding: 20px; border: 1px dashed var(--border); border-radius: var(--radius-md); font-size: 14px; color: var(--text-secondary); }
+.sp-empty strong { color: var(--text-primary); }
+@media (max-width: 767px) {
+  .modal.sp-modal { max-width: calc(100vw - 20px); padding: 16px; gap: 14px; }
+  .sp-card { padding: 12px; }
+  .sp-seg { grid-template-columns: 1fr; }
+  .sp-row-dates { display: none; }
+  .sp-modal .form-row { flex-direction: column; gap: 12px; }
+}

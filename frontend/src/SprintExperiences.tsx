@@ -117,7 +117,7 @@ export function WeekExperiencesSection({ week }: { week: SprintExperienceWeek })
  * Experiences tab over the sprint modal in schedule mode for that week — the same cards, filters,
  * detail view and form, plus a day picker and "📅 Schedule" on every planned card.
  */
-export function SprintExperiencesChecklist({ schedule, onAdded }: { schedule: SprintExperienceSchedule; onAdded: () => void }) {
+export function SprintExperiencesChecklist({ schedule, onAdded, hideHeader }: { schedule: SprintExperienceSchedule; onAdded: () => void; hideHeader?: boolean }) {
   const [all, setAll] = useState<ExperienceDto[] | null>(null);
   const [tabWeek, setTabWeek] = useState<SprintExperienceWeek | null>(null);
   const [editing, setEditing] = useState<ExperienceDto | null>(null);
@@ -134,13 +134,15 @@ export function SprintExperiencesChecklist({ schedule, onAdded }: { schedule: Sp
 
   return (
     <div style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}>
-      <div style={{ marginBottom: 6, color: schedule.ready ? 'var(--success)' : 'var(--text-secondary, var(--text-muted))' }}>
-        {schedule.ready
-          ? '✓ Experiences scheduled — ready to start'
-          : `Schedule at least ${schedule.perWeek} experiences a week to start this sprint`}
-      </div>
-      {schedule.weeks.map(w => (
-        <div key={w.weekStart} style={{ padding: '6px 0', borderTop: '1px solid var(--border-subtle)' }}>
+      {!hideHeader && (
+        <div style={{ marginBottom: 6, color: schedule.ready ? 'var(--success)' : 'var(--text-secondary, var(--text-muted))' }}>
+          {schedule.ready
+            ? '✓ Experiences scheduled — ready to start'
+            : `Schedule at least ${schedule.perWeek} experiences a week to start this sprint`}
+        </div>
+      )}
+      {schedule.weeks.map((w, i) => (
+        <div key={w.weekStart} style={{ padding: '6px 0', borderTop: hideHeader && i === 0 ? 'none' : '1px solid var(--border-subtle)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 600 }}>{fmt(w.from)} – {fmt(w.to)}</span>
             <WeekCount w={w} mode="schedule" />

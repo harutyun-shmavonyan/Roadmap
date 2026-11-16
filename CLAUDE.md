@@ -584,3 +584,14 @@ in `SprintExperiences.tsx`) on its start date — earned only, never planned, in
 tasks and custom logs, so it moves Performance's earned total, daily points and overall progress. The
 schedule DTOs carry `earnedPoints`. Like completed tasks, it is not added to the day view's Earned
 figure.
+
+## Sprints window — layout (2026-11-16 redesign)
+
+`SprintModal.tsx` (opened from the day view and Performance): **Active** sprint as a card (badge, dates,
+"Day N of M · K days left", a day-progress bar, the experiences tally), **Drafts** as cards with a "Ready
+to start?" checklist (today one check: experiences — `SprintExperiencesChecklist` with `hideHeader`) and a
+full-width ▶ Start that stays visible and says why it is locked, and **History** (ended sprints) folded
+into one quiet row each. "+ New sprint" opens the form on demand, pre-filled to start the day after the
+last sprint and run two weeks. Edit / Close / Delete live in a ⋯ menu; Close and Delete confirm in a bar
+inside the card that names the sprint. Escape closes the window unless an experience modal is open.
+Styles are the `sp-*` block in `styles.css`. A new start condition belongs in the draft card's checklist.
