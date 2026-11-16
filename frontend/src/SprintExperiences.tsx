@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { SprintExperienceSchedule, SprintExperienceWeek } from './types';
+import type { ExperienceDto, SprintExperienceSchedule, SprintExperienceWeek } from './types';
 import { EXPERIENCE_CATEGORIES } from './types';
 import { api } from './api';
 
@@ -110,25 +110,38 @@ export function WeekExperiencesSection({ week }: { week: SprintExperienceWeek })
   );
 }
 
+/** Shift a yyyy-MM-dd date by whole days. */
+const addDays = (iso: string, n: number) => {
+  const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const dayDiff = (a: string, b: string) =>
+  Math.round((new Date(b + 'T00:00:00').getTime() - new Date(a + 'T00:00:00').getTime()) / 86400000);
+
 /**
- * Sprint modal, draft sprint: what Start needs, week by week, with a one-line form to add a
- * planned experience to a short week without leaving the modal.
+ * Sprint modal, draft sprint: what Start needs, week by week. Each week lists the experiences
+ * already dated in it; "+ Add" opens a picker of the planned experiences in the Experiences tab
+ * (undated first) — picking one dates it into the week — or a one-line form for a new one.
  */
 export function SprintExperiencesChecklist({ schedule, onAdded }: { schedule: SprintExperienceSchedule; onAdded: () => void }) {
   const [addingWeek, setAddingWeek] = useState<string | null>(null);
+  const [planned, setPlanned] = useState<ExperienceDto[] | null>(null);
+  const [query, setQuery] = useState('');
   const [title, setTitle] = useState('');
   const [date, setDate] = useState('');
   const [category, setCategory] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const open = (w: SprintExperienceWeek) => {
-    setAddingWeek(w.weekStart); setTitle(''); setCategory(''); setError('');
+  const open = async (w: SprintExperienceWeek) => {
+    setAddingWeek(w.weekStart); setTitle(''); setCategory(''); setQuery(''); setError('');
     const t = todayIso();
     setDate(t >= w.from && t <= w.to ? t : w.from);
+    try { setPlanned(await api.getExperiences('planned')); }
+    catch (e) { setError((e as Error).message); setPlanned([]); }
   };
 
-  const add = async () => {
+  const addNew = async () => {
     if (!title.trim() || !date) return;
     setBusy(true); setError('');
     try {
@@ -139,6 +152,26 @@ export function SprintExperiencesChecklist({ schedule, onAdded }: { schedule: Sp
     finally { setBusy(false); }
   };
 
+  // Date an existing experience into the week. PUT replaces, so every field is sent back as it
+  // was; an end date moves with the start so a multi-day plan keeps its length.
+  const schedule_ = async (x: ExperienceDto) => {
+    if (!date) return;
+    setBusy(true); setError('');
+    try {
+      const endDate = x.startDate && x.endDate ? addDays(date, dayDiff(x.startDate, x.endDate)) : x.endDate && !x.startDate ? null : x.endDate;
+      await api.updateExperience(x.id, { title: x.title, category: x.category, tags: x.tags, status: x.status,
+        location: x.location, startDate: date, endDate, descriptionMd: x.descriptionMd });
+      setAddingWeek(null); onAdded();
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  };
+
+  const week = schedule.weeks.find(w => w.weekStart === addingWeek);
+  const candidates = (planned ?? [])
+    .filter(x => !week || !(x.startDate && x.startDate >= week.from && x.startDate <= week.to))
+    .filter(x => !query.trim() || `${x.title} ${x.category ?? ''} ${x.tags.join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()))
+    .sort((a, b) => (a.startDate ? 1 : 0) - (b.startDate ? 1 : 0) || (a.startDate ?? '').localeCompare(b.startDate ?? '') || a.title.localeCompare(b.title));
+
   return (
     <div style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)', fontSize: 13 }}>
       <div style={{ marginBottom: 6, color: schedule.ready ? 'var(--success)' : 'var(--text-secondary, var(--text-muted))' }}>
@@ -147,27 +180,71 @@ export function SprintExperiencesChecklist({ schedule, onAdded }: { schedule: Sp
           : `Schedule at least ${schedule.perWeek} experiences a week to start this sprint`}
       </div>
       {schedule.weeks.map(w => (
-        <div key={w.weekStart} style={{ padding: '4px 0', borderTop: '1px solid var(--border-subtle)' }}>
+        <div key={w.weekStart} style={{ padding: '6px 0', borderTop: '1px solid var(--border-subtle)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ minWidth: 110 }}>{fmt(w.from)} – {fmt(w.to)}</span>
+            <span style={{ fontWeight: 600 }}>{fmt(w.from)} – {fmt(w.to)}</span>
             <WeekCount w={w} mode="schedule" />
-            <span style={{ flex: 1, minWidth: 0, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {w.experiences.map(e => e.title).join(' · ')}
-            </span>
+            <span style={{ flex: 1 }} />
             {addingWeek !== w.weekStart &&
               <button className="btn btn-sm" onClick={() => open(w)} disabled={busy}>+ Add</button>}
           </div>
+          {w.experiences.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4, paddingLeft: 4 }}>
+              {w.experiences.map(e => (
+                <div key={e.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ width: 14, color: e.status === 'done' ? 'var(--success)' : 'var(--text-muted)' }}>{e.status === 'done' ? '✓' : '○'}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>{e.title}</span>
+                  {e.category && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{e.category}</span>}
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{fmtDay(e.date)}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {addingWeek === w.weekStart && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-              <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="Experience…"
-                style={{ flex: 1, minWidth: 140 }} autoFocus onKeyDown={e => { if (e.key === 'Enter') add(); }} />
-              <input type="date" value={date} min={w.from} max={w.to} onChange={e => setDate(e.target.value)} />
-              <select value={category} onChange={e => setCategory(e.target.value)}>
-                <option value="">Category…</option>
-                {EXPERIENCE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <button className="btn btn-sm btn-accent" onClick={add} disabled={busy || !title.trim() || !date}>Add</button>
-              <button className="btn btn-sm" onClick={() => setAddingWeek(null)} disabled={busy}>Cancel</button>
+            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ color: 'var(--text-muted)' }}>On</span>
+                <input type="date" value={date} min={w.from} max={w.to} onChange={e => setDate(e.target.value)} />
+                <span style={{ flex: 1 }} />
+                <button className="btn btn-sm" onClick={() => setAddingWeek(null)} disabled={busy}>Cancel</button>
+              </div>
+
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)' }}>
+                From your planned experiences
+              </div>
+              <input type="text" value={query} onChange={e => setQuery(e.target.value)} placeholder="Filter…" />
+              <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {planned === null
+                  ? <span style={{ color: 'var(--text-muted)' }}>Loading…</span>
+                  : candidates.length === 0
+                    ? <span style={{ color: 'var(--text-muted)' }}>No planned experiences{query ? ' match' : ' to pick'} — add a new one below.</span>
+                    : candidates.map(x => (
+                      <button key={x.id} type="button" onClick={() => schedule_(x)} disabled={busy || !date}
+                        title={`Schedule on ${date}`}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', textAlign: 'left',
+                          background: 'var(--bg-primary, transparent)', border: '1px solid var(--border-subtle)',
+                          borderRadius: 'var(--radius-sm)', color: 'inherit', cursor: 'pointer', font: 'inherit' }}>
+                        <span style={{ flex: 1, minWidth: 0 }}>{x.title}</span>
+                        {x.category && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{x.category}</span>}
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                          {x.startDate ? `now ${fmt(x.startDate)}` : 'undated'}
+                        </span>
+                      </button>
+                    ))}
+              </div>
+
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)' }}>
+                Or a new one
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="Experience…"
+                  style={{ flex: 1, minWidth: 140 }} onKeyDown={e => { if (e.key === 'Enter') addNew(); }} />
+                <select value={category} onChange={e => setCategory(e.target.value)}>
+                  <option value="">Category…</option>
+                  {EXPERIENCE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <button className="btn btn-sm btn-accent" onClick={addNew} disabled={busy || !title.trim() || !date}>Add</button>
+              </div>
             </div>
           )}
         </div>

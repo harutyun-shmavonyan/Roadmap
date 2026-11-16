@@ -570,8 +570,10 @@ scheduled. Nothing is stored: `SprintExperiences` (`backend/SprintExperiences.cs
 Experiences tab live, and REST Start, MCP `start_sprint` (refusal lists the short weeks), Performance
 (`experiences` on the summary), MCP `get_sprint_performance`, the week view (`experiences` on
 `WeekPlanDto`) and `GET /sprints/{id}/experiences` all go through it. The sprint modal shows each
-draft sprint's weeks, disables ▶ Start until they are met, and can add a planned experience to a
-week in place (`SprintExperiences.tsx`). Already-started sprints are not affected by the rule.
+draft sprint's weeks with the experiences dated in each, disables ▶ Start until they are met, and its
+"+ Add" lists the planned experiences from the Experiences tab (undated first, filterable) — picking one
+dates it into the week (PUT with every field sent back; an end date shifts with the start) — or adds a
+new one (`SprintExperiences.tsx`). Already-started sprints are not affected by the rule.
 
 **A done experience earns 5 points** (`SprintExperiences.PointsPerDone`, mirrored by `POINTS_PER_DONE`
 in `SprintExperiences.tsx`) on its start date — earned only, never planned, in the "other" bucket with
