@@ -463,7 +463,7 @@ function EarnedParts({ progress }: { progress: PerformanceSummary['dailyProgress
   if (!p) return null;
   const parts: [string, number][] = [
     ['schedule', p.earnedSchedule], ['goals', p.earnedGoals], ['habits', p.earnedHabits],
-    ...(p.earnedOther !== 0 ? [['tasks & logs', p.earnedOther] as [string, number]] : []),
+    ...(p.earnedOther !== 0 ? [['tasks, logs & experiences', p.earnedOther] as [string, number]] : []),
   ];
   return (
     <div className="perf-card-parts">

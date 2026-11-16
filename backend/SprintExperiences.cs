@@ -24,6 +24,12 @@ public static class SprintExperiences
 {
     public const int PerWeek = 2;
 
+    /// <summary>
+    /// What a done experience earns its sprint (the user's call, 2026-11-16) — on its start date,
+    /// earned only and never planned, like a completed task or a custom log.
+    /// </summary>
+    public const int PointsPerDone = 5;
+
     public static DateOnly MondayOf(DateOnly d) => d.AddDays(-(((int)d.DayOfWeek + 6) % 7));
 
     public static int RequiredFor(int days) => days <= 0 ? 0 : (int)Math.Ceiling(PerWeek * days / 7.0);
@@ -51,12 +57,14 @@ public static class SprintExperiences
             weeks.Add(new SprintExperienceWeekDto(
                 monday.ToString("yyyy-MM-dd"), from.ToString("yyyy-MM-dd"), to.ToString("yyyy-MM-dd"),
                 days, required, inWeek.Count, inWeek.Count(x => x.Status == "done"),
-                inWeek.Count >= required, inWeek));
+                inWeek.Count >= required, inWeek,
+                inWeek.Count(x => x.Status == "done") * PointsPerDone));
         }
 
         return new SprintExperienceScheduleDto(PerWeek,
             weeks.Sum(w => w.Required), weeks.Sum(w => w.Scheduled), weeks.Sum(w => w.Done),
-            weeks.All(w => w.Met), weeks);
+            weeks.All(w => w.Met), weeks,
+            PointsPerDone, weeks.Sum(w => w.EarnedPoints));
     }
 
     /// <summary>The week of <paramref name="anyDay"/>, clipped to the sprint. Null when they do not meet.</summary>

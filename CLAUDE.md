@@ -572,3 +572,9 @@ Experiences tab live, and REST Start, MCP `start_sprint` (refusal lists the shor
 `WeekPlanDto`) and `GET /sprints/{id}/experiences` all go through it. The sprint modal shows each
 draft sprint's weeks, disables ▶ Start until they are met, and can add a planned experience to a
 week in place (`SprintExperiences.tsx`). Already-started sprints are not affected by the rule.
+
+**A done experience earns 5 points** (`SprintExperiences.PointsPerDone`, mirrored by `POINTS_PER_DONE`
+in `SprintExperiences.tsx`) on its start date — earned only, never planned, in the "other" bucket with
+tasks and custom logs, so it moves Performance's earned total, daily points and overall progress. The
+schedule DTOs carry `earnedPoints`. Like completed tasks, it is not added to the day view's Earned
+figure.

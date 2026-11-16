@@ -8,6 +8,9 @@ import { api } from './api';
 // them; Performance and the week view show how many were actually had. The rows themselves live
 // in the Experiences tab — this only reads them, and the sprint modal can add a missing plan.
 
+/** What a done experience earns its sprint — SprintExperiences.PointsPerDone on the server. */
+const POINTS_PER_DONE = 5;
+
 const todayIso = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -52,6 +55,7 @@ function ExperienceList({ w }: { w: SprintExperienceWeek }) {
             </span>
             <span style={{ flex: 1, minWidth: 0, color: missed ? 'var(--text-muted)' : undefined }}>{e.title}</span>
             {e.category && <span style={{ fontSize: 11, color: 'var(--text-muted)', border: '1px solid var(--border-subtle)', borderRadius: 4, padding: '1px 6px' }}>{e.category}</span>}
+            {done && <span style={{ fontSize: 12, color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>+{POINTS_PER_DONE}pt</span>}
             <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{fmtDay(e.date)}</span>
           </div>
         );
@@ -69,6 +73,11 @@ export function SprintExperiencesSection({ schedule }: { schedule: SprintExperie
           color: schedule.done >= schedule.required ? 'var(--success)' : 'var(--text-muted)' }}>
           {schedule.done}/{schedule.required} done · {schedule.scheduled} scheduled · min {schedule.perWeek}/week
         </span>
+        {schedule.earnedPoints > 0 && (
+          <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 600, color: 'var(--success)', fontFamily: 'var(--font-mono)' }}>
+            +{schedule.earnedPoints}pt earned
+          </span>
+        )}
       </h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {schedule.weeks.map(w => (
@@ -89,7 +98,13 @@ export function SprintExperiencesSection({ schedule }: { schedule: SprintExperie
 export function WeekExperiencesSection({ week }: { week: SprintExperienceWeek }) {
   return (
     <div className="perf-section">
-      <h2>Experiences <span style={{ marginLeft: 8 }}><WeekCount w={week} mode="done" /></span></h2>
+      <h2>Experiences <span style={{ marginLeft: 8 }}><WeekCount w={week} mode="done" /></span>
+        {week.earnedPoints > 0 && (
+          <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 600, color: 'var(--success)', fontFamily: 'var(--font-mono)' }}>
+            +{week.earnedPoints}pt
+          </span>
+        )}
+      </h2>
       <ExperienceList w={week} />
     </div>
   );

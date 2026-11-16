@@ -136,11 +136,12 @@ public record SprintExperienceRefDto(Guid Id, string Title, string? Category, st
 
 /// <summary>One Monday–Sunday week clipped to the sprint. Met = Scheduled ≥ Required.</summary>
 public record SprintExperienceWeekDto(string WeekStart, string From, string To, int Days,
-    int Required, int Scheduled, int Done, bool Met, List<SprintExperienceRefDto> Experiences);
+    int Required, int Scheduled, int Done, bool Met, List<SprintExperienceRefDto> Experiences,
+    int EarnedPoints = 0);
 
 /// <summary>Ready = every week met — the condition for Start Sprint.</summary>
 public record SprintExperienceScheduleDto(int PerWeek, int Required, int Scheduled, int Done, bool Ready,
-    List<SprintExperienceWeekDto> Weeks);
+    List<SprintExperienceWeekDto> Weeks, int PointsPerDone = 0, int EarnedPoints = 0);
 
 /// <summary>
 /// Per-item performance within a sprint.

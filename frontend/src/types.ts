@@ -67,9 +67,12 @@ export interface SprintExperienceRef { id: string; title: string; category: stri
 export interface SprintExperienceWeek {
   weekStart: string; from: string; to: string; days: number;
   required: number; scheduled: number; done: number; met: boolean; experiences: SprintExperienceRef[];
+  /** done × pointsPerDone (5) — earned, never planned. */
+  earnedPoints: number;
 }
 export interface SprintExperienceSchedule {
   perWeek: number; required: number; scheduled: number; done: number; ready: boolean; weeks: SprintExperienceWeek[];
+  pointsPerDone: number; earnedPoints: number;
 }
 
 export interface PerformanceSummary {

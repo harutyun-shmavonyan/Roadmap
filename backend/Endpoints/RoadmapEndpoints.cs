@@ -1408,8 +1408,15 @@ public static class RoadmapEndpoints
             }
             var customLogDtos = customLogs.Select(c => new CustomLogDto(c.Id, c.Title, c.Points, c.Date.ToString("yyyy-MM-dd"), c.Note)).ToList();
 
+            // Done experiences: SprintExperiences.PointsPerDone each, on their start date (earned only, not planned)
+            var experienceSchedule = await SprintExperiences.ComputeAsync(db, sprint.StartDate, sprint.EndDate);
+            foreach (var doneExp in experienceSchedule.Weeks.SelectMany(w => w.Experiences).Where(x => x.Status == "done"))
+                Earn(DateOnly.Parse(doneExp.Date), SprintExperiences.PointsPerDone, BOther);
+            double totalExperiencePts = experienceSchedule.EarnedPoints;
+
             var grandPlanned = items.Sum(i => i.PlannedPoints);
-            var grandEarned = items.Sum(i => i.EarnedPoints) + totalHabitEarnedPts + totalTaskEarnedPts + totalCustomPts;
+            var grandEarned = items.Sum(i => i.EarnedPoints) + totalHabitEarnedPts + totalTaskEarnedPts + totalCustomPts
+                + totalExperiencePts;
 
             var ctDtos = completedTasks.Select(t => new CompletedTaskDto(t.Id, t.Title, t.Priority.ToString(),
                 t.EstimatedHours, Math.Floor(t.EstimatedHours * 2), t.CompletedDate!.Value.ToString("yyyy-MM-dd"))).ToList();
@@ -1538,7 +1545,7 @@ public static class RoadmapEndpoints
                 dailyProgress,
                 ctDtos, customLogDtos, catDtos, goalDtos, Math.Round(totalGoalBonusPts, 1),
                 sprint.ScoringMode.ToString(),
-                await SprintExperiences.ComputeAsync(db, sprint.StartDate, sprint.EndDate)));
+                experienceSchedule));
         });
 
         // ===== Work Logs (sprint-scoped) =====
