@@ -616,3 +616,12 @@ phones) — your Network list (unscheduled first; search; "Show met"), a day pic
 <day>" sets the task's DueDate (and StartDate no later than it, so it shows that day), and "Someone new"
 adds a task (creating the Network project on first use). Sections reuse `SprintExperiencesSection` /
 `WeekExperiencesSection` with `kind="network"` (title Network, "met").
+
+## Sprint habits to track (2026-11-17)
+
+The third start condition (the user's call): **at least `SprintNetwork.MinHabits` (1) habit linked to
+the sprint**, paused ones not counted. Checked in `SprintNetwork.StartChecksAsync` with the other two
+(REST start, MCP `start_sprint` — its refusal carries `habits_tracked`). In the Sprints window the draft
+card's third check lists the habit library as toggle chips (`SprintHabits.tsx`, `.hb-*` styles; ✓ =
+tracked, click to add/remove via the existing sprint-habit endpoints) plus "New habit… → Add & track".
+Daily checks, streaks and ±2 pts are unchanged (day view, Habits tab, Performance).

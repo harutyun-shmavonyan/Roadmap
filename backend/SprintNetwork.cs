@@ -73,13 +73,23 @@ public static class SprintNetwork
                $"Tasks tab's \"{ProjectName}\" project, due that week). Short: {string.Join("; ", short_)}.";
     }
 
+    /// <summary>
+    /// Habits a sprint must track before it starts (the user's call, 2026-11-17): at least this many
+    /// habits linked to the sprint (Habits tab / the sprint modal), paused ones not counted.
+    /// </summary>
+    public const int MinHabits = 1;
+
     /// <summary>Every check Start Sprint makes, in one place — REST and MCP both call this.</summary>
-    public static async Task<(string? Refusal, SprintExperienceScheduleDto Experiences, SprintExperienceScheduleDto Network)>
+    public static async Task<(string? Refusal, SprintExperienceScheduleDto Experiences, SprintExperienceScheduleDto Network, int Habits)>
         StartChecksAsync(RoadmapDbContext db, Sprint sprint)
     {
         var exp = await SprintExperiences.ComputeAsync(db, sprint.StartDate, sprint.EndDate);
         var net = await ComputeAsync(db, sprint.RoadmapId, sprint.StartDate, sprint.EndDate);
-        var reasons = new[] { SprintExperiences.StartRefusal(exp), StartRefusal(net) }.Where(r => r is not null).ToList();
-        return (reasons.Count == 0 ? null : string.Join(" ", reasons), exp, net);
+        var habits = await db.SprintHabits.CountAsync(h => h.SprintId == sprint.Id && !h.IsPaused);
+        var habitRefusal = habits >= MinHabits ? null
+            : $"Choose the habits to track before starting the sprint — at least {MinHabits} (it has {habits}).";
+        var reasons = new[] { SprintExperiences.StartRefusal(exp), StartRefusal(net), habitRefusal }
+            .Where(r => r is not null).ToList();
+        return (reasons.Count == 0 ? null : string.Join(" ", reasons), exp, net, habits);
     }
 }

@@ -957,8 +957,8 @@ public static class RoadmapEndpoints
             if (sprint is null) return Results.NotFound();
             if (sprint.IsStarted) return Results.BadRequest("Sprint already started");
             // No sprint starts without its experiences schedule — at least 2 a week.
-            // …nor without its network schedule — a new person each week.
-            var (startRefusal, _, _) = await SprintNetwork.StartChecksAsync(db, sprint);
+            // …nor without its network schedule (a new person each week) and its habits to track.
+            var (startRefusal, _, _, _) = await SprintNetwork.StartChecksAsync(db, sprint);
             if (startRefusal is not null) return Results.BadRequest(startRefusal);
 
             var allNodes = await db.Nodes.AsNoTracking().Where(n => n.RoadmapId == roadmapId).OrderBy(n => n.SortOrder).ToListAsync();

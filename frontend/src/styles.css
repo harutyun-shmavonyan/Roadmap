@@ -1799,3 +1799,17 @@ li:last-child > .foodlog-row { border-bottom: 0; }
 .modal .nw-day, .modal .nw-toggle { display: flex; margin: 0; color: var(--text-secondary); }
 .nw-add { align-items: center; }
 .nw-add .btn { white-space: nowrap; }
+
+/* ─── Habits to track (draft sprint card) ─── */
+.hb-box { display: grid; gap: 10px; padding: 10px 12px; background: var(--bg-secondary); border-radius: var(--radius-sm); font-size: 13px; }
+.hb-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.hb-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--bg-primary); color: var(--text-secondary); font: inherit; font-size: 13px; cursor: pointer; }
+.hb-chip span { font-weight: 700; color: var(--text-muted); }
+.hb-chip.on { border-color: var(--success); background: var(--success-light); color: var(--text-primary); }
+.hb-chip.on span { color: var(--success); }
+.hb-chip.paused { opacity: .6; border-style: dashed; }
+.hb-add { display: flex; gap: 8px; align-items: center; }
+.hb-add input { flex: 1; margin: 0 !important; }
+.hb-add .btn { white-space: nowrap; }
+@media (max-width: 767px) { .hb-chip { padding: 8px 12px; } }

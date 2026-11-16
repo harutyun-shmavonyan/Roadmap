@@ -3,6 +3,7 @@ import type { SprintDto, SprintExperienceSchedule } from './types';
 import { api } from './api';
 import { SprintExperiencesChecklist } from './SprintExperiences';
 import { SprintNetworkChecklist } from './SprintNetwork';
+import { SprintHabitsChecklist, useSprintHabits, MIN_HABITS } from './SprintHabits';
 import { ScalesIcon } from './NavIcons';
 
 // The Sprints window (redesign 2026-11-16). One job per area, in the order you need them:
@@ -87,6 +88,7 @@ function SprintCard({ s, exp, net, busy, roadmapId, onChanged, onError, setBusy 
   onChanged: () => Promise<void>; onError: (m: string) => void; setBusy: (b: boolean) => void;
 }) {
   const kind = kindOf(s);
+  const habits = useSprintHabits(roadmapId, s.id, kind === 'draft');
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(s.name);
   const [start, setStart] = useState(s.startDate);
@@ -133,7 +135,8 @@ function SprintCard({ s, exp, net, busy, roadmapId, onChanged, onError, setBusy 
   }
 
   const expReady = !!exp?.ready, netReady = !!net?.ready;
-  const ready = expReady && netReady;
+  const habitsReady = habits.ready;
+  const ready = expReady && netReady && habitsReady;
   const readyWeeks = (x?: SprintExperienceSchedule) => (x ? `${x.weeks.filter(w => w.met).length} of ${x.weeks.length} weeks` : '…');
 
   return (
@@ -200,15 +203,24 @@ function SprintCard({ s, exp, net, busy, roadmapId, onChanged, onError, setBusy 
             <span className="sp-muted sp-check-count">{readyWeeks(net)}</span>
           </div>
           {net && <SprintNetworkChecklist roadmapId={roadmapId} schedule={net} onChanged={onChanged} />}
+          <div className={`sp-check ${habitsReady ? 'ok' : ''}`}>
+            <span className="sp-check-mark" aria-hidden="true">{habitsReady ? '✓' : '○'}</span>
+            <span>Habits to track — at least {MIN_HABITS}</span>
+            <span className="sp-muted sp-check-count">{habits.tracked ? `${habits.count} chosen` : '…'}</span>
+          </div>
+          <SprintHabitsChecklist roadmapId={roadmapId} sprintId={s.id} library={habits.library} tracked={habits.tracked}
+            onChanged={async () => { await habits.load(); }} />
           <button className="btn btn-accent sp-start" disabled={busy || !ready}
             onClick={() => run(() => api.startSprint(roadmapId, s.id))}>
             ▶ Start sprint
           </button>
           {!ready && exp && net && (
             <div className="sp-hint" style={{ textAlign: 'center' }}>
-              {!expReady && !netReady ? 'Schedule the missing experiences and people above to unlock Start.'
-                : !expReady ? 'Schedule the missing experiences above to unlock Start.'
-                : 'Choose who to meet in the missing weeks above to unlock Start.'}
+              {`To unlock Start: ${[
+                !expReady && 'schedule the missing experiences',
+                !netReady && 'choose who to meet in the missing weeks',
+                !habitsReady && 'pick the habits to track',
+              ].filter(Boolean).join(', ')}.`.replace(/: (.)/, (_, c: string) => `: ${c.toUpperCase()}`)}
             </div>
           )}
         </section>
