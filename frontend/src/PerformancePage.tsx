@@ -4,6 +4,7 @@ import { api } from './api';
 import { fmtUnit } from './unitFormat';
 import { SprintModal } from './SprintModal';
 import { SprintExperiencesSection } from './SprintExperiences';
+import { ScalesIcon } from './NavIcons';
 
 interface Props { roadmapId: string; onBack: () => void; }
 
@@ -114,7 +115,7 @@ export function PerformancePage({ roadmapId, onBack }: Props) {
             {/* Weighted-scoring indicator */}
             {perf.scoringMode === 'Weighted' && (
               <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-sm)', padding: '10px 16px', marginBottom: 16, fontSize: 13 }}>
-                ⚖ <strong>Weighted scoring</strong> — each day keeps its preplanned points, but the budget is re-split
+                <span style={{ color: 'var(--accent)', marginRight: 6 }}><ScalesIcon /></span><strong>Weighted scoring</strong> — each day keeps its preplanned points, but the budget is re-split
                 between items: overdone ones give up points (up to 70%) and underdone ones receive them. On-plan items stay at 100%,
                 and doing exactly the day's plan earns exactly the day's points.
               </div>

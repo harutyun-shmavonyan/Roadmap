@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { SprintDto, SprintExperienceSchedule } from './types';
 import { api } from './api';
 import { SprintExperiencesChecklist } from './SprintExperiences';
+import { ScalesIcon } from './NavIcons';
 
 // The Sprints window (redesign 2026-11-16). One job per area, in the order you need them:
 //   Active   — the running sprint as a card: dates, a day-progress bar, how its experiences are going.
@@ -118,7 +119,7 @@ function SprintCard({ s, exp, busy, roadmapId, onChanged, onError, setBusy }: {
   if (kind === 'ended' && !editing) {
     return (
       <div className="sp-row">
-        <span className="sp-row-name">{s.name}{s.scoringMode === 'Weighted' && <span className="sp-weighted" title="Weighted scoring">⚖</span>}</span>
+        <span className="sp-row-name">{s.name}{s.scoringMode === 'Weighted' && <span className="sp-weighted" title="Weighted scoring"><ScalesIcon title="Weighted scoring" /></span>}</span>
         <span className="sp-row-dates">{fmtDate(s.startDate)} – {fmtDate(s.endDate, true)}</span>
         {confirm === 'delete'
           ? <span className="sp-row-confirm">
@@ -151,7 +152,7 @@ function SprintCard({ s, exp, busy, roadmapId, onChanged, onError, setBusy }: {
               <Badge kind={kind} />
               <h3>{s.name}</h3>
               {s.scoringMode === 'Weighted' && (
-                <span className="sp-chip" title="Weighted scoring: each day, overdone items give points to underdone ones; the day's total is unchanged">⚖ Weighted</span>
+                <span className="sp-chip" title="Weighted scoring: each day, overdone items give points to underdone ones; the day's total is unchanged"><ScalesIcon /> Weighted</span>
               )}
             </div>
             <div className="sp-card-dates">{fmtDate(s.startDate)} – {fmtDate(s.endDate, true)} · {sub}</div>
@@ -290,7 +291,7 @@ export function SprintModal({ roadmapId, onClose }: Props) {
             <div>
               <label>Scoring</label>
               <div className="sp-seg" role="radiogroup" aria-label="Scoring">
-                {([['Fixed', 'Fixed', 'A unit is always worth its points'], ['Weighted', '⚖ Weighted', 'Overdone items give points to underdone ones']] as const).map(([v, l, d]) => (
+                {([['Fixed', 'Fixed', 'A unit is always worth its points'], ['Weighted', <><ScalesIcon /> Weighted</>, 'Overdone items give points to underdone ones']] as const).map(([v, l, d]) => (
                   <button key={v} type="button" role="radio" aria-checked={scoringMode === v}
                     className={scoringMode === v ? 'on' : ''} onClick={() => setScoringMode(v)}>
                     <strong>{l}</strong><span>{d}</span>

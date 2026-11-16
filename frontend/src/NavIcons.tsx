@@ -199,3 +199,26 @@ export const NAV_ICON: Record<string, ReactNode> = {
     </S>
   ),
 };
+
+/**
+ * Balance scales — the mark for Weighted scoring (replaces the ⚖ emoji, which every platform drew
+ * differently). Line art in `currentColor`, so it takes the colour of the text it sits in (accent,
+ * a price's good/warning colour, muted); pans tinted at 25%. Sized in em so it matches its line.
+ */
+export function ScalesIcon({ size = '1.2em', title }: { size?: string | number; title?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} role={title ? 'img' : undefined}
+      aria-hidden={title ? undefined : true} aria-label={title} focusable="false"
+      style={{ display: 'inline-block', verticalAlign: '-0.22em', flexShrink: 0 }}>
+      <g fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 4.6v15" />
+        <path d="M8.2 20h7.6" />
+        <path d="M4.6 7.2h14.8" />
+        <path d="M4.6 7.2 2.4 13.2M4.6 7.2l2.2 6M19.4 7.2l-2.2 6M19.4 7.2l2.2 6" />
+        <path d="M2 13.2h5.2a2.6 2.6 0 0 1-5.2 0Z" fill="currentColor" fillOpacity=".25" />
+        <path d="M16.8 13.2H22a2.6 2.6 0 0 1-5.2 0Z" fill="currentColor" fillOpacity=".25" />
+      </g>
+      <circle cx="12" cy="4" r="1.5" fill="currentColor" />
+    </svg>
+  );
+}

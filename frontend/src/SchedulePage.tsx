@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, type CSSProperties } from 'react';
 import type { ScheduleBlock, ActionableItem, WorkLogDto, SprintDto, ScheduleHabitDto, ScheduleTaskDto, CustomLogDto, ScheduleSubPointDto, ItemPrice } from './types';
 import { api } from './api';
-import { NAV_ICON } from './NavIcons';
+import { NAV_ICON, ScalesIcon } from './NavIcons';
 import { SprintModal } from './SprintModal';
 import { fmtUnit } from './unitFormat';
 
@@ -345,7 +345,7 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
             {isWeighted && bestValue.length > 0 && (
               <div style={{ padding: '8px 4px 10px', borderBottom: '1px solid var(--border-subtle)', marginBottom: 8 }}>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                  ⚖ Best value today
+                  <ScalesIcon /> Best value today
                 </div>
                 {bestValue.map(({ b, ptsPerHour }, i) => (
                   <div key={`${b.nodeId ?? b.blockId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 13 }}>
@@ -354,7 +354,7 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
                     </span>
                     {b.pricePercent != null && (
                       <span style={{ fontSize: 11, color: pctColor(b.pricePercent) }}>
-                        ⚖{Math.round(b.pricePercent)}%
+                        <ScalesIcon /> {Math.round(b.pricePercent)}%
                       </span>
                     )}
                     <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: i === 0 ? 'var(--accent)' : 'var(--text-primary)', minWidth: 66, textAlign: 'right' }}>
@@ -447,7 +447,7 @@ export function SchedulePage({ roadmapId, onBack }: Props) {
                     onClick={e => openLogPopup(e, b)}>
                     <div className="entry-row-top">
                       {dayDone && <span className="entry-done-check">✓</span>}
-                      <span className="entry-title">{b.poolItems ? '◇ ' : ''}{b.nodeTitle} <span className="entry-inline-meta">{blockPts > 0 ? `${blockPts}pt` : ''}{b.pricePercent != null && b.pricePercent !== 100 ? ` ⚖${Math.round(b.pricePercent)}%` : ''} {durLabel}</span></span>
+                      <span className="entry-title">{b.poolItems ? '◇ ' : ''}{b.nodeTitle} <span className="entry-inline-meta">{blockPts > 0 ? `${blockPts}pt` : ''}{b.pricePercent != null && b.pricePercent !== 100 ? <> <ScalesIcon /> {Math.round(b.pricePercent)}%</> : ''} {durLabel}</span></span>
                     </div>
                     {!isCompact && rawH >= 52 && (
                       <div className="entry-row-mid">
@@ -634,7 +634,7 @@ function WorkLogRow({ log, roadmapId, onChanged }: { log: WorkLogDto; roadmapId:
   );
 }
 
-// The ⚖ badge colour used across the day view: above nominal is good news, below is a warning.
+// The scales badge colour used across the day view: above nominal is good news, below is a warning.
 const pctColor = (p: number) => p > 100 ? 'var(--success)' : p < 100 ? '#e37400' : 'var(--text-muted)';
 
 function CustomLogForm({ date, roadmapId, items, onDone, onCancel }: {
@@ -771,7 +771,7 @@ function QuickLogPicker({ items, prices, date, roadmapId, search, setSearch, onD
           {selected.unit ? `Unit: ${selected.unit}` : ''}
           {selected.pointsPerUnit != null && (selectedPrice
             ? <>{`  ·  ${Math.round(selectedPrice.effectivePointsPerUnit * 100) / 100} pts/${selected.unit ?? 'unit'} today `}
-                <span style={{ color: pctColor(selectedPrice.pricePercent) }}>⚖{Math.round(selectedPrice.pricePercent)}%</span>
+                <span style={{ color: pctColor(selectedPrice.pricePercent) }}><ScalesIcon /> {Math.round(selectedPrice.pricePercent)}%</span>
                 {` of ${selected.pointsPerUnit}`}</>
             : `  ·  ${selected.pointsPerUnit} pts/${selected.unit ?? 'unit'}`)}
         </div>
@@ -807,7 +807,7 @@ function QuickLogPicker({ items, prices, date, roadmapId, search, setSearch, onD
             onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
             <span style={{ flex: 1 }}>{item.title}</span>
             {prices[item.id] && (
-              <span style={{ fontSize: 11, color: pctColor(prices[item.id].pricePercent) }}>⚖{Math.round(prices[item.id].pricePercent)}%</span>
+              <span style={{ fontSize: 11, color: pctColor(prices[item.id].pricePercent) }}><ScalesIcon /> {Math.round(prices[item.id].pricePercent)}%</span>
             )}
             {item.pointsPerUnit != null
               ? <span style={{ fontSize: 11, color: 'var(--accent)' }}>{item.pointsPerUnit} pts/{item.unit ?? 'unit'}</span>
