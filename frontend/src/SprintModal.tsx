@@ -155,7 +155,7 @@ function SprintCard({ s, exp, busy, roadmapId, onChanged, onError, setBusy }: {
                 <span className="sp-chip" title="Weighted scoring: each day, overdone items give points to underdone ones; the day's total is unchanged"><ScalesIcon /> Weighted</span>
               )}
             </div>
-            <div className="sp-card-dates">{fmtDate(s.startDate)} – {fmtDate(s.endDate, true)} · {sub}</div>
+            <div className="sp-card-dates"><span>{fmtDate(s.startDate)} – {fmtDate(s.endDate, true)}</span><span className="sp-sub">{sub}</span></div>
           </div>
           <Menu items={menu} />
         </header>
@@ -182,7 +182,7 @@ function SprintCard({ s, exp, busy, roadmapId, onChanged, onError, setBusy }: {
           <div className={`sp-check ${ready ? 'ok' : ''}`}>
             <span className="sp-check-mark" aria-hidden="true">{ready ? '✓' : '○'}</span>
             <span>Experiences scheduled — at least {exp?.perWeek ?? 2} a week</span>
-            <span className="sp-muted">{exp ? `${readyWeeks} of ${exp.weeks.length} weeks` : '…'}</span>
+            <span className="sp-muted sp-check-count">{exp ? `${readyWeeks} of ${exp.weeks.length} weeks` : '…'}</span>
           </div>
           {exp && <SprintExperiencesChecklist schedule={exp} onAdded={onChanged} hideHeader />}
           <button className="btn btn-accent sp-start" disabled={busy || !ready}

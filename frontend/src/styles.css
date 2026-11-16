@@ -1740,3 +1740,30 @@ li:last-child > .foodlog-row { border-bottom: 0; }
   .sp-row-dates { display: none; }
   .sp-modal .form-row { flex-direction: column; gap: 12px; }
 }
+.sp-card-dates .sp-sub::before { content: ' · '; }
+.modal.xp-tab-modal { max-width: 1180px; width: 100%; height: 90vh; height: 90dvh; padding: 0; overflow: hidden; }
+.xp-sched-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 14px; background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); font-size: 14px; }
+
+/* Phones: the Sprints window and the Experiences tab opened from it become full-screen sheets —
+   no floating card with dead margins, the safe areas respected, a 44px close target. */
+@media (max-width: 767px) {
+  .modal-overlay:has(> .sp-modal), .modal-overlay:has(> .xp-tab-modal) { padding: 0; align-items: stretch; }
+  .modal.sp-modal, .modal.xp-tab-modal {
+    max-width: 100vw; width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; border: none;
+  }
+  .modal.sp-modal { padding: calc(14px + env(safe-area-inset-top)) 14px calc(20px + env(safe-area-inset-bottom)); }
+  .modal.xp-tab-modal { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+  .sp-top { position: sticky; top: calc(-14px - env(safe-area-inset-top)); z-index: 5; margin: calc(-14px - env(safe-area-inset-top)) -14px 0;
+    padding: calc(12px + env(safe-area-inset-top)) 14px 10px; background: var(--bg-primary); border-bottom: 1px solid var(--border-subtle); }
+  .sp-top .btn-ghost { min-width: 44px; min-height: 44px; font-size: 18px; }
+  .sp-card-dates .sp-sub { display: block; }
+  .sp-card-dates .sp-sub::before { content: none; }
+  .sp-check { flex-wrap: wrap; }
+  .sp-check-count { flex-basis: 100%; padding-left: 26px; font-size: 13px; }
+  .sp-menu-btn { min-width: 44px; min-height: 40px; }
+  .sp-menu-list button { padding: 12px; font-size: 15px; }
+  .sp-start { padding: 14px; font-size: 15px; }
+  .xp-sched .xp-page { padding: 14px !important; gap: 14px !important; }
+  .xp-sched .xp-cover { display: none; }
+  .xp-sched-bar { position: sticky; top: 0; z-index: 3; }
+}

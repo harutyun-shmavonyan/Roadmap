@@ -595,3 +595,7 @@ into one quiet row each. "+ New sprint" opens the form on demand, pre-filled to 
 last sprint and run two weeks. Edit / Close / Delete live in a ⋯ menu; Close and Delete confirm in a bar
 inside the card that names the sprint. Escape closes the window unless an experience modal is open.
 Styles are the `sp-*` block in `styles.css`. A new start condition belongs in the draft card's checklist.
+**On phones** (< 768px) the Sprints window and the Experiences tab opened from it are full-screen sheets
+(safe areas respected, sticky Sprints header, 44px close/⋯ targets, dates and "days left" on separate
+lines); in schedule mode the Experiences cards drop their cover image so "Schedule on <day>" stays in
+reach. Weighted scoring is drawn with `ScalesIcon` (`NavIcons.tsx`, `currentColor`) — no ⚖ emoji anywhere.

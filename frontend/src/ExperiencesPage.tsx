@@ -216,7 +216,7 @@ function Card({ x, onOpen, onTag, scheduleAction }: {
           scheduleAction.inWeek
             ? <div className="xp-sched-in" style={{ position: 'relative', zIndex: 1, marginTop: 6, fontSize: 12, fontWeight: 600, color: 'var(--success)' }}>✓ In this week</div>
             : <button type="button" className="btn btn-sm btn-accent" style={{ position: 'relative', zIndex: 1, marginTop: 6, justifySelf: 'start' }}
-                onClick={scheduleAction.onClick}>📅 {scheduleAction.label}</button>
+                onClick={scheduleAction.onClick}><Cal /> {scheduleAction.label}</button>
         )}
       </div>
     </div>
@@ -353,7 +353,7 @@ function Detail({ x, onClose, onEdit, onChanged, onDeleted, onTag, scheduleActio
             <button className="btn btn-sm" onClick={onClose}>Close</button>
             <button className="btn btn-sm" onClick={onEdit}>Edit</button>
             {scheduleAction && !scheduleAction.inWeek && x.status === 'planned' &&
-              <button className="btn btn-sm btn-accent" onClick={scheduleAction.onClick}>📅 {scheduleAction.label}</button>}
+              <button className="btn btn-sm btn-accent" onClick={scheduleAction.onClick}><Cal /> {scheduleAction.label}</button>}
             <button className={`btn btn-sm ${x.status === 'planned' ? 'btn-accent' : ''}`} disabled={busy} onClick={flip}>
               {x.status === 'planned' ? '✓ Mark done' : 'Back to planned'}
             </button>
@@ -520,7 +520,7 @@ type Filter = 'all' | ExperienceStatus;
 /**
  * Schedule mode: the whole tab opened from the sprint modal for one week of a draft sprint. A day
  * picker sits on top, "+ New experience" starts on that day, and every planned card (and its detail
- * view) gets "📅 Schedule" — the form opens with From set to the day. Every save, status flip or
+ * view) gets "Schedule" (calendar icon) — the form opens with From set to the day. Every save, status flip or
  * delete calls `onChanged` so the sprint modal's week counts follow.
  */
 export interface ExperienceScheduleMode { from: string; to: string; onChanged: () => void; onClose: () => void; }
@@ -605,8 +605,8 @@ export function ExperiencesPage({ schedule }: { schedule?: ExperienceScheduleMod
   const plannedCount = (items ?? []).filter(x => x.status === 'planned').length;
 
   return (
-    <div style={{ height: '100%', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
-      <div style={{ padding: 24, display: 'grid', gap: 18, maxWidth: 1180 }}>
+    <div className={schedule ? 'xp-sched' : undefined} style={{ height: '100%', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+      <div className="xp-page" style={{ padding: 24, display: 'grid', gap: 18, maxWidth: 1180 }}>
         <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 200 }}>
             <h2 style={{ margin: 0, fontSize: 22, letterSpacing: '-.015em', color: 'var(--text-primary)' }}>Experiences</h2>
@@ -621,10 +621,11 @@ export function ExperiencesPage({ schedule }: { schedule?: ExperienceScheduleMod
         </div>
 
         {schedule && (
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '10px 14px',
-            background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', fontSize: 14 }}>
-            <span>📅 Scheduling for <strong>{shortDay(schedule.from)} – {shortDay(schedule.to)}</strong></span>
-            <span style={{ color: 'var(--text-secondary)' }}>· {weekCount} in this week</span>
+          <div className="xp-sched-bar">
+            <div style={{ minWidth: 0 }}>
+              <div>Scheduling for <strong>{shortDay(schedule.from)} – {shortDay(schedule.to)}</strong></div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{weekCount} in this week</div>
+            </div>
             <span style={{ flex: 1 }} />
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, margin: 0, fontSize: 13, textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
               Day

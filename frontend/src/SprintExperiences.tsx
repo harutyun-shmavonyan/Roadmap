@@ -19,6 +19,12 @@ const todayIso = () => {
 
 const fmt = (iso: string) =>
   new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+/** "Nov 24 – 30" within a month, "Nov 30 – Dec 6" across one, "Dec 7" for a single day. */
+const fmtRange = (from: string, to: string) => {
+  if (from === to) return fmt(from);
+  const [a, b] = [new Date(from + 'T00:00:00'), new Date(to + 'T00:00:00')];
+  return a.getMonth() === b.getMonth() ? `${fmt(from)} – ${b.getDate()}` : `${fmt(from)} – ${fmt(to)}`;
+};
 const fmtDay = (iso: string) =>
   new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
 
@@ -115,7 +121,7 @@ export function WeekExperiencesSection({ week }: { week: SprintExperienceWeek })
  * Sprint modal, draft sprint: what Start needs, week by week. Each week lists the experiences
  * dated in it (click one to edit it in the Experiences tab's own form). "+ Add" opens the whole
  * Experiences tab over the sprint modal in schedule mode for that week — the same cards, filters,
- * detail view and form, plus a day picker and "📅 Schedule" on every planned card.
+ * detail view and form, plus a day picker and "Schedule" (calendar icon) on every planned card.
  */
 export function SprintExperiencesChecklist({ schedule, onAdded, hideHeader }: { schedule: SprintExperienceSchedule; onAdded: () => void; hideHeader?: boolean }) {
   const [all, setAll] = useState<ExperienceDto[] | null>(null);
@@ -143,11 +149,11 @@ export function SprintExperiencesChecklist({ schedule, onAdded, hideHeader }: { 
       )}
       {schedule.weeks.map((w, i) => (
         <div key={w.weekStart} style={{ padding: '6px 0', borderTop: hideHeader && i === 0 ? 'none' : '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 600 }}>{fmt(w.from)} – {fmt(w.to)}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{fmtRange(w.from, w.to)}</span>
             <WeekCount w={w} mode="schedule" />
             <span style={{ flex: 1 }} />
-            <button className="btn btn-sm" onClick={() => setTabWeek(w)}>+ Add</button>
+            <button className="btn btn-sm" style={{ flexShrink: 0 }} onClick={() => setTabWeek(w)}>+ Add</button>
           </div>
           {w.experiences.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }}>
@@ -172,8 +178,7 @@ export function SprintExperiencesChecklist({ schedule, onAdded, hideHeader }: { 
           to the sprint modal's card, which stops them, so a click inside never closes it. */}
       {tabWeek && createPortal(
         <div className="modal-overlay" onClick={() => setTabWeek(null)}>
-          <div className="modal xp-tab-modal" onClick={e => e.stopPropagation()} role="dialog" aria-label="Experiences"
-            style={{ maxWidth: 1180, width: '100%', height: '90vh', padding: 0, overflow: 'hidden' }}>
+          <div className="modal xp-tab-modal" onClick={e => e.stopPropagation()} role="dialog" aria-label="Experiences">
             <ExperiencesPage schedule={{ from: tabWeek.from, to: tabWeek.to, onChanged: changed, onClose: () => setTabWeek(null) }} />
           </div>
         </div>,
