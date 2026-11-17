@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api';
 import './reading.css';
 
@@ -90,8 +90,8 @@ function Details({item, feedback, onSaved, onClose}: {item: ReadingItem; feedbac
     <div className="mrn-mback" onClick={onClose} />
     <div className="mrn-mbox">
       <button ref={close} className="mrn-mclose" aria-label="Close" onClick={onClose}>&times;</button>
-      {isAi(a) ? <div className="mrn-mtitle"><span className="mrn-ai-mark" aria-label="AI-generated"><AiIcon size={16} /></span>{a.title}</div>
-        : <a className="mrn-mtitle" href={safeUrl(a.url)} target="_blank" rel="noopener noreferrer">{a.title}&nbsp;&rarr;</a>}
+      {isAi(a) ? <div className="mrn-mtitle"><Marks a={a} size={16} />{a.title}</div>
+        : <a className="mrn-mtitle" href={safeUrl(a.url)} target="_blank" rel="noopener noreferrer"><Marks a={a} size={16} />{a.title}&nbsp;&rarr;</a>}
       <p className="mrn-mlead">{a.whyRead}</p>
       {paras.length > 0 && <div className="mrn-dg"><b className="mrn-dl mrn-dl-ai"><AiIcon size={11} />{generated}</b>{paras.map((p, i) => <p key={i}>{p}</p>)}
         {a.format === 'original' && <a className="mrn-orig" href={safeUrl(a.url)} target="_blank" rel="noopener noreferrer">Read the original ↗</a>}</div>}
@@ -117,6 +117,18 @@ export function AiIcon({size = 14}: {size?: number}) {
   </svg>;
 }
 const isAi = (a: ReadingItem['article']) => a.format !== 'original';
+// Marks the exploration share (unfamiliar fields, distant or experimental ideas). Exploration is
+// not a category: these items sit in their own subject's section and carry this mark instead.
+export function ExploreIcon({size = 14}: {size?: number}) {
+  return <svg className="mrn-ai-icon" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <path fill="currentColor" fillRule="evenodd" d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 2.2a7.8 7.8 0 1 0 0 15.6 7.8 7.8 0 0 0 0-15.6zm4.3 3.5-2.4 6.2-6.2 2.4 2.4-6.2zm-4.3 3a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6z"/>
+  </svg>;
+}
+const isExplore = (a: ReadingItem['article']) => a.section === 'exploration';
+const Marks = ({a, size}: {a: ReadingItem['article']; size: number}) => <>
+  {isAi(a) && <span className="mrn-ai-mark" title="AI-generated" aria-label="AI-generated"><AiIcon size={size} /></span>}
+  {isExplore(a) && <span className="mrn-ai-mark mrn-ex-mark" title="Exploration" aria-label="Exploration"><ExploreIcon size={size} /></span>}
+</>;
 
 function Card({n, item, rated, onOpen}: {n: number; item: ReadingItem; rated: boolean; onOpen: () => void}) {
   const a = item.article;
@@ -125,10 +137,10 @@ function Card({n, item, rated, onOpen}: {n: number; item: ReadingItem; rated: bo
     <div className="mrn-badge-col"><div className={`mrn-badge ${band(a.score)}`}>{a.score ?? '–'}</div></div>
     <div className="mrn-content">
       {isAi(a)
-        ? <button className="mrn-title mrn-title-ai" onClick={onOpen} title="AI-written — open to read"><span className="mrn-ai-mark" aria-label="AI-generated"><AiIcon size={15} /></span>{a.title}</button>
-        : <a className="mrn-title" href={safeUrl(a.url)} target="_blank" rel="noopener noreferrer">{a.title}</a>}
+        ? <button className="mrn-title mrn-title-ai" onClick={onOpen} title="AI-written — open to read"><Marks a={a} size={15} />{a.title}</button>
+        : <a className="mrn-title" href={safeUrl(a.url)} target="_blank" rel="noopener noreferrer"><Marks a={a} size={15} />{a.title}</a>}
       <div className="mrn-pills">
-        <span className={`mrn-pill p-${a.section}`}>{SECTION[a.section] ?? a.section}{a.explorationKind ? ` · ${a.explorationKind}` : ''}</span>
+        <span className={`mrn-pill p-${a.section}`}>{isExplore(a) && <ExploreIcon size={11} />}{SECTION[a.section] ?? a.section}{a.explorationKind ? ` · ${a.explorationKind}` : ''}</span>
         {isAi(a) ? <span className="mrn-pill p-ai"><AiIcon size={11} />{FORMAT[a.format] ?? a.format}</span>
           : <span className="mrn-pill p-original">{FORMAT[a.format] ?? a.format}</span>}
       </div>
@@ -149,21 +161,17 @@ function Edition({detail, busy, onToggleRead, budget}: {detail: ReadingDetail; b
   const [feedback, setFeedback] = useState<Record<string, ReadingFeedback>>(() => Object.fromEntries(detail.feedback.map(f => [f.contentKey, f.response])));
   useEffect(() => { setFilter('all'); setOpen(null); setFeedback(Object.fromEntries(detail.feedback.map(f => [f.contentKey, f.response]))); }, [detail]);
 
-  // Category-major, each category by score — the newsletter's order. No overall ranking (the
-  // user's call, 2026-11-17); the Exploration strip stays so the protected share is visible.
+  // Category-major, each category by score — the newsletter's order. No overall ranking and no
+  // Exploration list (the user's calls, 2026-11-17): exploration items stay in their category
+  // and carry the compass mark.
   const {shown, numbered, ordered} = useMemo(() => {
     const groups = CATEGORIES.map(([k]) => [k, detail.items.filter(i => catOf(i) === k).sort(byScore)] as const).filter(([, l]) => l.length);
     const numbered = new Map<string, number>(); let n = 0;
     for (const [, l] of groups) for (const i of l) numbered.set(i.id, ++n);
     return {shown: groups, numbered, ordered: groups.flatMap(([, l]) => l)};
   }, [detail]);
-  const exploration = ordered.filter(i => i.article.section === 'exploration').sort(byScore);
   const minutes = detail.items.reduce((s, i) => s + i.article.readMinutes, 0);
   const e = detail.edition;
-  const jump = (id: string) => (ev: MouseEvent) => { ev.preventDefault(); document.getElementById(`mrn-i${numbered.get(id)}`)?.scrollIntoView({behavior: 'smooth', block: 'start'}); };
-  const rows = (title: string, cls: string, list: ReadingItem[]) => <section className={`mrn-overview ${cls}`}><h2>{title}</h2><ol className="mrn-rows">
-    {list.map(i => <li key={i.id}><a href={`#mrn-i${numbered.get(i.id)}`} onClick={jump(i.id)}><span className={`mrn-mb ${band(i.article.score)}`}>{i.article.score ?? '–'}</span>
-      <span className="mrn-rt">{i.article.title}</span><span className="mrn-rc">{CAT[catOf(i)].chip}</span></a></li>)}</ol></section>;
   const openItem = detail.items.find(i => i.id === open);
   const close = useCallback(() => setOpen(null), []);
 
@@ -175,7 +183,6 @@ function Edition({detail, busy, onToggleRead, budget}: {detail: ReadingDetail; b
         <button aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All <span>{ordered.length}</span></button>
         {shown.map(([k, l]) => <button key={k} aria-pressed={filter === k} onClick={() => setFilter(k)}>{CAT[k].chip} <span>{l.length}</span></button>)}
       </nav>
-      {filter === 'all' && exploration.length > 0 && rows('🧭 Exploration', 'mrn-exp', exploration)}
       {shown.filter(([k]) => filter === 'all' || filter === k).map(([k, l]) => <section key={k} id={`mrn-c-${k}`}>
         <h2 className="mrn-ch">{CAT[k].heading} <span>{l.length}</span></h2>
         {l.map(i => <Card key={i.id} n={numbered.get(i.id)!} item={i} rated={!!feedback[i.contentKey] && Object.values(feedback[i.contentKey]).some(Boolean)} onOpen={() => setOpen(i.id)} />)}
@@ -185,7 +192,7 @@ function Edition({detail, busy, onToggleRead, budget}: {detail: ReadingDetail; b
       {detail.editorNote && ordered.length > 0 && <p><strong>Editor's note.</strong> {detail.editorNote}</p>}
       <p><strong>Scoring.</strong> Every item scored 0-100 by the editor's judgment on one shared scale (90+ do not miss, 80s high value, 70s worth reading, 60s context), then ordered by score within its category. The score is a judgment of value per minute, not an average; the nine dimensions behind it and their reasons are in each Details panel.</p>
       {shown.length > 0 && <p><strong>Categories.</strong> {shown.map(([k, l]) => `${CAT[k].heading} ${l.length}`).join(', ')}.</p>}
-      <p><strong>Provenance.</strong> Original articles are recommended for reading in full. Everything the editor wrote, summaries and syntheses, carries the AI mark and has no article link; its sources, if any, are in Details.</p>
+      <p><strong>Provenance.</strong> Original articles are recommended for reading in full. Everything the editor wrote, summaries and syntheses, carries the AI mark and has no article link; its sources, if any, are in Details. The compass marks the exploration share: unfamiliar fields and experimental ideas, filed under their own subject.</p>
       <p><strong>Reading time.</strong> {minutes} min{budget ? ` of a ${budget}-minute daily budget` : ''}.</p>
       <p><strong>Window.</strong> {fmtShort(e.coveredFrom)} &rarr; {fmtUtc(e.coveredUntil)}. Marking this edition read sets where the next news scan begins. It does not rate its articles.</p>
       <div className="mrn-done"><span>{e.isRead ? '✓ You read this edition.' : 'You’re caught up with this edition.'}</span>
