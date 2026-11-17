@@ -31,7 +31,6 @@ const CATEGORIES: [string, string, string][] = [
   ['other', 'Other', 'Other'], // items saved before categories existed
 ];
 const CAT = Object.fromEntries(CATEGORIES.map(([k, h, c]) => [k, {heading: h, chip: c}]));
-const TOP_N = 10;
 const SECTION: Record<string, string> = {now: 'Now', depth: 'Depth', exploration: 'Exploration'};
 const FORMAT: Record<string, string> = {original: 'Original article', summary: 'AI summary', synthesis: 'AI synthesis'};
 const scoreLabels: Record<string, string> = {substance: 'Substance', evidence: 'Evidence', depth: 'Explanatory depth', learning: 'New understanding', durability: 'Durability', originalValue: 'Original-reading value', consequence: 'Consequence', distance: 'Unfamiliarity', expansion: 'Perspective expansion'};
@@ -84,16 +83,17 @@ function Details({item, feedback, onSaved, onClose}: {item: ReadingItem; feedbac
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, [onClose]);
-  const generated = a.format === 'original' ? 'AI-written preview · the original is the read' : a.format === 'synthesis' ? 'AI synthesis · generated from the sources below' : 'AI summary · generated from the source below';
+  const generated = a.format === 'original' ? 'AI-written preview · the original is the read' : a.format === 'synthesis' ? 'AI synthesis' : 'AI summary';
   const paras = (a.summary || '').split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
   const scores = Object.entries(a.scores);
   return <div className="mrn-modal" role="dialog" aria-modal="true" aria-label={a.title}>
     <div className="mrn-mback" onClick={onClose} />
     <div className="mrn-mbox">
       <button ref={close} className="mrn-mclose" aria-label="Close" onClick={onClose}>&times;</button>
-      <a className="mrn-mtitle" href={safeUrl(a.url)} target="_blank" rel="noopener noreferrer">{a.title}&nbsp;&rarr;</a>
+      {isAi(a) ? <div className="mrn-mtitle"><span className="mrn-ai-mark" aria-label="AI-generated"><AiIcon size={16} /></span>{a.title}</div>
+        : <a className="mrn-mtitle" href={safeUrl(a.url)} target="_blank" rel="noopener noreferrer">{a.title}&nbsp;&rarr;</a>}
       <p className="mrn-mlead">{a.whyRead}</p>
-      {paras.length > 0 && <div className="mrn-dg"><b className="mrn-dl">{generated}</b>{paras.map((p, i) => <p key={i}>{p}</p>)}
+      {paras.length > 0 && <div className="mrn-dg"><b className="mrn-dl mrn-dl-ai"><AiIcon size={11} />{generated}</b>{paras.map((p, i) => <p key={i}>{p}</p>)}
         {a.format === 'original' && <a className="mrn-orig" href={safeUrl(a.url)} target="_blank" rel="noopener noreferrer">Read the original ↗</a>}</div>}
       <b className="mrn-dl">Key facts</b>
       <div className="mrn-s"><b>What a summary would lose</b><p>{a.originalValue}</p></div>
@@ -101,12 +101,22 @@ function Details({item, feedback, onSaved, onClose}: {item: ReadingItem; feedbac
       {scores.length > 0 && <div className="mrn-s sn"><b>Why it scored {a.score ?? '—'}</b><ul>{scores.map(([k, s]) =>
         <li key={k}><span className="mrn-dim">{scoreLabels[k] ?? k} {s.value === null ? 'unknown' : `${s.value}/5`}</span> — {s.reason}</li>)}</ul></div>}
       {a.thinker && <div className="mrn-s"><b>Mind to revisit</b><p>{a.thinker}</p></div>}
-      <div className="mrn-s"><b>Sources</b><ul>{a.sources.map((s, i) => <li key={i}><a href={safeUrl(s.url)} target="_blank" rel="noopener noreferrer">{s.title} ↗</a></li>)}</ul></div>
+      {a.sources.length > 0 && <div className="mrn-s"><b>Sources</b><ul>{a.sources.map((s, i) => <li key={i}><a href={safeUrl(s.url)} target="_blank" rel="noopener noreferrer">{s.title} ↗</a></li>)}</ul></div>}
       <p className="mrn-note">The score and the nine dimensions are the editing agent's estimates, not verified ratings. Useful for {a.durability} · {a.topics.join(', ')} · rubric {a.rubricVersion}{a.model ? ` · ${a.model}` : ''}{a.access !== 'full' ? ' · evaluated from an excerpt only' : ''}.</p>
       <Feedback item={item} feedback={feedback} onSaved={onSaved} />
     </div>
   </div>;
 }
+
+// Marks everything the editing agent wrote (summaries and syntheses), wherever it appears. An AI
+// card is not one article: it carries no article link and its sources are only in Details.
+export function AiIcon({size = 14}: {size?: number}) {
+  return <svg className="mrn-ai-icon" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <path fill="currentColor" d="M10 2.5l1.9 5.6 5.6 1.9-5.6 1.9L10 17.5l-1.9-5.6L2.5 10l5.6-1.9z"/>
+    <path fill="currentColor" d="M18.5 13l.95 2.55L22 16.5l-2.55.95L18.5 20l-.95-2.55L15 16.5l2.55-.95z"/>
+  </svg>;
+}
+const isAi = (a: ReadingItem['article']) => a.format !== 'original';
 
 function Card({n, item, rated, onOpen}: {n: number; item: ReadingItem; rated: boolean; onOpen: () => void}) {
   const a = item.article;
@@ -114,16 +124,19 @@ function Card({n, item, rated, onOpen}: {n: number; item: ReadingItem; rated: bo
   return <article className="mrn-entry" id={`mrn-i${n}`}>
     <div className="mrn-badge-col"><div className={`mrn-badge ${band(a.score)}`}>{a.score ?? '–'}</div></div>
     <div className="mrn-content">
-      <a className="mrn-title" href={safeUrl(a.url)} target="_blank" rel="noopener noreferrer">{a.title}</a>
+      {isAi(a)
+        ? <button className="mrn-title mrn-title-ai" onClick={onOpen} title="AI-written — open to read"><span className="mrn-ai-mark" aria-label="AI-generated"><AiIcon size={15} /></span>{a.title}</button>
+        : <a className="mrn-title" href={safeUrl(a.url)} target="_blank" rel="noopener noreferrer">{a.title}</a>}
       <div className="mrn-pills">
         <span className={`mrn-pill p-${a.section}`}>{SECTION[a.section] ?? a.section}{a.explorationKind ? ` · ${a.explorationKind}` : ''}</span>
-        <span className={`mrn-pill ${a.format === 'original' ? 'p-original' : 'p-gen'}`}>{FORMAT[a.format] ?? a.format}</span>
+        {isAi(a) ? <span className="mrn-pill p-ai"><AiIcon size={11} />{FORMAT[a.format] ?? a.format}</span>
+          : <span className="mrn-pill p-original">{FORMAT[a.format] ?? a.format}</span>}
       </div>
       <span className="mrn-lbl">Summary</span><p className="mrn-summary-text">{a.whyRead}</p>
       <div className="mrn-learn"><span className="mrn-lbl">What you'll learn</span><p>{a.learningGain}</p></div>
-      <a className="mrn-url" href={safeUrl(a.url)} target="_blank" rel="noopener noreferrer">{a.url}</a>
+      {!isAi(a) && <a className="mrn-url" href={safeUrl(a.url)} target="_blank" rel="noopener noreferrer">{a.url}</a>}
       <div className="mrn-mrow">
-        <span className="mrn-meta">{a.publisher}{date && <> &middot; {date}</>} &middot; {a.readMinutes} min{rated && <> &middot; ✓ rated</>}</span>
+        <span className="mrn-meta">{isAi(a) ? 'Written by AI' : a.publisher}{date && <> &middot; {date}</>} &middot; {a.readMinutes} min{rated && <> &middot; ✓ rated</>}</span>
         <button className="mrn-dbtn" onClick={onOpen}>Details</button>
       </div>
     </div>
@@ -136,14 +149,14 @@ function Edition({detail, busy, onToggleRead, budget}: {detail: ReadingDetail; b
   const [feedback, setFeedback] = useState<Record<string, ReadingFeedback>>(() => Object.fromEntries(detail.feedback.map(f => [f.contentKey, f.response])));
   useEffect(() => { setFilter('all'); setOpen(null); setFeedback(Object.fromEntries(detail.feedback.map(f => [f.contentKey, f.response]))); }, [detail]);
 
-  // Category-major, each category by score — the newsletter's order, numbered for the rows.
+  // Category-major, each category by score — the newsletter's order. No overall ranking (the
+  // user's call, 2026-11-17); the Exploration strip stays so the protected share is visible.
   const {shown, numbered, ordered} = useMemo(() => {
     const groups = CATEGORIES.map(([k]) => [k, detail.items.filter(i => catOf(i) === k).sort(byScore)] as const).filter(([, l]) => l.length);
     const numbered = new Map<string, number>(); let n = 0;
     for (const [, l] of groups) for (const i of l) numbered.set(i.id, ++n);
     return {shown: groups, numbered, ordered: groups.flatMap(([, l]) => l)};
   }, [detail]);
-  const top = [...ordered].sort(byScore).slice(0, TOP_N);
   const exploration = ordered.filter(i => i.article.section === 'exploration').sort(byScore);
   const minutes = detail.items.reduce((s, i) => s + i.article.readMinutes, 0);
   const e = detail.edition;
@@ -162,10 +175,7 @@ function Edition({detail, busy, onToggleRead, budget}: {detail: ReadingDetail; b
         <button aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All <span>{ordered.length}</span></button>
         {shown.map(([k, l]) => <button key={k} aria-pressed={filter === k} onClick={() => setFilter(k)}>{CAT[k].chip} <span>{l.length}</span></button>)}
       </nav>
-      {filter === 'all' && <>
-        {rows(ordered.length >= TOP_N ? `Top ${TOP_N} overall` : 'Overall ranking', 'mrn-top', top)}
-        {exploration.length > 0 && rows('🧭 Exploration', 'mrn-exp', exploration)}
-      </>}
+      {filter === 'all' && exploration.length > 0 && rows('🧭 Exploration', 'mrn-exp', exploration)}
       {shown.filter(([k]) => filter === 'all' || filter === k).map(([k, l]) => <section key={k} id={`mrn-c-${k}`}>
         <h2 className="mrn-ch">{CAT[k].heading} <span>{l.length}</span></h2>
         {l.map(i => <Card key={i.id} n={numbered.get(i.id)!} item={i} rated={!!feedback[i.contentKey] && Object.values(feedback[i.contentKey]).some(Boolean)} onOpen={() => setOpen(i.id)} />)}
@@ -173,9 +183,9 @@ function Edition({detail, busy, onToggleRead, budget}: {detail: ReadingDetail; b
     </>}
     <footer className="mrn-footer">
       {detail.editorNote && ordered.length > 0 && <p><strong>Editor's note.</strong> {detail.editorNote}</p>}
-      <p><strong>Scoring.</strong> Every item scored 0-100 by the editor's judgment on one shared scale (90+ do not miss, 80s high value, 70s worth reading, 60s context), then ranked within its category. The score is a judgment of value per minute, not an average; the nine dimensions behind it and their reasons are in each Details panel.</p>
+      <p><strong>Scoring.</strong> Every item scored 0-100 by the editor's judgment on one shared scale (90+ do not miss, 80s high value, 70s worth reading, 60s context), then ordered by score within its category. The score is a judgment of value per minute, not an average; the nine dimensions behind it and their reasons are in each Details panel.</p>
       {shown.length > 0 && <p><strong>Categories.</strong> {shown.map(([k, l]) => `${CAT[k].heading} ${l.length}`).join(', ')}.</p>}
-      <p><strong>Provenance.</strong> Original articles are recommended for reading in full. AI summaries and syntheses are generated from the linked sources and labelled as such.</p>
+      <p><strong>Provenance.</strong> Original articles are recommended for reading in full. Everything the editor wrote, summaries and syntheses, carries the AI mark and has no article link; its sources, if any, are in Details.</p>
       <p><strong>Reading time.</strong> {minutes} min{budget ? ` of a ${budget}-minute daily budget` : ''}.</p>
       <p><strong>Window.</strong> {fmtShort(e.coveredFrom)} &rarr; {fmtUtc(e.coveredUntil)}. Marking this edition read sets where the next news scan begins. It does not rate its articles.</p>
       <div className="mrn-done"><span>{e.isRead ? '✓ You read this edition.' : 'You’re caught up with this edition.'}</span>
