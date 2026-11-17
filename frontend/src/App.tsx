@@ -10,6 +10,7 @@ import { TasksPage } from './TasksPage';
 import { NotesPage } from './NotesPage';
 import { FlashcardsPage } from './FlashcardsPage';
 import { ArticlesPage } from './ArticlesPage';
+import { ReadingPage } from './ReadingPage';
 import { NewsletterPage } from './NewsletterPage';
 import { NAV_ICON } from './NavIcons';
 import { JobsPage } from './JobsPage';
@@ -25,11 +26,11 @@ import { ExperiencesPage } from './ExperiencesPage';
    #/r/{roadmapId}/{page} for scoped, #/{page} for global, #/roadmaps for the picker. */
 
 type ScopedPage = 'schedule' | 'weekplan' | 'roadmap' | 'tasks' | 'performance' | 'habits';
-type GlobalPage = 'articles' | 'courses' | 'newsletter' | 'english' | 'notes' | 'notesv2' | 'nutrition' | 'jobs' | 'signals' | 'experiences';
+type GlobalPage = 'reading' | 'articles' | 'courses' | 'newsletter' | 'english' | 'notes' | 'notesv2' | 'nutrition' | 'jobs' | 'signals' | 'experiences';
 type PageId = ScopedPage | GlobalPage;
 
 const SCOPED_PAGES: ScopedPage[] = ['schedule', 'weekplan', 'roadmap', 'tasks', 'performance', 'habits'];
-const GLOBAL_PAGES: GlobalPage[] = ['articles', 'courses', 'newsletter', 'english', 'notes', 'notesv2', 'nutrition', 'jobs', 'signals', 'experiences'];
+const GLOBAL_PAGES: GlobalPage[] = ['reading', 'articles', 'courses', 'newsletter', 'english', 'notes', 'notesv2', 'nutrition', 'jobs', 'signals', 'experiences'];
 
 const isScoped = (id: PageId): id is ScopedPage => (SCOPED_PAGES as string[]).includes(id);
 
@@ -52,6 +53,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'articles', label: 'Articles' },
       { id: 'courses', label: 'Courses' },
       { id: 'newsletter', label: 'Newsletter' },
+      { id: 'reading', label: 'Morning Read' },
       { id: 'english', label: 'English' },
     ],
   },
@@ -339,6 +341,7 @@ function AuthedApp({ theme, toggleTheme, onLogout }: { theme: string; toggleThem
         case 'notesv2': return <FlashcardsPage />;
         case 'articles': return <ArticlesPage />;
         case 'newsletter': return <NewsletterPage />;
+        case 'reading': return <ReadingPage />;
         case 'jobs': return <JobsPage />;
         case 'signals': return <SignalsPage />;
         case 'english': return <EnglishPage />;

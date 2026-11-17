@@ -66,8 +66,30 @@ public class RoadmapDbContext(DbContextOptions<RoadmapDbContext> options) : DbCo
     public DbSet<Experience> Experiences => Set<Experience>();
     public DbSet<ExperienceImage> ExperienceImages => Set<ExperienceImage>();
 
+    public DbSet<ReadingEvaluation> ReadingEvaluations => Set<ReadingEvaluation>();
+    public DbSet<ReadingEdition> ReadingEditions => Set<ReadingEdition>();
+    public DbSet<ReadingFeedback> ReadingFeedback => Set<ReadingFeedback>();
+    public DbSet<ReadingSettings> ReadingSettings => Set<ReadingSettings>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<ReadingEvaluation>(e => {
+            e.ToTable("reading_evaluations"); e.HasKey(x => x.Id);
+            e.HasIndex(x => x.EvaluationKey).IsUnique(); e.Property(x => x.EvaluationKey).HasMaxLength(200);
+            e.HasIndex(x => x.ContentKey); e.Property(x => x.ContentKey).HasMaxLength(64);
+            e.HasIndex(x => x.CreatedAt);
+        });
+        modelBuilder.Entity<ReadingEdition>(e => {
+            e.ToTable("reading_editions"); e.HasKey(x => x.Id);
+            e.HasIndex(x => x.IssueDate).IsUnique(); e.Property(x => x.Revision).IsConcurrencyToken();
+        });
+        modelBuilder.Entity<ReadingFeedback>(e => {
+            e.ToTable("reading_feedback"); e.HasKey(x => x.ContentKey);
+            e.Property(x => x.ContentKey).HasMaxLength(64);
+            e.HasOne<ReadingEvaluation>().WithMany().HasForeignKey(x => x.EvaluationId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<ReadingSettings>(e => { e.ToTable("reading_settings"); e.HasKey(x => x.Id); e.Property(x => x.Id).ValueGeneratedNever(); });
+
         modelBuilder.Entity<RoadmapDefinition>(e =>
         {
             e.ToTable("roadmaps");

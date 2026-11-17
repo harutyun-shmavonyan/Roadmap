@@ -19,6 +19,7 @@ const S = ({ children }: { children: ReactNode }) => (
 );
 
 export const NAV_ICON: Record<string, ReactNode> = {
+  reading: (<S><rect x="3" y="3" width="18" height="18" rx="4" fill="var(--ic-newsletter, #ad7639)"/><path d="M7 7h10M7 11h10M7 15h6" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/></S>),
   // Pulse — the market's heartbeat, read once a day.
   signals: (
     <S>

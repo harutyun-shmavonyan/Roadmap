@@ -1,3 +1,4 @@
+import type { ReadingEdition, ReadingDetail, ReadingFeedback, ReadingSettings } from './ReadingPage';
 import type { RoadmapSummary, RoadmapTree, NodeDto, CreateNodeRequest, ActionableItem,
   ActionItemStatus, SprintDto, WorkLogDto, ScheduleResponse, PerformanceSummary, StatusChangeDto,
   WeekPlan, WeekPlanGoal, WorkLogHistory, HabitDto, SprintHabitDto, ScheduleHabitDto,
@@ -291,6 +292,13 @@ export const api = {
       body: JSON.stringify({ progress, anchor }),
     }).catch(() => {});
   },
+
+  readingContext: () => req<{settings: ReadingSettings}>('/api/reading/context'),
+  readingEditions: () => req<ReadingEdition[]>('/api/reading/editions'),
+  readingEdition: (id: string) => req<ReadingDetail>(`/api/reading/editions/${id}`),
+  readingMark: (id: string, isRead: boolean, expectedRevision: number) => req<ReadingEdition>(`/api/reading/editions/${id}/read`, {method: 'POST', body: JSON.stringify({isRead, expectedRevision})}),
+  readingFeedback: (id: string, feedback: ReadingFeedback) => req<ReadingFeedback>(`/api/reading/evaluations/${id}/feedback`, {method: 'PATCH', body: JSON.stringify(feedback)}),
+  readingSettings: (settings: ReadingSettings) => req<ReadingSettings>('/api/reading/settings', {method: 'PUT', body: JSON.stringify(settings)}),
 
   // Professional Newsletter (agent-published editions; the tab reads them and ticks them read)
   getNewsletters: () => req<NewsletterSummaryDto[]>('/api/newsletters'),

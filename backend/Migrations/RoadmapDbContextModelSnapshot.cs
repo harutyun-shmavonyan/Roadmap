@@ -1565,6 +1565,115 @@ namespace Roadmap.Api.Migrations
                     b.ToTable("progress_events", (string)null);
                 });
 
+            modelBuilder.Entity("Roadmap.Api.Entities.ReadingEdition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CoveredUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateOnly>("IssueDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IssueDate")
+                        .IsUnique();
+
+                    b.ToTable("reading_editions", (string)null);
+                });
+
+            modelBuilder.Entity("Roadmap.Api.Entities.ReadingEvaluation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContentKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EvaluationKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContentKey");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("EvaluationKey")
+                        .IsUnique();
+
+                    b.ToTable("reading_evaluations", (string)null);
+                });
+
+            modelBuilder.Entity("Roadmap.Api.Entities.ReadingFeedback", b =>
+                {
+                    b.Property<string>("ContentKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("EvaluationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ContentKey");
+
+                    b.HasIndex("EvaluationId");
+
+                    b.ToTable("reading_feedback", (string)null);
+                });
+
+            modelBuilder.Entity("Roadmap.Api.Entities.ReadingSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("reading_settings", (string)null);
+                });
+
             modelBuilder.Entity("Roadmap.Api.Entities.RelaxDay", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2863,6 +2972,15 @@ namespace Roadmap.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Course");
+                });
+
+            modelBuilder.Entity("Roadmap.Api.Entities.ReadingFeedback", b =>
+                {
+                    b.HasOne("Roadmap.Api.Entities.ReadingEvaluation", null)
+                        .WithMany()
+                        .HasForeignKey("EvaluationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Roadmap.Api.Entities.RelaxDay", b =>

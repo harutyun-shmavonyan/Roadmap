@@ -61,6 +61,7 @@ builder.Services.AddHostedService<BlobMaintenanceService>();
 
 // HttpClient for server-side image fetches (add_article_image_from_url MCP tool).
 builder.Services.AddHttpClient();
+builder.Services.AddScoped<Roadmap.Api.Reading.ReadingService>();
 
 builder.Services.AddMcpServer()
     .WithHttpTransport(o => o.Stateless = true)
@@ -163,6 +164,7 @@ app.MapFoodLogEndpoints();
 app.MapFlashcardEndpoints();
 app.MapSignalEndpoints();
 app.MapStorageEndpoints();
+app.MapReadingEndpoints();
 
 // OAuth for the MCP door: discovery, client registration, the sign-in page and the token endpoint.
 app.MapOAuthEndpoints(oauth, issuer);

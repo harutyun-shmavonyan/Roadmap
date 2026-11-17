@@ -625,3 +625,32 @@ the sprint**, paused ones not counted. Checked in `SprintNetwork.StartChecksAsyn
 card's third check lists the habit library as toggle chips (`SprintHabits.tsx`, `.hb-*` styles; ✓ =
 tracked, click to add/remove via the existing sprint-habit endpoints) plus "New habit… → Add & track".
 Daily checks, streaks and ±2 pts are unchanged (day view, Habits tab, Performance).
+
+## Morning Read (2026-11-17)
+
+A separate general-reading tab at `#/reading`; the AI Engineering Newsletter remains unchanged.
+`backend/Reading/ReadingService.cs` owns shared REST/MCP validation and persistence. REST is
+`/api/reading/*` (JWT required); MCP is registered automatically through assembly scanning.
+`get_reading_contract` documents the agent JSON shapes; `get_reading_context` returns the news
+checkpoint, settings, weekly topic balance, feedback and evaluation history. The portable workflow
+is `skills/morning-read/SKILL.md`, including provider model tiers and scoring anchors.
+
+Evaluations are immutable by evaluationKey (exact retries return the same ID). New assessments use
+new keys. Nine dimensions allow null when unassessable; original/briefing evidence gates cannot
+pass unknown scores. Original recommendations require full access. The app does not verify the
+agent's claim of having read full text: source retrieval and honest assessment are runner duties.
+Generated summaries/syntheses are plain text, escaped by React, with explicit provenance labels.
+Images use verified external HTTP(S) URLs and credits; no server-side URL fetching is added.
+
+One edition per Yerevan date; changed replacements need expectedRevision and clear the read flag,
+exact retries do not. Mark-read checks revision to reject stale UI clicks. Only read editions
+advance the checkpoint; unacknowledged editions do not skip coverage. The news window caps at 14
+days explicitly; evergreen exploration is not date-limited. No automatic pruning of evaluations,
+feedback or editions. Feedback is keyed by canonical source URL and survives re-evaluation.
+Weekly metrics are based on current editions, not discarded candidates. Preferences default to
+30 minutes/day and 25% exploration, with a protected minimum of 20%.
+
+Agent scheduling is external: these endpoints store/read/publish, not crawl or invoke paid models.
+No model credentials or automatic daily execution are introduced. Run `.github/reading-test/run.py`
+against an isolated local app (`AUTH_PASSWORD=reading-test`, `MCP_OPEN=true`, port 5056) for REST/MCP
+checks. Never use that fixture-writing test against production.

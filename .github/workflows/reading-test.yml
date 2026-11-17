@@ -1,0 +1,57 @@
+name: morning reading test
+on:
+  push:
+    paths: ['backend/**', 'frontend/**', '.github/reading-test/**', '.github/workflows/reading-test.yml']
+  pull_request:
+    paths: ['backend/**', 'frontend/**', '.github/reading-test/**']
+permissions:
+  contents: read
+jobs:
+  reading:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: roadmap_reading_test
+        ports: ['5432:5432']
+        options: --health-cmd 'pg_isready -U postgres' --health-interval 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci && npm run build
+        working-directory: frontend
+      - name: Install test browser
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: dotnet build backend -v q
+      - name: Check migrations
+        run: |
+          dotnet tool install --global dotnet-ef --version 8.0.11
+          dotnet ef migrations has-pending-model-changes --project backend
+      - name: Test reading workflow
+        env:
+          ConnectionStrings__Default: Host=localhost;Port=5432;Database=roadmap_reading_test;Username=postgres;Password=postgres
+          AUTH_PASSWORD: reading-test
+          MCP_OPEN: 'true'
+          PORT: '5056'
+        run: |
+          dotnet backend/bin/Debug/net8.0/Roadmap.Api.dll --webroot "$PWD/frontend/dist" > reading-app.log 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid"' EXIT
+          for i in $(seq 1 60); do
+            if curl -s http://127.0.0.1:5056/api/reading/context -o /dev/null; then break; fi
+            sleep 1
+          done
+          python3 .github/reading-test/run.py
+          NODE_PATH="$PWD/frontend/node_modules" node .github/reading-test/ui.cjs
+      - name: App log
+        if: failure()
+        run: cat reading-app.log
