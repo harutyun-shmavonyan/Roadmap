@@ -13,9 +13,10 @@ public sealed class ReadingService(RoadmapDbContext db)
     public static string Pack<T>(T v) => JsonSerializer.Serialize(v, Json);
     public static T Unpack<T>(string v) => JsonSerializer.Deserialize<T>(v, Json) ?? throw new ArgumentException("Missing document.");
     // The edition is laid out like the AI Engineering newsletter: one section per category, in
-    // this order, and a 0-100 editor's score on every published item. The keys are mirrored by
+    // this order, and a 0-100 editor's score on every published item. "other" is Uncategorized: a
+    // cool piece that fits none of the eight (curiosities, travel and places for now). The keys are mirrored by
     // CATEGORIES in frontend/src/ReadingPage.tsx; a new category is a change in both places.
-    public static readonly string[] Categories = ["world", "economy", "climate", "tech", "science", "health", "society", "ideas"];
+    public static readonly string[] Categories = ["world", "economy", "climate", "tech", "science", "health", "society", "ideas", "other"];
     public static readonly string[] ScoreNames = ["substance", "evidence", "depth", "learning", "durability", "originalValue", "consequence", "distance", "expansion"];
     static void Require(bool ok, string message) { if (!ok) throw new ArgumentException(message); }
     static bool Has(string? s) => !string.IsNullOrWhiteSpace(s);

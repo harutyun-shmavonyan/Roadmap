@@ -44,6 +44,24 @@ Select material that adds substantial understanding, explains consequential deve
 
 Reserve exploration for adjacent, distant and experimental discoveries. Include genuinely distant topics, not just new AI applications. Seek distinctive minds through their substantive work; revisit a strong thinker's related pieces to understand reasoning and limitations. Look for transferable connections, not random obscurity. Experimental ideas need explicit uncertainty and evidence, not credibility by novelty.
 
+### The baseline sources (scan them first, every run)
+
+`sources.json` (next to this file) is the reader's baseline: about 80 outlets and people across the categories, plus creative, curiosity and travel sources, each verified with its feed, access and how to read it. Start every run by harvesting it:
+
+```bash
+python3 scripts/harvest_feeds.py --since <context.since> --out candidates.json
+```
+
+It fetches every feed, keeps the items inside the window, and reports which sources were empty, failed, or have no feed (`listing`: open those pages yourself). It judges nothing. Then triage the candidates by title and excerpt (apply each source's `filter`), and read the promising ones in full. Then **add open search** for what the baseline cannot see: consequential events the feeds missed, distant fields, new thinkers. Aim for roughly two thirds of the edition from the baseline and one third from open search. A strong open-search find from a new source is a reason to suggest adding it to `sources.json`, after checking its feed and access the same way.
+
+- **Paywalls are per article.** `access: partial` or `metered` sources publish free pieces: use those; skip any piece that is cut off. A teaser can never become an original, and never support a summary.
+- **`read: feed`** sources block their pages; the feed carries the text, so read it there. Never use paywall bypasses, archive tricks or pirate copies.
+- **Creative rotation.** About one creative piece per edition (`role: creative`: a short story, a poem, an archive essay, a letter, a classic, an interview, a visual explainer), read in full, recommended as an `original` and marked exploration. Rotate the format through the week. Never summarise fiction or poetry.
+- **Uncategorized (`category: other`)** is for genuinely good pieces that fit none of the eight: curiosities (`role: curiosity`) and travel and places (`role: travel`). It is not a dumping ground for weak material; the same gates apply.
+- **`role: archive`** sources post rarely or not at all; their back catalogue is eligible as an occasional evergreen pick.
+- `optional` sources are off unless the reader turns them on; `unusable` lists what is blocked or closed, so nobody re-tests it every run.
+- In the editor's note, say briefly which baseline sources yielded nothing new and anything that failed.
+
 Start with a broad candidate pool across at least five fields when practical. Search more where gaps or quality failures justify it; do not require reading the entire internet. Deduplicate the same event and argument, not just URLs. Retain material you considered and its rejection reason so selection can be audited.
 
 ## Read, verify and evaluate
@@ -79,7 +97,7 @@ Make one decision:
 Save via `save_reading_evaluation`. Use a stable unique evaluationKey per candidate assessment; retries must use identical content. Corrections require a new key, preserving the original prediction. Include model identity only when known, rubric version (`2`), topics, sources, publication date when verified, access, uncertainty and thinker where meaningful.
 
 Every `original` or `briefing` also needs a **category** and an **editor's score** (discards may omit both). The tab lays the edition out exactly like the AI Engineering newsletter: one section per category, filter chips, an overall ranking, a score badge on every card and a Details panel.
-- `category`, exactly one of: `world` (World & geopolitics), `economy` (Economy & markets), `climate` (Climate & energy), `tech` (Technology & infrastructure), `science` (Science & mathematics), `health` (Health & mind), `society` (Society, law & cities), `ideas` (Ideas, history & culture). Pick the subject, not the purpose: a COP report is `climate` whether it sits in `now` or `depth`; mathematics of voting is `science`. Categories are for finding things; they are not quotas, so an empty category is fine.
+- `category`, exactly one of: `world` (World & geopolitics), `economy` (Economy & markets), `climate` (Climate & energy), `tech` (Technology & infrastructure), `science` (Science & mathematics), `health` (Health & mind), `society` (Society, law & cities), `ideas` (Ideas, history & culture), or `other` (Uncategorized: a cool piece that fits none of the eight — curiosities, travel and places). Pick the subject, not the purpose: a COP report is `climate` whether it sits in `now` or `depth`; mathematics of voting is `science`. Categories are for finding things; they are not quotas, so an empty category is fine.
 - `score`, an integer 0–100: your overall judgment of value per minute for this reader, on one shared scale across categories, the newsletter's bands: 90+ do not miss, 80s high value, 70s worth reading, 60s context. Below 60 it usually should not be in the edition. It is a judgment informed by the nine dimensions, **never their average** — a short urgent briefing can outscore a durable but thin essay. The card shows the score; Details shows the nine dimensions and their reasons, so the two must tell a consistent story.
 - On the card, `whyRead` is the summary line and `learningGain` the "What you'll learn" box, so keep both to one or two specific sentences. The briefing text itself (`summary`) opens in Details, labelled as AI-generated; separate paragraphs with a blank line.
 

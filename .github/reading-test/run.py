@@ -49,6 +49,7 @@ req('POST','/api/reading/evaluations',{**article,'evaluationKey':uuid.uuid4().he
 req('POST','/api/reading/evaluations',{**article,'evaluationKey':uuid.uuid4().hex,'score':None},400)
 req('POST','/api/reading/evaluations',{**article,'evaluationKey':uuid.uuid4().hex,'category':'sports'},400)
 req('POST','/api/reading/evaluations',{**article,'evaluationKey':uuid.uuid4().hex,'score':101},400)
+req('POST','/api/reading/evaluations',{**article,'evaluationKey':uuid.uuid4().hex,'url':'https://example.org/uncategorized','category':'other'})
 ok('rejects weak evidence, excerpt originals, mutable keys, unsafe URLs and a missing or unknown category/score')
 now=datetime.datetime.now(datetime.timezone.utc)
 day=(now+datetime.timedelta(hours=4)).date().isoformat()

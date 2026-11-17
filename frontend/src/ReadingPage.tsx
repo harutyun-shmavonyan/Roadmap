@@ -28,7 +28,7 @@ const CATEGORIES: [string, string, string][] = [
   ['health', 'Health & mind', 'Health'],
   ['society', 'Society, law & cities', 'Society'],
   ['ideas', 'Ideas, history & culture', 'Ideas & culture'],
-  ['other', 'Other', 'Other'], // items saved before categories existed
+  ['other', 'Uncategorized', 'Uncategorized'], // cool pieces that fit none of the above (curiosities, travel); also items saved before categories existed
 ];
 const CAT = Object.fromEntries(CATEGORIES.map(([k, h, c]) => [k, {heading: h, chip: c}]));
 const SECTION: Record<string, string> = {now: 'Now', depth: 'Depth', exploration: 'Exploration'};
