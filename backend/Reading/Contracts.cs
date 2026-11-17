@@ -17,5 +17,5 @@ public record EditionInput(string IssueDate, string Title, DateTimeOffset Covere
 public record FeedbackInput(string? WorthTime = null, string? Understanding = null,
     string? WorthDiscovering = null, string? Direction = null, string? Note = null);
 public record SettingsInput(int DailyMinutes = 30, int ExplorationPercent = 25,
-    string Preferences = "Broad understanding across geopolitics, Armenia/Caucasus, economics, science, history, culture and human behavior. Avoid an AI-only feed.");
+    string Preferences = "Select material that adds substantial understanding, explains consequential developments, or introduces unfamiliar perspectives and distinctive thinkers. Prioritize substance, evidence, explanatory depth, lasting insight and value per minute. Recommend originals only when full reading adds value beyond a good summary; consolidate other useful findings. Preserve broad exploration without defaulting to the reader's location, profession or existing interests.");
 public record ReadInput(bool IsRead, int ExpectedRevision);
