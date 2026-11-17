@@ -642,6 +642,8 @@ agent's claim of having read full text: source retrieval and honest assessment a
 Generated summaries/syntheses are plain text, escaped by React, with explicit provenance labels.
 Images use verified external HTTP(S) URLs and credits; no server-side URL fetching is added.
 
+**Layout = the AI Engineering newsletter's (2026-11-17, the user's call: "exact same style as the professional newsletter with categories").** `ReadingPage.tsx` renders the edition in React with the newsletter's design system (`reading.css` copies the tokens and components of `render_edition.py`, prefixed `mrn-`; change the two together): header, category filter chips, an overall ranking (Top 10 once there are ten), an Exploration strip, one section per category ordered by score, cards with a 0–100 badge, `whyRead` as the summary, `learningGain` as "What you'll learn", and a Details modal holding the labelled AI summary, caveats, the nine dimensions, sources and the reader's feedback. React rather than an iframe so the feedback controls stay live. Two optional `EvaluationInput` fields carry it, stored in the JSON payload (no migration): `category` (`ReadingService.Categories`: world, economy, climate, tech, science, health, society, ideas — mirrored by `CATEGORIES` in the page) and `score` (the editor's 0–100 judgment, never the dimensions' average); both are required unless the decision is discard. Items saved before them show under "Other" with a "–" badge. Contract/rubric version 2.
+
 One edition per Yerevan date; changed replacements need expectedRevision and clear the read flag,
 exact retries do not. Mark-read checks revision to reject stale UI clicks. Only read editions
 advance the checkpoint; unacknowledged editions do not skip coverage. The news window caps at 14

@@ -76,13 +76,18 @@ Make one decision:
 - `briefing`: useful supported information but limited reason to read the whole original. Write a concise summary or multi-source synthesis, clearly sourced; evidence >=3 and accessible source material required.
 - `discard`: weak, repetitive, unsupported or low return. Save the evaluation and concrete reason, but do not include it in the edition.
 
-Save via `save_reading_evaluation`. Use a stable unique evaluationKey per candidate assessment; retries must use identical content. Corrections require a new key, preserving the original prediction. Include model identity only when known, rubric version, topics, sources, publication date when verified, access, uncertainty and thinker where meaningful.
+Save via `save_reading_evaluation`. Use a stable unique evaluationKey per candidate assessment; retries must use identical content. Corrections require a new key, preserving the original prediction. Include model identity only when known, rubric version (`2`), topics, sources, publication date when verified, access, uncertainty and thinker where meaningful.
+
+Every `original` or `briefing` also needs a **category** and an **editor's score** (discards may omit both). The tab lays the edition out exactly like the AI Engineering newsletter: one section per category, filter chips, an overall ranking, a score badge on every card and a Details panel.
+- `category`, exactly one of: `world` (World & geopolitics), `economy` (Economy & markets), `climate` (Climate & energy), `tech` (Technology & infrastructure), `science` (Science & mathematics), `health` (Health & mind), `society` (Society, law & cities), `ideas` (Ideas, history & culture). Pick the subject, not the purpose: a COP report is `climate` whether it sits in `now` or `depth`; mathematics of voting is `science`. Categories are for finding things; they are not quotas, so an empty category is fine.
+- `score`, an integer 0–100: your overall judgment of value per minute for this reader, on one shared scale across categories, the newsletter's bands: 90+ do not miss, 80s high value, 70s worth reading, 60s context. Below 60 it usually should not be in the edition. It is a judgment informed by the nine dimensions, **never their average** — a short urgent briefing can outscore a durable but thin essay. The card shows the score; Details shows the nine dimensions and their reasons, so the two must tell a consistent story.
+- On the card, `whyRead` is the summary line and `learningGain` the "What you'll learn" box, so keep both to one or two specific sentences. The briefing text itself (`summary`) opens in Details, labelled as AI-generated; separate paragraphs with a blank line.
 
 For original cards, include the publisher's verified image URL and credit only when permitted; omit if unavailable. Generated summaries and syntheses have no image. Do not copy full copyrighted text into stored summaries. Do not invent quotes, URLs or article contents. Sources should support the actual claims; clearly label inference and unresolved disagreement.
 
 ## Compose and publish
 
-Arrange the finite edition into `now`, `depth`, `exploration`. These describe purpose; `original`, `summary`, `synthesis` describe presentation. Generated text must be labeled even when previewing an original. Consolidate related reports into one useful briefing with source links.
+Arrange the finite edition into `now`, `depth`, `exploration` (shown as pills on each card; the tab groups by category and ranks by score). These describe purpose; `original`, `summary`, `synthesis` describe presentation. Generated text must be labeled even when previewing an original. Consolidate related reports into one useful briefing with source links.
 
 Target 5–7 cards if quality and budget allow, not as a minimum. Count original reading minutes and generated briefing reading minutes honestly. Account for the weekly exploration share rather than mechanically filling each daily slot. Occasionally invite a short connection or reflection: where has the reader seen the mechanism, and where would it fail?
 

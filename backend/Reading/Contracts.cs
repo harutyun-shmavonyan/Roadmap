@@ -10,7 +10,7 @@ public record EvaluationInput(
     Dictionary<string, Score> Scores, List<string> Topics, List<Source> Sources,
     string? PublishedDate = null, string? ImageUrl = null, string? ImageCredit = null,
     string? ExplorationKind = null, string? Thinker = null, string? Model = null,
-    string RubricVersion = "1");
+    string RubricVersion = "1", string? Category = null, int? Score = null);
 public record EditionInput(string IssueDate, string Title, DateTimeOffset CoveredFrom,
     DateTimeOffset CoveredUntil, List<Guid> EvaluationIds, string EditorNote,
     int? ExpectedRevision = null);

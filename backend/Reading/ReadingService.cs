@@ -12,6 +12,10 @@ public sealed class ReadingService(RoadmapDbContext db)
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     public static string Pack<T>(T v) => JsonSerializer.Serialize(v, Json);
     public static T Unpack<T>(string v) => JsonSerializer.Deserialize<T>(v, Json) ?? throw new ArgumentException("Missing document.");
+    // The edition is laid out like the AI Engineering newsletter: one section per category, in
+    // this order, and a 0-100 editor's score on every published item. The keys are mirrored by
+    // CATEGORIES in frontend/src/ReadingPage.tsx; a new category is a change in both places.
+    public static readonly string[] Categories = ["world", "economy", "climate", "tech", "science", "health", "society", "ideas"];
     public static readonly string[] ScoreNames = ["substance", "evidence", "depth", "learning", "durability", "originalValue", "consequence", "distance", "expansion"];
     static void Require(bool ok, string message) { if (!ok) throw new ArgumentException(message); }
     static bool Has(string? s) => !string.IsNullOrWhiteSpace(s);
@@ -46,6 +50,9 @@ public sealed class ReadingService(RoadmapDbContext db)
         Require(x.Format != "synthesis" || x.Sources!.Count >= 2, "A synthesis requires at least two sources.");
         Require(x.Decision != "original" || (x.Access == "full" && x.Format == "original" && x.Scores!["substance"].Value >= 4 && x.Scores["evidence"].Value >= 3 && x.Scores["originalValue"].Value >= 4), "Original recommendations require full text, substance ≥4, evidence ≥3 and originalValue ≥4.");
         Require(x.Decision != "briefing" || (x.Format != "original" && Has(x.Summary) && x.Scores!["evidence"].Value >= 3 && x.Access != "unavailable"), "Briefings need a sourced summary, accessible material and evidence ≥3.");
+        Require(x.Category is null || Categories.Contains(x.Category), $"category: {string.Join(" | ", Categories)}.");
+        Require(x.Score is null or >= 0 and <= 100, "score must be an integer 0–100.");
+        Require(x.Decision == "discard" || (x.Category is not null && x.Score is not null), "Published candidates (original or briefing) need a category and a 0–100 editor's score.");
         Require(Pack(x).Length <= 80000, "Evaluation exceeds 80,000 characters.");
     }
     public static object EvaluationView(ReadingEvaluation e) => new {e.Id, e.ContentKey, e.CreatedAt, article = Unpack<EvaluationInput>(e.Payload)};
