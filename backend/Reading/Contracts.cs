@@ -11,9 +11,14 @@ public record EvaluationInput(
     string? PublishedDate = null, string? ImageUrl = null, string? ImageCredit = null,
     string? ExplorationKind = null, string? Thinker = null, string? Model = null,
     string RubricVersion = "1", string? Category = null, int? Score = null);
+// The "Since you last read" recap: what happened and what was discovered across every category
+// over the edition's window, one or two sentences each. Agent-written (shown with the AI mark);
+// stories that have a full card are left out of it.
+public record RecapItem(string Category, string Kind, string Headline, string Summary,
+    List<Source>? Sources = null, string? Date = null, int Importance = 2);
 public record EditionInput(string IssueDate, string Title, DateTimeOffset CoveredFrom,
     DateTimeOffset CoveredUntil, List<Guid> EvaluationIds, string EditorNote,
-    int? ExpectedRevision = null);
+    int? ExpectedRevision = null, List<RecapItem>? Recap = null);
 public record FeedbackInput(string? WorthTime = null, string? Understanding = null,
     string? WorthDiscovering = null, string? Direction = null, string? Note = null);
 public record SettingsInput(int DailyMinutes = 30, int ExplorationPercent = 25,

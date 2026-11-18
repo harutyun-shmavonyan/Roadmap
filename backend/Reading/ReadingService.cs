@@ -107,7 +107,7 @@ public sealed class ReadingService(RoadmapDbContext db)
     public static object EditionSummary(ReadingEdition e)
     {
         var x = Unpack<EditionInput>(e.Payload);
-        return new {e.Id, e.IssueDate, e.Revision, e.IsRead, e.ReadAt, e.UpdatedAt, x.Title, x.CoveredFrom, x.CoveredUntil, itemCount = x.EvaluationIds.Count};
+        return new {e.Id, e.IssueDate, e.Revision, e.IsRead, e.ReadAt, e.UpdatedAt, x.Title, x.CoveredFrom, x.CoveredUntil, itemCount = x.EvaluationIds.Count, recapCount = x.Recap?.Count ?? 0};
     }
     public async Task<object> Editions() => (await db.ReadingEditions.AsNoTracking().OrderByDescending(e => e.IssueDate).Take(90).ToListAsync()).Select(EditionSummary);
     public async Task<object> Edition(Guid id)
@@ -117,7 +117,7 @@ public sealed class ReadingService(RoadmapDbContext db)
         var rows = await db.ReadingEvaluations.AsNoTracking().Where(a => x.EvaluationIds.Contains(a.Id)).ToListAsync();
         var keys = rows.Select(a => a.ContentKey).ToList();
         var feedback = await db.ReadingFeedback.AsNoTracking().Where(f => keys.Contains(f.ContentKey)).ToListAsync();
-        return new { edition = EditionSummary(e), x.EditorNote, items = x.EvaluationIds.Select(id => EvaluationView(rows.Single(a => a.Id == id))), feedback = feedback.Select(f => new {f.ContentKey, response = Unpack<FeedbackInput>(f.Payload)}) };
+        return new { edition = EditionSummary(e), x.EditorNote, recap = x.Recap ?? [], items = x.EvaluationIds.Select(id => EvaluationView(rows.Single(a => a.Id == id))), feedback = feedback.Select(f => new {f.ContentKey, response = Unpack<FeedbackInput>(f.Payload)}) };
     }
     public async Task<object> Publish(EditionInput x)
     {
@@ -126,6 +126,7 @@ public sealed class ReadingService(RoadmapDbContext db)
         Require(Has(x.Title) && x.Title.Length <= 256, "title is required (max 256).");
         Require(x.CoveredFrom < x.CoveredUntil && x.CoveredUntil <= DateTimeOffset.UtcNow.AddMinutes(5), "Coverage must be an ordered UTC window ending no later than now.");
         Require(x.EvaluationIds is {Count: <= 20} && x.EvaluationIds.Distinct().Count() == x.EvaluationIds.Count, "Use up to 20 distinct evaluations; zero is allowed.");
+        ValidateRecap(x.Recap);
         var rows = await db.ReadingEvaluations.AsNoTracking().Where(e => x.EvaluationIds!.Contains(e.Id)).ToListAsync();
         Require(rows.Count == x.EvaluationIds!.Count, "An evaluation does not exist.");
         Require(rows.Select(e => e.ContentKey).Distinct().Count() == rows.Count, "An edition cannot repeat the same source article.");
@@ -141,6 +142,23 @@ public sealed class ReadingService(RoadmapDbContext db)
         row.IsRead = false; row.ReadAt = null; row.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         return await Edition(row.Id);
+    }
+    public const int MaxRecapItems = 80;
+    public static readonly string[] RecapKinds = ["event", "discovery"];
+    static void ValidateRecap(List<RecapItem>? recap)
+    {
+        if (recap is null) return;
+        Require(recap.Count <= MaxRecapItems, $"Recap holds at most {MaxRecapItems} items.");
+        foreach (var r in recap)
+        {
+            Require(r is not null && Categories.Contains(r.Category), $"recap category: {string.Join(" | ", Categories)}.");
+            Require(RecapKinds.Contains(r!.Kind), "recap kind: event | discovery.");
+            Require(Has(r.Headline) && r.Headline.Length <= 200, "recap headline is required (max 200).");
+            Require(Has(r.Summary) && r.Summary.Length <= 700, "recap summary is required (max 700).");
+            Require(r.Importance is >= 1 and <= 3, "recap importance: 1 (minor) – 3 (major).");
+            Require(r.Date is null || DateOnly.TryParseExact(r.Date, "yyyy-MM-dd", out _), "recap date must be yyyy-MM-dd.");
+            Require(r.Sources is null || (r.Sources.Count <= 6 && r.Sources.All(s => s is not null && Has(s.Title) && WebUrl(s.Url))), "recap sources: up to 6 titled http(s) links.");
+        }
     }
     public async Task<object> MarkRead(Guid id, ReadInput x)
     {

@@ -82,7 +82,17 @@ mcp('save_reading_evaluation',{'evaluation_json':json.dumps({**discard,'evaluati
 req('POST','/api/reading/editions',{**replacement,'evaluationIds':[d['id']],'expectedRevision':2},400)
 req('POST','/api/reading/editions',{**replacement,'evaluationIds':[original['id'],revision['id']],'expectedRevision':2},400)
 ok('discarded and duplicate source articles cannot enter an edition')
-empty=req('POST','/api/reading/editions',{**replacement,'evaluationIds':[],'expectedRevision':2})
+recap=[{'category':'science','kind':'discovery','headline':'A test discovery','summary':'One sentence.','sources':[{'title':'Src','url':'https://example.org/s'}],'date':'2026-11-15','importance':3},
+       {'category':'world','kind':'event','headline':'A test event','summary':'Another sentence.'}]
+req('POST','/api/reading/editions',{**replacement,'recap':[{**recap[0],'category':'sports'}],'expectedRevision':2},400)
+req('POST','/api/reading/editions',{**replacement,'recap':[{**recap[0],'kind':'rumour'}],'expectedRevision':2},400)
+req('POST','/api/reading/editions',{**replacement,'recap':[{**recap[0],'importance':5}],'expectedRevision':2},400)
+req('POST','/api/reading/editions',{**replacement,'recap':[{**recap[0],'sources':[{'title':'x','url':'javascript:alert(1)'}]}],'expectedRevision':2},400)
+withrecap=req('POST','/api/reading/editions',{**replacement,'recap':recap,'expectedRevision':2})
+assert withrecap['edition']['revision']==3 and withrecap['edition']['recapCount']==2 and withrecap['recap'][0]['headline']=='A test discovery'
+assert mcp('get_reading_edition',{'edition_id':withrecap['edition']['id']})['recap'][1]['kind']=='event'
+ok('recap is validated, stored and returned (REST and MCP)')
+empty=req('POST','/api/reading/editions',{**replacement,'evaluationIds':[],'expectedRevision':3})
 assert empty['edition']['itemCount']==0
 settings=req('PUT','/api/reading/settings',{'dailyMinutes':25,'explorationPercent':25,'preferences':'Broad topics'})
 assert req('GET','/api/reading/context')['settings']==settings

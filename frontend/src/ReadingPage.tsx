@@ -12,7 +12,8 @@ export interface ReadingItem {
     category?: string | null; score?: number | null };
 }
 export interface ReadingEdition { id: string; issueDate: string; title: string; revision: number; isRead: boolean; coveredFrom: string; coveredUntil: string; itemCount: number }
-export interface ReadingDetail { edition: ReadingEdition; editorNote: string; items: ReadingItem[]; feedback: {contentKey: string; response: ReadingFeedback}[] }
+export interface RecapItem { category: string; kind: 'event' | 'discovery' | string; headline: string; summary: string; sources?: {title: string; url: string}[] | null; date?: string | null; importance?: number }
+export interface ReadingDetail { edition: ReadingEdition; editorNote: string; items: ReadingItem[]; recap?: RecapItem[] | null; feedback: {contentKey: string; response: ReadingFeedback}[] }
 export interface ReadingSettings { dailyMinutes: number; explorationPercent: number; preferences: string }
 
 // The edition is laid out like the AI Engineering newsletter: one section per category in this
@@ -155,6 +156,38 @@ function Card({n, item, rated, onOpen}: {n: number; item: ReadingItem; rated: bo
   </article>;
 }
 
+// "Since you last read": the agent's digest of everything notable over the edition's window
+// (from the last read edition, at most 14 days), grouped by category, majors first. AI-written.
+const domainOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return 'source'; } };
+function Recap({items, filter, from, until}: {items: RecapItem[]; filter: string; from: string; until: string}) {
+  const [open, setOpen] = useState(true);
+  const groups = CATEGORIES.map(([k]) => [k, items.filter(r => (CAT[r.category] ? r.category : 'other') === k)
+    .map((r, i) => ({r, i})).sort((a, b) => (b.r.importance ?? 2) - (a.r.importance ?? 2) || a.i - b.i).map(x => x.r)] as const)
+    .filter(([k, l]) => l.length && (filter === 'all' || filter === k));
+  if (!groups.length) return null;
+  const n = groups.reduce((s, [, l]) => s + l.length, 0);
+  return <section className="mrn-recap" aria-label="Since you last read">
+    <div className="mrn-recap-head">
+      <div><h2><span className="mrn-ai-mark" aria-label="AI-generated"><AiIcon size={14} /></span>Since you last read</h2>
+        <div className="mrn-recap-sub">{fmtShort(from)} &rarr; {fmtShort(until)} &middot; {n} {n === 1 ? 'thing' : 'things'} that happened or were discovered &middot; AI-written digest</div></div>
+      <button className="mrn-dbtn" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Show'}</button>
+    </div>
+    {open && groups.map(([k, l]) => <div className="mrn-recap-cat" key={k}>
+      {filter === 'all' && <h3>{CAT[k].heading} <span>{l.length}</span></h3>}
+      <ul>{l.map((r, i) => <li key={i} className={(r.importance ?? 2) >= 3 ? 'major' : ''}>
+        <div className="mrn-recap-line">
+          {(r.importance ?? 2) >= 3 && <span className="mrn-pill p-major">Major</span>}
+          <span className={`mrn-pill ${r.kind === 'discovery' ? 'p-discovery' : 'p-event'}`}>{r.kind === 'discovery' ? 'Discovery' : 'Event'}</span>
+          <b className="mrn-recap-hl">{r.headline}</b>
+        </div>
+        <p>{r.summary}</p>
+        {(r.sources?.length || r.date) ? <div className="mrn-recap-src">{r.date && <span>{fmtDay(r.date)}</span>}
+          {(r.sources ?? []).map((s, j) => <a key={j} href={safeUrl(s.url)} target="_blank" rel="noopener noreferrer" title={s.title}>{domainOf(s.url)} ↗</a>)}</div> : null}
+      </li>)}</ul>
+    </div>)}
+  </section>;
+}
+
 function Edition({detail, busy, onToggleRead, budget}: {detail: ReadingDetail; busy: boolean; onToggleRead: () => void; budget?: number}) {
   const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState<string | null>(null);
@@ -171,18 +204,26 @@ function Edition({detail, busy, onToggleRead, budget}: {detail: ReadingDetail; b
     return {shown: groups, numbered, ordered: groups.flatMap(([, l]) => l)};
   }, [detail]);
   const minutes = detail.items.reduce((s, i) => s + i.article.readMinutes, 0);
+  // Chips cover every category with a card or a recap item; the count is cards + recap items.
+  const recap = detail.recap ?? [];
+  const recapCat = (r: RecapItem) => CAT[r.category] ? r.category : 'other';
+  const counts: Record<string, number> = {};
+  for (const [k, l] of shown) counts[k] = l.length;
+  for (const r of recap) counts[recapCat(r)] = (counts[recapCat(r)] ?? 0) + 1;
+  const chips = CATEGORIES.map(([k]) => k).filter(k => counts[k]);
   const e = detail.edition;
   const openItem = detail.items.find(i => i.id === open);
   const close = useCallback(() => setOpen(null), []);
 
   return <div className="mrn"><div className="mrn-page">
     <header className="mrn-header"><div className="mrn-eyebrow">Morning Read</div><h1 className="mrn-date">{fmtLong(e.issueDate)}</h1>
-      <div className="mrn-window">Covering {fmtShort(e.coveredFrom)} &rarr; {fmtUtc(e.coveredUntil)} &middot; {ordered.length} {ordered.length === 1 ? 'item' : 'items'} in {shown.length} {shown.length === 1 ? 'category' : 'categories'} &middot; {minutes} min</div></header>
-    {ordered.length === 0 ? <p className="mrn-empty-cat">Nothing cleared the bar for this edition. {detail.editorNote}</p> : <>
+      <div className="mrn-window">Covering {fmtShort(e.coveredFrom)} &rarr; {fmtUtc(e.coveredUntil)} &middot; {ordered.length} {ordered.length === 1 ? 'item' : 'items'} in {shown.length} {shown.length === 1 ? 'category' : 'categories'} &middot; {minutes} min{recap.length > 0 && <> &middot; recap of {recap.length}</>}</div></header>
+    {ordered.length === 0 && recap.length === 0 ? <p className="mrn-empty-cat">Nothing cleared the bar for this edition. {detail.editorNote}</p> : <>
       <nav className="mrn-chips" aria-label="Filter by category">
-        <button aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All <span>{ordered.length}</span></button>
-        {shown.map(([k, l]) => <button key={k} aria-pressed={filter === k} onClick={() => setFilter(k)}>{CAT[k].chip} <span>{l.length}</span></button>)}
+        <button aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All <span>{ordered.length + recap.length}</span></button>
+        {chips.map(k => <button key={k} aria-pressed={filter === k} onClick={() => setFilter(k)}>{CAT[k].chip} <span>{counts[k]}</span></button>)}
       </nav>
+      <Recap items={recap} filter={filter} from={e.coveredFrom} until={e.coveredUntil} />
       {shown.filter(([k]) => filter === 'all' || filter === k).map(([k, l]) => <section key={k} id={`mrn-c-${k}`}>
         <h2 className="mrn-ch">{CAT[k].heading} <span>{l.length}</span></h2>
         {l.map(i => <Card key={i.id} n={numbered.get(i.id)!} item={i} rated={!!feedback[i.contentKey] && Object.values(feedback[i.contentKey]).some(Boolean)} onOpen={() => setOpen(i.id)} />)}

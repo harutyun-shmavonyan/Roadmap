@@ -109,7 +109,19 @@ Arrange the finite edition into `now`, `depth`, `exploration` (shown as pills on
 
 Target 5–7 cards if quality and budget allow, not as a minimum. Count original reading minutes and generated briefing reading minutes honestly. Account for the weekly exploration share rather than mechanically filling each daily slot. Occasionally invite a short connection or reflection: where has the reader seen the mechanism, and where would it fail?
 
-Call `publish_reading_edition` with returned evaluation IDs in reading order, Yerevan issueDate, actual UTC coverage start/end and a concise editorNote explaining substantive selection gaps. Read the current revision first when replacing a date. Exact retries preserve read state; changed editions become unread, while feedback survives by canonical source URL. Re-fetch the edition and verify section, provenance, scores, links and item count. Never mark it read on the reader's behalf unless explicitly asked.
+### The "Since you last read" recap (every edition)
+
+Besides the cards, every edition carries a **recap**: a digest of what happened (`kind: event`) and what was discovered (`kind: discovery`) across **all** categories over the edition's window, which is `context.since` → now (the last edition the reader ticked read, at most 14 days). The cards are the few things worth reading; the recap is everything else worth knowing, so after reading it the reader is not out of touch with any field.
+
+- Build it from the whole harvest (all 9 categories, including the wire feeds) plus open search for big events the feeds missed. Deduplicate by event, not URL.
+- **15–40 items**, as many as the window honestly holds; a quiet field gets one item or none. Each: a headline of what happened or was found, then one or two plain sentences in your own words (what it is, why it matters, a number if it carries the point). No hype, no filler.
+- **importance**: 3 = major (a reader would be embarrassed not to know), 2 = notable, 1 = minor but interesting. Use 3 sparingly.
+- Check every fact against an accessible source and link 1–3 of them (`sources`); add `date` (yyyy-MM-dd) when known. Unconfirmed claims say so ("Ukraine says…").
+- **Leave out stories that have a full card** in the edition; the recap is the rest.
+- It is AI-written and shown with the AI mark; the category chips filter it.
+- Discoveries are not only science: new research in economics, history, health, archaeology, mathematics; new datasets; a notable book or long investigation.
+
+Call `publish_reading_edition` with returned evaluation IDs in reading order, the `recap` list, Yerevan issueDate, actual UTC coverage start/end and a concise editorNote explaining substantive selection gaps. Read the current revision first when replacing a date. Exact retries preserve read state; changed editions become unread, while feedback survives by canonical source URL. Re-fetch the edition and verify section, provenance, scores, links and item count. Never mark it read on the reader's behalf unless explicitly asked.
 
 ## Learn from feedback
 
